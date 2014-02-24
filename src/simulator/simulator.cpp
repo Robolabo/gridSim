@@ -36,8 +36,11 @@ CSimulator::CSimulator ( string pcParamsFile ){
 	m_sSimCnf.pcRandom  = NULL;
 	m_sSimCnf.pcWriter  = NULL;	
 	m_sSimCnf.pcPlotter = NULL;	
+	m_pcMainControl     = NULL;
+	/* Initialize variables */
+	m_bVisu             = false;
 	/* Create Grid */
-	m_pcGrid           = new CGrid ( &m_sSimCnf );
+	m_pcGrid            = new CGrid ( &m_sSimCnf );
 	/* Configure from XML file */
 	XMLDocument conf;
     	conf.LoadFile( m_sSimCnf.sParamsFile.c_str() );
@@ -70,7 +73,6 @@ CSimulator::CSimulator ( string pcParamsFile ){
 		}
 	}
 	conf.Clear();
-		
 	/* Initialize values */
 	restart();
 	
@@ -80,9 +82,7 @@ CSimulator::CSimulator ( string pcParamsFile ){
 /****************************************************************/
 void CSimulator::_configureStructure ( XMLElement* elem ){
 	string elemName, attr;
-
-	//_readLoadDB  ( );
-		
+	
 	/* Create lines */
 	attr       = elem->Attribute("lines");
 	int nLines = atoi( attr.c_str() );
@@ -118,8 +118,8 @@ void CSimulator::_configureStructure ( XMLElement* elem ){
 /****************************************************************/
 void CSimulator::_createMainCtr ( XMLElement* elem ){
 	string attr = elem->Attribute("name");
-	if ( attr == "isfoc_eval" ){
-		m_pcMainControl = new CIsfocEval ( &m_sSimCnf , m_pcGrid , &m_vCtr , elem );
+	if ( attr == "default" ){
+		m_pcMainControl = new CMainControl ( &m_sSimCnf , m_pcGrid , &m_vCtr );
 	}
 	else{
 		cout << "ERROR: MAIN CONTROL NAME NOT RECOGNIZED "<< endl;
@@ -131,14 +131,10 @@ void CSimulator::_createMainCtr ( XMLElement* elem ){
 void CSimulator::_createCtr ( XMLElement* elem , CNode* pcNode ){
 	string attr = elem->Attribute("name");
 	CController* tmp_ctr;
-	if ( attr == "bat_ctr" ){
-		tmp_ctr = new CBatCtr ( &m_sSimCnf , elem , pcNode );		
-		m_vCtr.push_back ( tmp_ctr );
-	}
-	else if ( attr == "isfoc_ctr" ){
-		tmp_ctr = new CIsfocCtr ( &m_sSimCnf , elem , pcNode );		
-		m_vCtr.push_back ( tmp_ctr );
-	}
+	if ( attr == "default" ){
+		tmp_ctr = new CController ( &m_sSimCnf , pcNode );		
+		m_vCtr.push_back          ( tmp_ctr );
+	}	
 	else{
 		cout << "ERROR: CONTROLLER NAME NOT RECOGNIZED "<< endl;
 	}
@@ -190,12 +186,11 @@ void CSimulator::restart ( void ){
 		_configureVisu ( );
 	}
 	/* Restart objects */
-	m_pcMainControl->restart();
+	if ( m_pcMainControl )
+		m_pcMainControl->restart();
 	m_pcGrid->restart();
 	for ( int i = 0 ; i < m_vCtr.size() ; i++ )
 		m_vCtr[i]->restart();
-	//for ( int i = 0 ; i < m_vUsers.size() ; i++ )
-	//	m_vUsers[i]->restart();
 	return;
 };
 
@@ -313,16 +308,9 @@ void CSimulator::ExecuteSimulation ( void ){
 	bool  SimFinished = false;
 	while (!SimFinished){
 		/* EXECUTION */	
-		/* Users */
-		/*
-		if ( m_vUsers.size() > 0 ){
-			for ( int i = 0 ; i < m_vUsers.size() ; i++ ){
-				m_vUsers[i]->executionStep();
-			}			
-		}	
-		*/	
 		/* Main Control */
-		m_pcMainControl->executionStep();
+		if ( m_pcMainControl )
+			m_pcMainControl->executionStep();
 		/* Battery Controllers */
 		for ( int i = 0 ; i < m_vCtr.size() ; i++ ){
 			m_vCtr[i]->executionStep();
@@ -330,7 +318,8 @@ void CSimulator::ExecuteSimulation ( void ){
 		/* GRID */
 		m_pcGrid->executionStep();		
 		/* WRITE */
-		m_sSimCnf.pcWriter->write_buffer();
+		if ( m_sSimCnf.pcWriter )
+			m_sSimCnf.pcWriter->write_buffer();
 		/* VISUALIZATION */
 		if ( m_bVisu  )
 			m_sSimCnf.pcPlotter->updateDisplay ();

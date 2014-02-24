@@ -66,9 +66,12 @@ void CNode::restart ( void ){
 	m_sPower.grid      = 0.0;
 	m_sPower.blackout  = false;
 	/* Restart elements */
-	m_pcPV->restart();
-	m_pcLoad->restart();
-	m_pcStorage->restart();
+	if ( m_pcPV )
+		m_pcPV->restart();
+	if ( m_pcLoad )
+		m_pcLoad->restart();
+	if ( m_pcStorage )
+		m_pcStorage->restart();
 	m_pcRegulator->restart(); 
 	m_pcSwitch->restart();   
 	return;

@@ -60,10 +60,12 @@ int main(int argc, char** argv) {
 	
 	CMainControl *pcMainControl = pcSimulator->getMainControl();
 	if ( pcMainControl ){
-		TVFloat result = pcMainControl->getEvaluation();	
+		TVFloat* result = pcMainControl->getEvaluation();	
 		cout << " RESULT: ";
-		for ( int i = 0 ; i < result.size() ; i++ ){
-			cout << result[i]<< " ";
+		if ( result ){
+			for ( int i = 0 ; i < result->size() ; i++ ){
+				cout << result->at(i) << " ";
+			}
 		}
 		cout << endl;
 	}
