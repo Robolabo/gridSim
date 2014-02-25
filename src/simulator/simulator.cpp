@@ -68,8 +68,8 @@ CSimulator::CSimulator ( string pcParamsFile ){
 		else if ( elemName == "Writer" ){
 			m_sSimCnf.pcWriter = new CWriter ( elem );
 		}	
-		else if ( elemName == "Main_control" ){
-			_createMainCtr ( elem );
+		else if ( elemName == "Main_control" ){			
+			m_pcMainControl = createMC ( &m_sSimCnf , m_pcGrid , &m_vCtr , elem );
 		}
 	}
 	conf.Clear();
@@ -114,32 +114,6 @@ void CSimulator::_configureStructure ( XMLElement* elem ){
 };
 
 /****************************************************************/
-void CSimulator::_createMainCtr ( XMLElement* elem ){
-	string attr = elem->Attribute("name");
-	if ( attr == "default" ){
-		m_pcMainControl = new CDefault_MC ( &m_sSimCnf , m_pcGrid , &m_vCtr , NULL );
-	}
-	else{
-		cout << "ERROR: MAIN CONTROL NAME NOT RECOGNIZED "<< endl;
-	}
-	return;
-};
-
-/****************************************************************/
-void CSimulator::_createCtr ( XMLElement* elem , CNode* pcNode ){
-	string attr = elem->Attribute("name");
-	CController* tmp_ctr;
-	if ( attr == "default" ){
-		tmp_ctr = new CController ( &m_sSimCnf , pcNode );		
-		m_vCtr.push_back          ( tmp_ctr );
-	}	
-	else{
-		cout << "ERROR: CONTROLLER NAME NOT RECOGNIZED "<< endl;
-	}
-	return;
-};
-
-/****************************************************************/
 CNode* CSimulator::_createNode ( XMLElement* elem ){
 	string elemName, attr;
 	/* Create the node */
@@ -156,7 +130,8 @@ CNode* CSimulator::_createNode ( XMLElement* elem ){
 			tmp_node->addStorage     ( tmp_storage );
 		}
 		else if ( elemName == "ctr" ){
-			_createCtr ( node , tmp_node );
+			CController* tmp_ctr = createCtr ( &m_sSimCnf , tmp_node , node );
+			m_vCtr.push_back     ( tmp_ctr );			
 		}
 		else if ( elemName == "load" ){
 			CLoad*  tmp_Load  = new CLoad ( &m_sSimCnf , node );			
@@ -224,66 +199,6 @@ void CSimulator::_configureVisu ( void ){
 		}
 	}
 	conf.Clear();
-	return;
-};
-
-
-/****************************************************************/
-void CSimulator::_readLoadDB        ( void ){
-
-	ifstream inputFile;
-	TVFloat  tmp_shape;
-	float    tmp_power;
-
-	inputFile.open ("input/WM_60_1200");
-	tmp_shape.clear();
-	while ( !inputFile.eof() ){
-		inputFile.ignore( 256 , ' ' );
-		inputFile >> tmp_power;
-		tmp_shape.push_back( tmp_power );
-	}
-	m_mLoadDB.push_back( tmp_shape );
-	inputFile.close();
-
-	inputFile.open ("input/DR_RP_1200");
-	tmp_shape.clear();
-	while ( !inputFile.eof() ){
-		inputFile.ignore( 256 , ' ' );
-		inputFile >> tmp_power;
-		tmp_shape.push_back( tmp_power );
-	}
-	m_mLoadDB.push_back( tmp_shape );
-	inputFile.close();
-
-	inputFile.open ("input/DW_RP");
-	tmp_shape.clear();
-	while ( !inputFile.eof() ){
-		inputFile.ignore( 256 , ' ' );
-		inputFile >> tmp_power;
-		tmp_shape.push_back( tmp_power );
-	}
-	m_mLoadDB.push_back( tmp_shape );	
-	inputFile.close();
-
-	/* No Deferrable */
-	inputFile.open ("input/fridge_1440");
-	tmp_shape.clear();
-	while ( !inputFile.eof() ){
-		inputFile >> tmp_power;
-		tmp_shape.push_back( tmp_power );
-	}
-	m_mLoadDB.push_back( tmp_shape );	
-	inputFile.close();
-
-	inputFile.open ("input/cooker_1440");
-	tmp_shape.clear();
-	while ( !inputFile.eof() ){
-		inputFile >> tmp_power;
-		tmp_shape.push_back( tmp_power );
-	}
-	m_mLoadDB.push_back( tmp_shape );	
-	inputFile.close();
-
 	return;
 };
 

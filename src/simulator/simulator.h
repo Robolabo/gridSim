@@ -37,7 +37,7 @@ class CSimulator;
 #include "grid/grid.h"
 #include "elements/generation/PV.h"
 #include "elements/storage/storage.h"
-#include "controllers/controllers_list.h"
+#include "controllers/controller_list.h"
 #include "main_control/main_control_list.h"
 
 class CSimulator {
@@ -68,12 +68,7 @@ class CSimulator {
 	TVCController m_vCtr;
 	/* Users */
 	TVCUser       m_vUsers;		
-	/* Data Base */
-	TMFloat   m_mLoadDB;
-	/* FUNCTIONS */
-	void   _createCtr     ( XMLElement* elem , CNode* pcNode );	
-	void   _createMainCtr ( XMLElement* elem );
-	void   _readLoadDB         ( void );
+	/* FUNCTIONS */		
 	void   _configureVisu      ( void );
 	void   _configureStructure ( XMLElement* elem );
 	CNode* _createNode         ( XMLElement* elem );

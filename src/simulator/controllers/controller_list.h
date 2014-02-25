@@ -22,18 +22,17 @@
 */
 
 /******************************************************************************/
-/* LIST OF MAIN CONTROL LIBRARIES 					      */
+/* LIST OF CONTROLLER LIBRARIES 					      */
 /******************************************************************************/
-#ifndef MAIN_CONTROL_LIST_H_
-#define MAIN_CONTROL_LIST_H_
+#ifndef CONTROLLER_LIST_H_
+#define CONTROLLER_LIST_H_
 
 /* LIBRARIES*/
-#include "main_control.h"
-#include "default_mc.h"
+#include "controller.h"
+#include "bat_ctr.h"
 
 /* Functions */
-CMainControl* createMC ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vCtr , XMLElement* cnf );
+CController* createCtr ( sSimCnf*  sSimCnf , CNode* pcNode , XMLElement* cnf );
 
 #endif
-
 

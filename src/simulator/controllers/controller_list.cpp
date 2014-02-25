@@ -21,19 +21,20 @@
 *    Developed in Robolabo <http://www.robolabo.etsit.upm.es/>
 */
 
+#include "controller_list.h"
+
 /******************************************************************************/
-/* LIST OF MAIN CONTROL LIBRARIES 					      */
-/******************************************************************************/
-#ifndef MAIN_CONTROL_LIST_H_
-#define MAIN_CONTROL_LIST_H_
-
-/* LIBRARIES*/
-#include "main_control.h"
-#include "default_mc.h"
-
-/* Functions */
-CMainControl* createMC ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vCtr , XMLElement* cnf );
-
-#endif
-
-
+CController* createCtr ( sSimCnf*  sSimCnf , CNode* pcNode , XMLElement* cnf ){
+	CController* result = NULL;
+	string attr = cnf->Attribute("name");
+	if ( attr == "bat_ctr" ){
+		result = new CBatCtr ( sSimCnf , cnf , pcNode );
+	}
+	else if ( attr == "default" ){
+		result = new CController ( sSimCnf , pcNode );
+	}
+	else{
+		cout << "ERROR: MAIN CONTROL NAME NOT RECOGNIZED "<< endl;
+	}
+	return result;
+};

@@ -21,10 +21,17 @@
 *    Developed in Robolabo <http://www.robolabo.etsit.upm.es/>
 */
 
+#include "main_control_list.h"
+
 /******************************************************************************/
-/* LIST OF CONTROLLER LIBRARIES 					      */
-/******************************************************************************/
-
-#include "controller.h"
-
-
+CMainControl* createMC ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vCtr , XMLElement* cnf ){
+	CMainControl* result = NULL;
+	string attr = cnf->Attribute("name");
+	if ( attr == "default" ){
+		result = new CDefault_MC ( sSimCnf , pcGrid , vCtr , cnf );
+	}
+	else{
+		cout << "ERROR: MAIN CONTROL NAME NOT RECOGNIZED "<< endl;
+	}
+	return result;
+};
