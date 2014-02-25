@@ -57,7 +57,7 @@ int main(int argc, char** argv) {
 	/* EXECUTION */	
 	CSimulator *pcSimulator = new CSimulator ( pcExperimentFilename );
 	pcSimulator->ExecuteSimulation ( );
-	
+	// Get results
 	CMainControl *pcMainControl = pcSimulator->getMainControl();
 	if ( pcMainControl ){
 		TVFloat* result = pcMainControl->getEvaluation();	
@@ -70,7 +70,6 @@ int main(int argc, char** argv) {
 		cout << endl;
 	}
 	delete pcSimulator;
-
 	return 0;		
 };
 
