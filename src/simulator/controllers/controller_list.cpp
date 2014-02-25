@@ -30,6 +30,9 @@ CController* createCtr ( sSimCnf*  sSimCnf , CNode* pcNode , XMLElement* cnf ){
 	if ( attr == "bat_ctr" ){
 		result = new CBatCtr ( sSimCnf , cnf , pcNode );
 	}
+	else if ( attr == "isfoc_ctr" ){
+		result = new CIsfocCtr ( sSimCnf , cnf , pcNode );
+	}
 	else if ( attr == "default" ){
 		result = new CController ( sSimCnf , pcNode );
 	}

@@ -30,6 +30,9 @@ CMainControl* createMC ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vCtr
 	if ( attr == "default" ){
 		result = new CDefault_MC ( sSimCnf , pcGrid , vCtr , cnf );
 	}
+	else if ( attr == "isfoc_eval" ){
+		result = new CIsfocEval  ( sSimCnf , pcGrid , vCtr , cnf );
+	}
 	else{
 		cout << "ERROR: MAIN CONTROL NAME NOT RECOGNIZED "<< endl;
 	}

@@ -30,6 +30,7 @@
 /* LIBRARIES*/
 #include "controller.h"
 #include "bat_ctr.h"
+#include "isfoc_ctr.h"
 
 /* Functions */
 CController* createCtr ( sSimCnf*  sSimCnf , CNode* pcNode , XMLElement* cnf );

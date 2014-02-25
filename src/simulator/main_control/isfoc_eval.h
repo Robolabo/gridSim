@@ -22,19 +22,46 @@
 */
 
 /******************************************************************************/
-/* LIST OF MAIN CONTROL LIBRARIES 					      */
+/* LIBRARY ISFOC EVALUATION						      */
+/* It is the class of the controllers	                   		      */
 /******************************************************************************/
-#ifndef MAIN_CONTROL_LIST_H_
-#define MAIN_CONTROL_LIST_H_
+#ifndef ISFOC_EVAL_H_
+#define ISFOC_EVAL_H_
 
 /* LIBRARIES*/
 #include "main_control.h"
-#include "default_mc.h"
-#include "isfoc_eval.h"
 
-/* Functions */
-CMainControl* createMC ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vCtr , XMLElement* cnf );
+/******************************************************************************/
+class CIsfocEval : public CMainControl {
+
+	public:
+	/* FUNCTIONS */
+	CIsfocEval   ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vCtr , XMLElement* cnf );
+	~CIsfocEval  ( void );		
+	
+	void  executionStep  ( void );
+	void  restart        ( void );	
+
+	void    setEnvironment ( TVFloat input );	
+	void    setParameters  ( TVFloat input );	
+
+	TVFloat* getEvaluation  ( void );//{return m_vSC.back();};
+
+	private:
+	/* VARIABLES */
+	sNEnergy m_sNEnergy;
+	TVFloat  m_vPV;
+	TVFloat  m_vGrid;
+	TVFloat  m_vLoad;
+	TVFloat  m_vBat;
+	TVFloat  m_vSC;
+
+	TVFloat  m_vResult;
+
+	CNode*   m_pcNode;
+
+	/* FUNCTIONS */	
+};
 
 #endif
-
 
