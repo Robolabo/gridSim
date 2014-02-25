@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <GridSim>
-	<Simulation seed="-1" length="525600" sampling="90" fft_lng="128"/><!--length="525600"-->
+	<Simulation seed="-1" length="525600" sampling="90" fft_lng="128"/>
 	<Visualization active="0" rf_rate="100">
 		<scr title="Grid power"       x_lng="10000" y_ini="-30000" y_end="30000"/>
 		<scr title="PV power"         x_lng="10000" y_ini="-30000" y_end="30000"/>
