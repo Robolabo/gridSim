@@ -21,11 +21,36 @@
 *    Developed in Robolabo <http://www.robolabo.etsit.upm.es/>
 */
 
-/******************************************************************************/
-/* LIST OF MAIN CONTROL LIBRARIES 					      */
-/******************************************************************************/
 
+/******************************************************************************/
+/* LIBRARY DEFAULT MAIN CONTROL						      */
+/* It is the class of the controllers	                   		      */
+/******************************************************************************/
+#ifndef DEFAULT_MC_H_
+#define DEFAULT_MC_H_
+
+/* LIBRARIES*/
 #include "main_control.h"
-#include "default_mc.h"
+
+/******************************************************************************/
+class CDefault_MC : public CMainControl {
+
+	public:
+	/* FUNCTIONS */
+	CDefault_MC   ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vCtr , XMLElement* cnf );
+	~CDefault_MC  ( void );		
+	
+	void  executionStep  ( void );
+	void  restart        ( void );		
+
+	TVFloat* getEvaluation  ( void );
+
+	private:
+		
+};
+
+#endif
+
+
 
 

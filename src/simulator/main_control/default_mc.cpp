@@ -22,61 +22,53 @@
 */
 
 /******************************************************************************/
-/* METHODS OF PV	 						      */
+/* Methods of default_mc.h 						      */
 /******************************************************************************/
-#include "PV.h"
+#include "default_mc.h"
 
 /******************************************************************************/
 /* CONSTRUCTOR */
-CPV::CPV ( sSimCnf*  sSimCnf , XMLElement* cnf ){
-	/* General Simulator Configuration */
-	m_sSimCnf = sSimCnf;
-	/* Get input files (hourly data) */
-	m_sPwGenFile = cnf->Attribute("gen");
-	m_sPwFrcFile = cnf->Attribute("frc");
-	m_fPAmp      = atof(cnf->Attribute("power"));
-
-	_readAll( &m_sPwGenFile , &m_vPwGen );
-	_readAll( &m_sPwFrcFile , &m_vPwFrc );
-	return;
+CDefault_MC::CDefault_MC ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vCtr , XMLElement* cnf ) : CMainControl::CMainControl ( sSimCnf , pcGrid , vCtr ) {	
+	
 };	
 
 /******************************************************************************/
-/* DESTRUCTOR */
-CPV::~CPV ( void ){
-	return;
-};
-
-/******************************************************************************/
-/* Step execution */
-void CPV::executionStep( void ){	
-	m_fPower = m_fPAmp * m_vPwGen[(m_sSimCnf->nSimStep)%m_vPwGen.size()];
-	return;
-};
-
-/******************************************************************************/
-float CPV::getNextHourFrc ( void ){
-	float result;
-	result = ( m_vPwFrc[ ( m_sSimCnf->nSimStep + 60 ) % m_vPwFrc.size() ] + m_vPwFrc[ m_sSimCnf->nSimStep % m_vPwFrc.size() ] ) / 2.0;
-	return result;
-};
-
-/******************************************************************************/
-void CPV::_readAll ( string* file_name , TVFloat* output ){
-	ifstream  inputFile ( file_name->c_str() );
-	float     tmp_power, tmp_power_old, tmp_power_step;
-	inputFile >> tmp_power_old;		
-	inputFile.ignore(256, '\n');
-	while( !inputFile.eof() ){	
-		inputFile >> tmp_power;
-		tmp_power_step = (tmp_power - tmp_power_old)/60.0;
-		for ( int i = 0 ; i < 60 ; i++ )	
-			output->push_back( tmp_power_old + tmp_power_step * float(i) );
-		inputFile.ignore(256, '\n');
-		tmp_power_old = tmp_power;
+/* RESTART */
+void CDefault_MC::restart  ( void ){		
+	/* Set plotter */
+	if ( m_sSimCnf->pcPlotter ){	
+		m_sSimCnf->pcPlotter->setData    ( 0 , m_pcGrid->getTimeSignal ( )    );
+		m_sSimCnf->pcPlotter->setMarks   ( 0 , m_pcGrid->getTimeSample ( )    );
+		m_sSimCnf->pcPlotter->setMarksSp ( 0 , m_sSimCnf->nSampling           );
+		m_sSimCnf->pcPlotter->setMarks   ( 1 , m_pcGrid->getFreqSignalAmp ( ) );		
 	}
-	inputFile.close();
 	return;
 };
+
+/******************************************************************************/
+/* DESTRUCTOR */
+CDefault_MC::~CDefault_MC ( void ){
+
+};
+
+
+/******************************************************************************/
+TVFloat* CDefault_MC::getEvaluation  ( void ){	
+	return NULL;
+};	
+
+/******************************************************************************/
+/* Execution Step */
+void CDefault_MC::executionStep( void ){
+	if ( m_sSimCnf->pcWriter ){
+		if ( m_pcGrid->getTimeSignal()->size() > 0 )
+			m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getTimeSignal()->back() );		
+	}
+	return;
+};
+
+
+
+
 
 

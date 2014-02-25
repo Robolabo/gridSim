@@ -62,8 +62,9 @@ class CPlotter {
 
 	void createDisplay  ( TVFloat* , TVFloat* , int , string );	
 	
-	void setData        ( int ptr, TVFloat* data ){vDisplay[ptr].function = data;};
-	void setMarks       ( int ptr, TVFloat* data ){vDisplay[ptr].v_marks  = data;};
+	void setData        ( int ptr, TVFloat* data  ){vDisplay[ptr].function   = data;};
+	void setMarks       ( int ptr, TVFloat* data  ){vDisplay[ptr].v_marks    = data;};
+	void setMarksSp     ( int ptr, int      space ){vDisplay[ptr].v_marks_sp = space;};
 
 	void setXrange      ( int , int , string );
 	void setYrange      ( int , int , int , string );

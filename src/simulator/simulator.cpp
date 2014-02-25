@@ -103,9 +103,7 @@ void CSimulator::_configureStructure ( XMLElement* elem ){
 					if ( elemName == sType ){
 						for ( int j = 0 ; j < nNodes ; j++ ){	
 							tmp_line->addNode    ( _createNode ( node ) );	
-
-						}			
-
+						}
 					}
 				}				
 			}
@@ -119,7 +117,7 @@ void CSimulator::_configureStructure ( XMLElement* elem ){
 void CSimulator::_createMainCtr ( XMLElement* elem ){
 	string attr = elem->Attribute("name");
 	if ( attr == "default" ){
-		m_pcMainControl = new CMainControl ( &m_sSimCnf , m_pcGrid , &m_vCtr );
+		m_pcMainControl = new CDefault_MC ( &m_sSimCnf , m_pcGrid , &m_vCtr , NULL );
 	}
 	else{
 		cout << "ERROR: MAIN CONTROL NAME NOT RECOGNIZED "<< endl;
@@ -185,9 +183,9 @@ void CSimulator::restart ( void ){
 	if ( m_bVisu ){
 		_configureVisu ( );
 	}
-	/* Restart objects */
+	/* Restart objects */		
 	if ( m_pcMainControl )
-		m_pcMainControl->restart();
+		m_pcMainControl->restart();		
 	m_pcGrid->restart();
 	for ( int i = 0 ; i < m_vCtr.size() ; i++ )
 		m_vCtr[i]->restart();
@@ -212,7 +210,7 @@ void CSimulator::_configureVisu ( void ){
 			int type;
 			for( XMLElement* e = elem->FirstChildElement() ; e != NULL ; e = e->NextSiblingElement() ){
 				attr  = e->Attribute("title");
-				m_sSimCnf.pcPlotter->createDisplay ( NULL , NULL , m_sSimCnf.nSampling , attr );
+				m_sSimCnf.pcPlotter->createDisplay ( NULL , NULL , 1 , attr );
 				attr   = e->Attribute("x_lng");
 				m_sSimCnf.pcPlotter->setXrange     ( cnt , atoi( attr.c_str() ) , "Time [k]" );
 				int y_ini, y_end;
