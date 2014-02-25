@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<GridSim>
+	<Simulation seed="-1" length="525600" sampling="90" fft_lng="128"/><!--length="525600"-->
+	<Visualization active="0" rf_rate="100">
+		<scr title="Grid power"       x_lng="10000" y_ini="-30000" y_end="30000"/>
+		<scr title="PV power"         x_lng="10000" y_ini="-30000" y_end="30000"/>
+		<scr title="Load power"       x_lng="10000" y_ini="-30000" y_end="30000"/>
+		<scr title="Bat power"        x_lng="10000" y_ini="-30000" y_end="30000"/>
+		<scr title="Self-Consumption" x_lng="10000" y_ini="0.1"    y_end="1.1"/>					
+	</Visualization>
+	<Structure lines="1" > 
+		<line_1 nodes="1" type="basic_node"/>
+		<basic_node>
+			<pv gen="data/Pcpv_2013_ideal.txt" frc="data/Pcpv_2013_ideal.txt" power="45000"/>
+			<bat cap="800.0" num_inv="9"/>
+			<load type="0">
+				<airconditioner ini_t="22.0" ref_t="22.0" eps_t="0.5" fan_i="1.0" dec_f="0.001" del_t="0.0025" power="25000.0" ext_file="data/Ta_2013_ideal.txt"/>
+			</load>
+			<ctr name="isfoc_ctr" tmp_step="0.001" e_mode="0" f_mode="1" t_min="16" t_max="30" soc_min="40" soc_max="60" b_mode="1"/>						
+		</basic_node>
+	</Structure>
+	<Writer file="prueba" />
+	<Main_control name="isfoc_eval" />
+</GridSim>
