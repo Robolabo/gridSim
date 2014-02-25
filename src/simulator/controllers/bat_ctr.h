@@ -22,18 +22,42 @@
 */
 
 /******************************************************************************/
-/* LIST OF MAIN CONTROL LIBRARIES 					      */
+/* LIBRARY CONTROLLERS							      */
+/* It is the class of the controllers	                   		      */
 /******************************************************************************/
-#ifndef MAIN_CONTROL_LIST_H_
-#define MAIN_CONTROL_LIST_H_
+#ifndef BATCONTROLLER_H_
+#define BATCONTROLLER_H_
 
 /* LIBRARIES*/
-#include "main_control.h"
-#include "default_mc.h"
+#include "controller.h"
 
-/* Functions */
-CMainControl* createMC ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vCtr , XMLElement* cnf );
+/******************************************************************************/
+class CBatCtr : public CController {
+
+	public:
+	/* FUNCTIONS */
+	CBatCtr   ( sSimCnf*  sSimCnf , XMLElement* cnf , CNode* pcNode );
+	~CBatCtr  ( void );		
+	
+	void executionStep ( void );
+	void restart       ( void );
+
+	int  getCycles     ( void ){return m_nCycle;};
+
+	void setSoC_limits ( float l_min , float l_max ){m_fSoC_min=l_min;m_fSoC_max=l_max;};		
+
+	private:
+	/* VARIABLES */
+	bool   m_bOverDC;
+	float  m_fSoC_min;
+	float  m_fSoC_max;
+	float  m_fSoC_min_ini;
+	float  m_fSoC_max_ini;	
+	int    m_nBmode; // 0 - regulator, 1 - switch, 2 - both
+	int    m_nCycle;
+
+	/* FUNCTIONS */	
+};
 
 #endif
-
 
