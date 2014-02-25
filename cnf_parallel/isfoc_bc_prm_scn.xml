@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<parallelConf>	
+        <output file="/home/manuel/isfoc_only_bc" />
+	<exp_conf file="/home/manuel/gridSim_1/param_file/isfoc_only_bc_cnf.xml" />
+	<seed number="1" />
+	<prm length="1001" offset="0.000"  step="0.001"/>
+	<prm length="1"    offset="0.001"  step="0.000"/>
+	<env length="1"    offset="45000"  step="1000"/>
+	<env length="1"    offset="800"    step="100"/>
+	<result length="2" />		
+</parallelConf>
