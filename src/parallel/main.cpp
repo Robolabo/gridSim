@@ -163,9 +163,9 @@ void MPI_slaveLoop  ( void ){
 			/* Execute the experiment */
 			pcSimulator->ExecuteSimulation ( );
 			/* Get the results */
-			TVFloat tmp_res = pcMainControl->getEvaluation();
+			TVFloat* tmp_res = pcMainControl->getEvaluation();
 			for ( int i = 0 ; i < g_nResltN ; i++ )
-				fResults[i] = tmp_res[i];			
+				fResults[i] = tmp_res->at(i);			
 			/* Send the results to the MPI Master*/		
 			MPI_Send ( nParams  , g_nParamN , MPI_INT   , 0 , 2 , MPI_COMM_WORLD );
 			MPI_Send ( nEnviro  , g_nEnvirN , MPI_INT   , 0 , 7 , MPI_COMM_WORLD );	

@@ -17,12 +17,9 @@ CIsfocCtr::CIsfocCtr ( sSimCnf*  sSimCnf , XMLElement* cnf , CNode* pcNode ) : C
 		m_nEmode    = atoi( cnf->Attribute("e_mode" )  );
 	else
 		m_nEmode    = 0;
-
 	/* Create Bat Controller */
 	m_pcBatCrt = new CBatCtr ( m_sSimCnf , cnf , pcNode );	
-
 	m_fPV_next_hour = 0.0;
-
 };	
 
 /******************************************************************************/
@@ -50,32 +47,24 @@ void CIsfocCtr::setSoC_dst ( float input ){
 /******************************************************************************/
 /* Execution Step */
 void CIsfocCtr::executionStep( void ){
-
 	/* Battery controller execution */
 	m_pcBatCrt->executionStep();
-
 	/* Get sensors and actuators */
 	CStorage* pcStorage;	
 	pcStorage = m_pcNode->getStorage();
-
 	CAirConditioner* pcAir;
 	pcAir = m_pcNode->getLoad()->getAirConditioner();	
-	
 	float out_tmp = pcAir->getOutdoorTemp( );
 	float in_tmp  = pcAir->getIndoorTemp( );
 	float ref_tmp = pcAir->getReferenceTemp( );
-
 	float air_np  = pcAir->getNPower();	
-
 	if ( m_sSimCnf->nSimStep % 60 == 0 ){
 		float pv_np     = m_pcNode->getPV()->getNPower();
-		m_fPV_next_hour = pv_np * m_pcNode->getPV()->getNextHourFrc();	
-		//cout << m_fPV_next_hour << endl;
+		m_fPV_next_hour = pv_np * m_pcNode->getPV()->getNextHourFrc();			
 	}
-
 	/* Temperature variation */
+	// Energy availability	
 	float SoC_eval = ( pcStorage->getSoC() - m_fSoC_min )/m_fSoC_max; // [0:1]
-
 	float Frc_eval;	
 	if ( m_nEmode == 0 ){
 		Frc_eval = 0.0;
@@ -85,31 +74,24 @@ void CIsfocCtr::executionStep( void ){
 		if ( Frc_eval > 1.0 )
 			Frc_eval = 1.0;
 	}
-	
-	/*
-	float Energy_eval = 0.0; // [0:1]
-	if ( m_nEmode == 0 )
-		Energy_eval = SoC_eval;
-	if ( m_nEmode == 1 )
-		Energy_eval = SoC_eval + Frc_eval;
-	*/
-
+	// Maximum consumption temeprature
 	float obj_tmp;
 	if ( out_tmp < ( m_fTmp_max + m_fTmp_min )/2 )
 		obj_tmp = m_fTmp_max;
 	else
 		obj_tmp = m_fTmp_min;
+	// Reference temperature variation
 	float tmp_var = 0.0;
-	// To the maximum distance
+	// To the maximum distance (maximum consumption)
 	if ( ref_tmp < obj_tmp )
-		tmp_var += ( SoC_eval + Frc_eval ) * m_fTmp_step ;//Energy_eval * m_fTmp_step ;
+		tmp_var += ( SoC_eval + Frc_eval ) * m_fTmp_step ;
 	else
-		tmp_var -= ( SoC_eval + Frc_eval ) * m_fTmp_step ;//Energy_eval * m_fTmp_step ;
-	// To the outdoor temperature
+		tmp_var -= ( SoC_eval + Frc_eval ) * m_fTmp_step ;
+	// To the outdoor temperature (minimum consumption)
 	if ( ref_tmp < out_tmp )
-		tmp_var += (1.0 - SoC_eval ) * m_fTmp_step ;//(1.0 - Energy_eval) * m_fTmp_step ;
+		tmp_var += (1.0 - SoC_eval ) * m_fTmp_step ;
 	else
-		tmp_var -= (1.0 - SoC_eval ) * m_fTmp_step ; //(1.0 - Energy_eval) * m_fTmp_step ;
+		tmp_var -= (1.0 - SoC_eval ) * m_fTmp_step ;
 	float new_ref = ref_tmp + tmp_var;
 	if ( new_ref > m_fTmp_max )
 		new_ref = m_fTmp_max;
@@ -133,7 +115,5 @@ void CIsfocCtr::executionStep( void ){
 		else
 			pcAir->setFanIntensity(1.0);
 	}
-
-
 	return;
 };
