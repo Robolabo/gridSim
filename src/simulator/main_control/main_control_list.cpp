@@ -33,6 +33,9 @@ CMainControl* createMC ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vCtr
 	else if ( attr == "isfoc_eval" ){
 		result = new CIsfocEval  ( sSimCnf , pcGrid , vCtr , cnf );
 	}
+	else if ( attr == "isfoc_seasons_eval" ){
+		result = new CIsfocSeasonsEval  ( sSimCnf , pcGrid , vCtr , cnf );
+	}
 	else{
 		cout << "ERROR: MAIN CONTROL NAME NOT RECOGNIZED "<< endl;
 	}

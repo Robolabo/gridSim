@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <GridSim>
-	<Simulation seed="-1" length="525600" sampling="90" fft_lng="128"/>
-	<Visualization active="0" rf_rate="100">
+	<Simulation seed="-1" length="10080" sampling="90" fft_lng="128"/>
+	<Visualization active="1" rf_rate="100">
 		<scr title="Grid power"       x_lng="10000" y_ini="-45000" y_end="45000"/>
 		<scr title="PV power"         x_lng="10000" y_ini="-45000" y_end="45000"/>
 		<scr title="Load power"       x_lng="10000" y_ini="-45000" y_end="45000"/>
@@ -11,15 +11,15 @@
 	<Structure lines="1" > 
 		<line_1 nodes="1" type="basic_node"/>
 		<basic_node>
-			<pv gen="data/Pcpv_2013_ideal.txt" frc="data/Pcpv_2013_ideal.txt" power="45000"/>
+			<pv gen="data/Pcpv_2013_winter.txt" frc="data/Pcpv_2013_ideal.txt" power="45000"/>
 			<bat cap="800.0" num_inv="9"/>
-			<load type="0">
-				<airconditioner ini_t="22.0" ref_t="22.0" eps_t="0.5" fan_i="1.0" dec_f="0.001" del_t="0.0025" power="25000.0" ext_file="data/Ta_2013_ideal.txt"/>
+			<load type="0">				
+				<airconditioner ini_t="12.0" ref_t="22.0" eps_t="0.5" fan_i="1.0" dec_f="0.02" del_t="0.05" power="25000.0" ext_file="data/Ta_2013_winter.txt"/>
 			</load>
 			<!--<ctr name="isfoc_ctr" tmp_step="0.001" e_mode="1" f_mode="1" t_min="16" t_max="30" soc_min="40" soc_max="60" b_mode="1"/>-->
-			<ctr name="isfoc_ctr" tmp_step="0.000" f_mode="0" t_min="16" t_max="30" soc_min="40" soc_max="60" b_mode="1"/>						
+			<ctr name="bat_ctr" soc_min="40" soc_max="60" b_mode="1"/>						
 		</basic_node>
 	</Structure>
-	<Writer file="prueba" />
-	<Main_control name="isfoc_eval" />
+	<Writer file="isfoc_winter" />
+	<Main_control name="isfoc_seasons_eval" />
 </GridSim>

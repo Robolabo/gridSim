@@ -24,17 +24,17 @@
 /******************************************************************************/
 /* Methods of isfoc_eval.h 						      */
 /******************************************************************************/
-#include "isfoc_eval.h"
+#include "isfoc_seasons_eval.h"
 
 /******************************************************************************/
 /* CONSTRUCTOR */
-CIsfocEval::CIsfocEval ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vCtr , XMLElement* cnf ) : CMainControl::CMainControl ( sSimCnf , pcGrid , vCtr ) {	
+CIsfocSeasonsEval::CIsfocSeasonsEval ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vCtr , XMLElement* cnf ) : CMainControl::CMainControl ( sSimCnf , pcGrid , vCtr ) {	
 	
 };	
 
 /******************************************************************************/
 /* RESTART */
-void CIsfocEval::restart  ( void ){
+void CIsfocSeasonsEval::restart  ( void ){
 	/* Link node */
 	m_pcNode = m_vCtr->at(0)->getNode();
 
@@ -67,36 +67,30 @@ void CIsfocEval::restart  ( void ){
 
 /******************************************************************************/
 /* DESTRUCTOR */
-CIsfocEval::~CIsfocEval ( void ){
+CIsfocSeasonsEval::~CIsfocSeasonsEval ( void ){
 
 };
 
 /******************************************************************************/
-void CIsfocEval::setEnvironment ( TVFloat input ){
-
+void CIsfocSeasonsEval::setEnvironment ( TVFloat input ){
 	if ( input.size() > 0 )
 		m_pcNode->getPV()->setPAmp( input[0] );	
 	if ( input.size() > 1 )
 		m_pcNode->getStorage()->setCapacity( input[1] );
-
-	//cout << input[0] << " " << input[1] << endl;
-	
 	return;
 };	
 
 /******************************************************************************/
-void CIsfocEval::setParameters  ( TVFloat input ){
-
+void CIsfocSeasonsEval::setParameters  ( TVFloat input ){
 	if ( input.size() > 0 )
 		m_vCtr->at(0)->setSoC_dst( input[0] );
 	if ( input.size() > 1 )
 		m_vCtr->at(0)->setTmpStep( input[1] );
-
 	return;
 };
 
 /******************************************************************************/
-TVFloat* CIsfocEval::getEvaluation  ( void ){
+TVFloat* CIsfocSeasonsEval::getEvaluation  ( void ){
 	m_vResult.clear();
 	m_vResult.push_back(m_vSC.back());
 	m_vResult.push_back( float( m_vCtr->at(0)->getCycles() ) );
@@ -105,7 +99,7 @@ TVFloat* CIsfocEval::getEvaluation  ( void ){
 
 /******************************************************************************/
 /* Execution Step */
-void CIsfocEval::executionStep( void ){
+void CIsfocSeasonsEval::executionStep( void ){
 	sNPower* sPower = m_pcNode->getNPower();
 	m_vGrid.push_back ( sPower->grid );
 	m_vPV.push_back   ( sPower->pv   );
@@ -138,10 +132,41 @@ void CIsfocEval::executionStep( void ){
 	m_vSC.push_back( sc );
 
 	if ( m_sSimCnf->pcWriter ){
-		//m_sSimCnf->pcWriter->push_buffer( m_pcNode->getLoad()->getAirConditioner()->getOutdoorTemp( )   );
-		//m_sSimCnf->pcWriter->push_buffer( m_pcNode->getLoad()->getAirConditioner()->getIndoorTemp( )    );
-		//m_sSimCnf->pcWriter->push_buffer( m_pcNode->getLoad()->getAirConditioner()->getReferenceTemp( ) );
+		m_sSimCnf->pcWriter->push_buffer( m_vGrid.back() );
+		m_sSimCnf->pcWriter->push_buffer( m_vPV.back() );
+		m_sSimCnf->pcWriter->push_buffer( m_vLoad.back() );
+		m_sSimCnf->pcWriter->push_buffer( m_vBat.back() );
+		m_sSimCnf->pcWriter->push_buffer( m_vSC.back() );	
+
+		m_sSimCnf->pcWriter->push_buffer( m_pcNode->getLoad()->getAirConditioner()->getOutdoorTemp( )   );
+		m_sSimCnf->pcWriter->push_buffer( m_pcNode->getLoad()->getAirConditioner()->getIndoorTemp( )    );
+		m_sSimCnf->pcWriter->push_buffer( m_pcNode->getLoad()->getAirConditioner()->getReferenceTemp( ) );
+
 	}
+
+	// Set reference temperature
+	int day_min = m_sSimCnf->nSimStep % 1440;
+
+	if ( day_min < 480 || day_min > 1200 ){ // Out of work
+		m_pcNode->getLoad()->getAirConditioner()->setReferenceTemp( 12 );
+		if ( m_pcNode->getLoad()->getAirConditioner()->getIndoorTemp( ) < 12.5 )
+			m_pcNode->getLoad()->getAirConditioner()->setFanIntensity( 0.5 );
+		else
+			m_pcNode->getLoad()->getAirConditioner()->setFanIntensity( 0.0 );
+
+	}
+	else {
+		m_pcNode->getLoad()->getAirConditioner()->setReferenceTemp( 20 );
+		m_pcNode->getLoad()->getAirConditioner()->setFanIntensity( 1.0 );
+	}
+	
+
 
 	return;
 };
+
+
+
+
+
+
