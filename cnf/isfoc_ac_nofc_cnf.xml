@@ -12,7 +12,7 @@
 				<airconditioner ini_t="22.0" ref_t="22.0" eps_t="0.5" fan_i="1.0" dec_f="0.02" del_t="0.05" power="25000.0" ext_file="/home/manuel/gridSim/data/Ta_2013_ideal.txt"/>
 				<!--<airconditioner ini_t="22.0" ref_t="22.0" eps_t="0.5" fan_i="1.0" dec_f="0.001" del_t="0.0025" power="25000.0" ext_file="/home/manu/repo/simulator/gridSim/data/Ta_2013_ideal.txt"/>-->
 			</load>
-			<ctr name="isfoc_ctr" tmp_step="0.001" e_mode="0" f_mode="1" t_min="16" t_max="30" soc_min="40" soc_max="60" b_mode="1"/>						
+			<ctr name="isfoc_ctr" tmp_step="0.03" e_mode="0" f_mode="1" t_min="16" t_max="30" soc_min="40" soc_max="60" b_mode="1"/>						
 		</basic_node>
 	</Structure>	
 	<Main_control name="isfoc_eval" />

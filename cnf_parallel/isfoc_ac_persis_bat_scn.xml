@@ -4,7 +4,7 @@
 	<exp_conf file="/home/manuel/gridSim/cnf/isfoc_ac_persis_cnf.xml" />
 	<seed number="1" />
 	<prm length="1"    offset="0.333"  step="0.000"/>
-	<prm length="1"    offset="0.000"  step="0.000"/>
+	<prm length="1"    offset="0.03"  step="0.000"/>
 	<env length="1"    offset="45000"  step="0"/>
 	<env length="1001" offset="0"      step="1.6"/>
 	<result length="2" />		
