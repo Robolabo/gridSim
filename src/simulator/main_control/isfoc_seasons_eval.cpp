@@ -94,6 +94,13 @@ TVFloat* CIsfocSeasonsEval::getEvaluation  ( void ){
 	m_vResult.clear();
 	m_vResult.push_back(m_vSC.back());
 	m_vResult.push_back( float( m_vCtr->at(0)->getCycles() ) );
+	m_vResult.push_back( m_sNEnergy.grid_imp );
+	m_vResult.push_back( m_sNEnergy.bat_exp );
+	m_vResult.push_back( m_sNEnergy.bat_imp );
+	m_vResult.push_back( m_sNEnergy.load );
+	m_vResult.push_back( m_sNEnergy.pv );
+	m_vResult.push_back( m_sNEnergy.pv_wasted );
+
 	return &m_vResult;
 };	
 
@@ -101,7 +108,10 @@ TVFloat* CIsfocSeasonsEval::getEvaluation  ( void ){
 /* Execution Step */
 void CIsfocSeasonsEval::executionStep( void ){
 	sNPower* sPower = m_pcNode->getNPower();
-	m_vGrid.push_back ( sPower->grid );
+	if ( sPower->grid < 0.0 )
+		m_vGrid.push_back ( 0.0 );
+	else
+		m_vGrid.push_back ( sPower->grid );
 	m_vPV.push_back   ( sPower->pv   );
 	m_vLoad.push_back ( sPower->load );
 	m_vBat.push_back  ( sPower->bat  );
@@ -113,10 +123,10 @@ void CIsfocSeasonsEval::executionStep( void ){
 		m_sNEnergy.bat_exp      += sPower->bat / 60.0; //from node to bat
 	else
 		m_sNEnergy.bat_imp      -= sPower->bat / 60.0; //from bat to node
-	if ( sPower->grid < 0.0 )
-		m_sNEnergy.grid_exp     -= sPower->grid / 60.0; //from node to grid
+	if ( m_vGrid.back() < 0.0 )
+		m_sNEnergy.grid_exp     -= m_vGrid.back() / 60.0; //from node to grid
 	else
-		m_sNEnergy.grid_imp     += sPower->grid / 60.0; //from grid to node
+		m_sNEnergy.grid_imp     += m_vGrid.back() / 60.0; //from grid to node
 	if ( sPower->blackout )
 		m_sNEnergy.num_bo++;
 
@@ -148,15 +158,15 @@ void CIsfocSeasonsEval::executionStep( void ){
 	int day_min = m_sSimCnf->nSimStep % 1440;
 
 	if ( day_min < 480 || day_min > 1200 ){ // Out of work
-		m_pcNode->getLoad()->getAirConditioner()->setReferenceTemp( 12 );
-		if ( m_pcNode->getLoad()->getAirConditioner()->getIndoorTemp( ) < 12.5 )
-			m_pcNode->getLoad()->getAirConditioner()->setFanIntensity( 0.5 );
+		m_pcNode->getLoad()->getAirConditioner()->setReferenceTemp( 28 );
+		if ( m_pcNode->getLoad()->getAirConditioner()->getIndoorTemp( ) > 28.5 )
+			m_pcNode->getLoad()->getAirConditioner()->setFanIntensity( 0.0 );
 		else
 			m_pcNode->getLoad()->getAirConditioner()->setFanIntensity( 0.0 );
 
 	}
 	else {
-		m_pcNode->getLoad()->getAirConditioner()->setReferenceTemp( 20 );
+		m_pcNode->getLoad()->getAirConditioner()->setReferenceTemp( 23 );
 		m_pcNode->getLoad()->getAirConditioner()->setFanIntensity( 1.0 );
 	}
 	
