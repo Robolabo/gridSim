@@ -22,58 +22,44 @@
 */
 
 /******************************************************************************/
-/* LIBRARY USER								      */
-/* It is the class of the users		                   		      */
+/* LIBRARY DEFERRABLE_LOAD						      */
+/* It is the class of the deferrable loads              		      */
 /******************************************************************************/
-#ifndef USER_H_
-#define USER_H_
+#ifndef DEFERRABLE_LOAD_H_
+#define DEFERRABLE_LOAD_H_
 
-class CUser;
-
-/* LIBRARIES*/
 #include "common.h"
-#include "grid/node.h"
-#include "elements/consumption/load.h"
-//#include "controllers/controller.h"
 
-typedef vector<CUser*> TVCUser;
+class CDefLoad;
 
-/******************************************************************************/
-class CUser {
+using namespace std;
+
+typedef vector<CDefLoad*> TVDefLoad;
+
+class CDefLoad {
 
 	public:
-	/* FUNCTIONS */
-	CUser  ( sSimCnf*  sSimCnf , CNode* pcNode , XMLElement* cnf );
-	~CUser ( void );	
+	CDefLoad  ( sSimCnf*  sSimCnf );
+	~CDefLoad ( void );
 
-	void restart( void );
+	void 	simulationStep	 ( void );
+	void    restart          ( void );
+
+	void    setStartTime     ( int input ){ m_nStartTime = input;};	
+
+	float   getPower         ( void ){return m_fPower;};
 	
-	void executionStep  ( void );
-	//void linkNode       ( CNode* input ){m_pcNode = input;};	
-	//void linkGrid       ( CGrid* );	
-	void setID          ( int      input ){m_nID      = input;};
-	//void linkController ( CController* input ){m_pcController = input;};		
-
 	private:
 	/* Simulator stuff */
-	sSimCnf*  m_sSimCnf;
-
-	/* VARIABLES */		
-	CNode*       m_pcNode;
-	//CGrid*       m_pcGrid;	
-	//CController* m_pcController;	
-	TVFloat*     m_vInputProfile;	
-
-	//TVDefLoad    m_vToDo;
-	int          m_nID;
-	int          m_nProfile;
-
-	/* FUNCTIONS */	
-	int _roulette ( TVFloat* );
-	int _action   ( int );
+	sSimCnf*  m_sSimCnf;	
+	int       m_nStartTime;
+	bool      m_bEnd;
+	float 	  m_fPower;
 	
-
 };
 
 #endif
+
+
+
 

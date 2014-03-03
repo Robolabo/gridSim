@@ -53,6 +53,11 @@ CLoad::CLoad ( sSimCnf*  sSimCnf , XMLElement* cnf ){
 /******************************************************************************/
 /* DESTRUCTOR */
 CLoad::~CLoad ( void ){
+
+	for ( int i = 0 ; i < m_vDefLoad.size() ; i++ )
+		delete m_vDefLoad[i];
+	m_vDefLoad.clear();
+
 	return;
 };
 
@@ -68,6 +73,7 @@ void CLoad::restart           ( void ){
 /******************************************************************************/
 /* Step execution */
 void CLoad::executionStep( void ){
+
 	switch ( m_nType ){
 		/*		
 		case 1:
@@ -82,12 +88,22 @@ void CLoad::executionStep( void ){
 			break;		
 	}	
 
+	/* Air Conditioner */
 	if ( m_pcAir ){
 		m_pcAir->simulationStep( );
 		m_fPower += m_pcAir->getInstantPower();
 	}
+	/* Deferrable Loads */		
+	for ( int i = 0 ; i < m_vDefLoad.size(); i++ ){
+		m_vDefLoad[i]->simulationStep();
+		m_fPower += m_vDefLoad[i]->getPower();
+	}
+
 
 	return;
 };
+
+
+
 
 

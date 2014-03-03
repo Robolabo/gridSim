@@ -119,22 +119,26 @@ CNode* CSimulator::_createNode ( XMLElement* elem ){
 	/* Create the node */
 	CNode*  tmp_node  = new CNode    ( &m_sSimCnf );
 	/* Configure node */
-	for( XMLElement* node = elem->FirstChildElement() ; node != NULL ; node = node->NextSiblingElement() ){
-		elemName = node->Value();
+	for( XMLElement* cnf = elem->FirstChildElement() ; cnf != NULL ; cnf = cnf->NextSiblingElement() ){
+		elemName = cnf->Value();
 		if ( elemName == "pv" ){
-			CPV* tmp_PV = new CPV ( &m_sSimCnf , node );
+			CPV* tmp_PV = new CPV ( &m_sSimCnf , cnf );
 			tmp_node->addPV       ( tmp_PV );
 		}
 		else if ( elemName == "bat" ){
-			CStorage* tmp_storage = new CStorage  ( &m_sSimCnf , node );
+			CStorage* tmp_storage = new CStorage  ( &m_sSimCnf , cnf );
 			tmp_node->addStorage     ( tmp_storage );
 		}
 		else if ( elemName == "ctr" ){
-			CController* tmp_ctr = createCtr ( &m_sSimCnf , tmp_node , node );
+			CController* tmp_ctr = createCtr ( &m_sSimCnf , tmp_node , cnf );
 			m_vCtr.push_back     ( tmp_ctr );			
 		}
+		else if ( elemName == "user" ){
+			CUser* tmp_usr       = new CUser ( &m_sSimCnf , tmp_node , cnf );
+			m_vUsers.push_back   ( tmp_usr );			
+		}
 		else if ( elemName == "load" ){
-			CLoad*  tmp_Load  = new CLoad ( &m_sSimCnf , node );			
+			CLoad*  tmp_Load  = new CLoad ( &m_sSimCnf , cnf );			
 			tmp_node->addLoad             ( tmp_Load );
 		}
 	}
@@ -142,7 +146,7 @@ CNode* CSimulator::_createNode ( XMLElement* elem ){
 };
 
 /****************************************************************/
-/* RESTART 							*/
+/* RESTART SIMULATION						*/
 /****************************************************************/
 void CSimulator::restart ( void ){
 	/* Random */
@@ -164,6 +168,8 @@ void CSimulator::restart ( void ){
 	m_pcGrid->restart();
 	for ( int i = 0 ; i < m_vCtr.size() ; i++ )
 		m_vCtr[i]->restart();
+	for ( int i = 0 ; i < m_vUsers.size() ; i++ )
+		m_vUsers[i]->restart();
 	return;
 };
 
@@ -224,7 +230,11 @@ void CSimulator::ExecuteSimulation ( void ){
 		/* Main Control */
 		if ( m_pcMainControl )
 			m_pcMainControl->executionStep();
-		/* Battery Controllers */
+		/* Users */
+		for ( int i = 0 ; i < m_vUsers.size() ; i++ ){
+			m_vUsers[i]->executionStep();
+		}		
+		/* Controllers */
 		for ( int i = 0 ; i < m_vCtr.size() ; i++ ){
 			m_vCtr[i]->executionStep();
 		}					

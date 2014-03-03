@@ -8,10 +8,11 @@
 	<Structure lines="1" > 
 		<line_1 nodes="1" type="basic_node"/>
 		<basic_node>
-			<pv   gen="data/pv_ideal_profile" frc="data/pv_ideal_profile" power="1"/>
-			<bat  cap="800.0" num_inv="1"/>
+			<!--<pv   gen="data/pv_ideal_profile" frc="data/pv_ideal_profile" power="1"/>-->
+			<!--<bat  cap="800.0" num_inv="1"/>-->
 			<load type="0" />
-			<ctr name="bat_ctr" soc_min="40" soc_max="60" b_mode="0"/>							
+			<!--<ctr name="bat_ctr" soc_min="40" soc_max="60" b_mode="0"/>-->
+			<user/>							
 		</basic_node>
 	</Structure>
 	<Writer file="test_file" />

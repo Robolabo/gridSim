@@ -29,14 +29,7 @@
 #define AIRCONDITIONER_H_
 
 #include "common.h"
-/*
-#include <fstream>
-#include <iostream>
-#include <stdio.h>
-#include <stdlib.h>
-#include <math.h>
-#include <vector>
-*/
+
 class CAirConditioner;
 
 typedef struct {

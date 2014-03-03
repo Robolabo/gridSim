@@ -31,6 +31,7 @@
 /* LIBRARIES*/
 #include "common.h"
 #include "airconditioner.h"
+#include "deferrable_load.h"
 
 using namespace std;
 
@@ -47,6 +48,8 @@ class CLoad {
 
 	float            getPower          ( void ){return m_fPower;};	
 	CAirConditioner* getAirConditioner ( void ){return m_pcAir;};
+
+	void             setDefLoad        ( CDefLoad* input ){m_vDefLoad.push_back( input );};
 	
 	//TVFloat* getShape    ( int type ){return &((*m_mLoadDB)[ type ]);};
 
@@ -75,6 +78,8 @@ class CLoad {
 
 	//string    m_sSourceFile;	
 	float     m_fPower;
+
+	TVDefLoad m_vDefLoad;
 
 	//TMFloat*  m_mLoadDB;
 	

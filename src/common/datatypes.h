@@ -55,13 +55,6 @@ struct sFreqCmp {
 typedef vector<sFreqCmp>  TVFreqCmp;
 typedef vector<TVFreqCmp> TMFreqCmp;
 
-struct sDefLoad {
-	int ac_time;
-	int type;
-	int window;
-};
-typedef vector<sDefLoad> TVDefLoad;
-
 struct sNPower {
 	float pv;        // PV power 
 	float pv_wasted; // PV power that can not be used

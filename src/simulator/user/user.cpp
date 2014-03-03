@@ -28,14 +28,15 @@
 
 /******************************************************************************/
 /* CONSTRUCTOR */
-CUser::CUser ( sSimCnf*  sSimCnf ){
-
+CUser::CUser ( sSimCnf*  sSimCnf , CNode* pcNode , XMLElement* cnf ){
+	/* Simulator stuff */	
 	m_sSimCnf = sSimCnf;	
+	m_pcNode  = pcNode;
 
 	//m_sParamsFile  = sFilename;
 	//m_nSimStep     = nStep;
-	m_pcController = NULL;
-	m_pcNode       = NULL;
+	//m_pcController = NULL;
+	
 
 	//TXML_StringV tmp_pattern;
 	//tmp_pattern.push_back ( "USER" );
@@ -45,17 +46,22 @@ CUser::CUser ( sSimCnf*  sSimCnf ){
 };	
 
 /******************************************************************************/
-void CUser::linkGrid ( CGrid*   input ){
-	m_pcGrid   = input;
+void CUser::restart( void ){
 
+
+	return;
+};
+
+/******************************************************************************/
+//void CUser::linkGrid ( CGrid*   input ){
+//	m_pcGrid   = input;
 	//TXML_StringV tmp_pattern;
 	//tmp_pattern.push_back ( "GRID" );
 	//if ( int ( readParameter ( m_sParamsFile->c_str() , "TYPE" , &tmp_pattern ) ) == 2 ){
 	//	m_vInputProfile = m_pcGrid->getDailyProfile();
 	//}
-
-	return;
-};
+//	return;
+//};
 
 /******************************************************************************/
 /* DESTRUCTOR */
@@ -64,7 +70,14 @@ CUser::~CUser ( void ){
 };
 
 /******************************************************************************/
-void CUser::executionStep ( void ){
+void CUser::executionStep ( void ){	
+
+
+	if ( (m_sSimCnf->nSimStep)%1440 == 0 ){
+		CDefLoad* tmp_dload = new CDefLoad ( m_sSimCnf );
+		m_pcNode->getLoad()->setDefLoad( tmp_dload );		
+	}
+	
 
 	/*
 	if ( (m_sSimCnf->nSimStep)%1440 == 0 ){

@@ -5,4 +5,5 @@ libelements_la_SOURCES = ../../../src/simulator/elements/generation/PV.cpp \
 			 ../../../src/simulator/elements/storage/batinverter.cpp \
 			 ../../../src/simulator/elements/storage/storage.cpp \
 			 ../../../src/simulator/elements/consumption/load.cpp \
-			 ../../../src/simulator/elements/consumption/airconditioner.cpp
+			 ../../../src/simulator/elements/consumption/airconditioner.cpp \
+			 ../../../src/simulator/elements/consumption/deferrable_load.cpp

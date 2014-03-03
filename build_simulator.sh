@@ -69,6 +69,11 @@ if [[ ! -e Makefile ]]; then
 	./configure
 fi
 
+#Remove the binary
+if [[ -e gridSim ]]; then
+	rm gridSim
+fi
+
 #Common make
 make
 
