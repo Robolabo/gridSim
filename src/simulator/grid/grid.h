@@ -43,6 +43,7 @@ class CGrid {
 	void       restart       ( void );
 
 	void       addLine          ( CLine* input ) { m_vLines.push_back(input); };
+
 	TVFloat*   getTimeSignal    ( void )         { return &m_vTimeSignal; };
 	TVFloat*   getTimeSample    ( void )         { return &m_vSampledSignal; };
 	TVFloat*   getFreqSignalAmp ( void )         { return &m_vFreqSignal_amp; };
@@ -50,9 +51,7 @@ class CGrid {
 	
 	TVFloat*   getLinesSignal   ( void )         { return &m_vLinesSignal; };
 
-	TVFloat*   getGridSignal    ( void )         { return &m_vGGridSignal; };
-
-	TVFloat*   getDailyProfile  ( void )         { return &m_vDailyProfile;}; 
+	TVFloat*   getGridSignal    ( void )         { return &m_vGGridSignal; };	
 
 	TVCLine*   getLines         ( void )         { return &m_vLines;};	
  
@@ -61,8 +60,6 @@ class CGrid {
 	private:
 	/* Simulator stuff */
 	sSimCnf*  m_sSimCnf;
-	
-	string    m_sSourceFile;
 
 	CFFT*     m_pcFFT;	
 	TVFreqCmp m_vFreqSignal;
@@ -71,28 +68,20 @@ class CGrid {
 
 	TVFloat   m_vTimeSignal;
 	TVFloat   m_vSampledSignal;
-
-	int       m_nGGType;	
-
-	TVFreqCmp m_vSinusoidalInput;
-	TVFloat   m_vInputProfile;
-	TVFloat   m_vDailyProfile;
-
-	TVCLine   m_vLines;	
 	TVFloat   m_vLinesSignal;
 	TVFloat   m_vGGridSignal;
 
-	/* FUNCTIONS */
-	float _gridPowerStep       ( void );
-	float _nextInputProfile    ( void );
-	float _nextInputSinusoidal ( void );
+	TVCLine   m_vLines;	
 
+	/* FUNCTIONS */		
 	void  _SignalFFT           ( void );
-
-	void  _configureSinusoidal ( void );
-	void  _configureProfile    ( void );
-
-	
+	float _nextGridPower       ( void );
 	
 };
 #endif
+
+
+
+
+
+

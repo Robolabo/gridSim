@@ -9,7 +9,7 @@ dnl AC_CHECK_HEADERS(readline/readline.h, [], AC_MSG_ERROR([You need to install 
 
 dnl check for programs
 AC_PROG_CC
-AC_PROG_CXX([g++-4.4 g++])
+AC_PROG_CXX([g++])
 AC_PROG_INSTALL
 AC_PROG_LIBTOOL
 

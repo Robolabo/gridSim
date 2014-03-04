@@ -32,6 +32,8 @@ CDefLoad::CDefLoad ( sSimCnf*  sSimCnf ) {
 	m_nStartTime   = 0;
 	m_bEnd         = false;
 
+	m_sLoadInfo    = NULL;
+
 };
 
 /****************************************************************/
@@ -43,23 +45,37 @@ void CDefLoad::restart ( void ){
 };
 
 /****************************************************************/
-CDefLoad::~CDefLoad ( void ){
-
+CDefLoad::~CDefLoad ( void ){	
 };
-
 
 /**************************************************
  **************************************************/
 void CDefLoad::simulationStep ( void ){
 	m_fPower       = 0.0;
-	if ( m_sSimCnf->nSimStep >= m_nStartTime ){
-		if ( m_sSimCnf->nSimStep >= m_nStartTime + 200 ){
-			m_bEnd   = true;
-		}
-		else{
-			m_fPower = 1000.0;
+	if ( m_sLoadInfo ){
+		if ( m_sSimCnf->nSimStep >= m_nStartTime ){
+			if ( m_sSimCnf->nSimStep >= m_nStartTime + m_sLoadInfo->dur ){
+				m_bEnd   = true;
+			}
+			else{
+				m_fPower = m_sLoadInfo->profile[ m_sSimCnf->nSimStep - m_nStartTime ];
+			}
 		}
 	}
+	else{
+		m_bEnd   = true;
+	}
+};
+
+/****************************************************************/
+void CDefLoad::setIDLoad ( int input ){
+	sDefLoad* info_ptr;
+	for ( int i = 0 ; i < m_sSimCnf->LoadDB.def_load.size() ; i++ ){		
+		if ( m_sSimCnf->LoadDB.def_load[i].id == input )
+			info_ptr = &(m_sSimCnf->LoadDB.def_load[i]);
+	}
+	m_sLoadInfo = info_ptr;
+	return;
 };
 
  

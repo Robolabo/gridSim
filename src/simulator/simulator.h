@@ -71,7 +71,10 @@ class CSimulator {
 	/* FUNCTIONS */		
 	void   _configureVisu      ( void );
 	void   _configureStructure ( XMLElement* elem );
+	void   _configureGrid      ( XMLElement* elem );
 	CNode* _createNode         ( XMLElement* elem );
+	void   _readLoadDB         ( void );
+	//void   _readGridProfile    ( void );
 
 };
 #endif

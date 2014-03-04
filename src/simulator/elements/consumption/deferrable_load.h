@@ -34,7 +34,7 @@ class CDefLoad;
 
 using namespace std;
 
-typedef vector<CDefLoad*> TVDefLoad;
+typedef vector<CDefLoad*> TVCDefLoad;
 
 class CDefLoad {
 
@@ -45,7 +45,10 @@ class CDefLoad {
 	void 	simulationStep	 ( void );
 	void    restart          ( void );
 
-	void    setStartTime     ( int input ){ m_nStartTime = input;};	
+	void    setStartTime     ( int input ){ m_nStartTime = input;};
+	void    setIDLoad        ( int input );
+	
+	bool    isFinished       ( void ){return m_bEnd;};
 
 	float   getPower         ( void ){return m_fPower;};
 	
@@ -53,6 +56,7 @@ class CDefLoad {
 	/* Simulator stuff */
 	sSimCnf*  m_sSimCnf;	
 	int       m_nStartTime;
+	sDefLoad* m_sLoadInfo;
 	bool      m_bEnd;
 	float 	  m_fPower;
 	

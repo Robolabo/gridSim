@@ -79,7 +79,7 @@ class CLoad {
 	//string    m_sSourceFile;	
 	float     m_fPower;
 
-	TVDefLoad m_vDefLoad;
+	TVCDefLoad m_vDefLoad;
 
 	//TMFloat*  m_mLoadDB;
 	

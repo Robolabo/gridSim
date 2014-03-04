@@ -68,8 +68,7 @@ class CUser {
 	int          m_nID;
 	int          m_nProfile;
 
-	/* FUNCTIONS */	
-	int _roulette ( TVFloat* );
+	/* FUNCTIONS */		
 	int _action   ( int );
 	
 

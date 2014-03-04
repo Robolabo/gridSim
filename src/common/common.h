@@ -50,14 +50,34 @@ using namespace tinyxml2;
 
 class CWriter;
 
+struct sGridProfile{
+	int     dur;
+	float   amp;
+	TVFloat profile;
+};
+
+struct sDefLoad{
+	int     id;
+	int     dur;
+	TVFloat profile;
+};
+
+typedef vector<sDefLoad> TVDefLoad;
+
+struct sLoadDB{
+	TVDefLoad def_load;
+};
+
 struct sSimCnf {	
-	string    sParamsFile;
-	CRandom*  pcRandom;	
-	CWriter*  pcWriter;
-	CPlotter* pcPlotter;
-	int       nSimStep;	
-	int       nSampling;
-	int       nFFTsize;
+	string       sParamsFile;
+	sLoadDB      LoadDB;
+	sGridProfile GridProfile;
+	CRandom*     pcRandom;	
+	CWriter*     pcWriter;
+	CPlotter*    pcPlotter;
+	int          nSimStep;	
+	int          nSampling;
+	int          nFFTsize;
 };
 
 struct sStructure {

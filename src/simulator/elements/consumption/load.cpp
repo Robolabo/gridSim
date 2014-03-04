@@ -93,10 +93,16 @@ void CLoad::executionStep( void ){
 		m_pcAir->simulationStep( );
 		m_fPower += m_pcAir->getInstantPower();
 	}
-	/* Deferrable Loads */		
+	/* Deferrable Loads */	
+	//cout << " LOAD: " << m_sSimCnf->GridProfile.profile[ (m_sSimCnf->nSimStep)%(m_sSimCnf->GridProfile.dur) ] << endl;
 	for ( int i = 0 ; i < m_vDefLoad.size(); i++ ){
 		m_vDefLoad[i]->simulationStep();
-		m_fPower += m_vDefLoad[i]->getPower();
+		if ( m_vDefLoad[i]->isFinished() ){
+			delete m_vDefLoad[i];
+			m_vDefLoad.erase( m_vDefLoad.begin() + i );
+		}
+		else
+			m_fPower += m_vDefLoad[i]->getPower();
 	}
 
 

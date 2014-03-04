@@ -72,10 +72,36 @@ CUser::~CUser ( void ){
 /******************************************************************************/
 void CUser::executionStep ( void ){	
 
-
+	CDefLoad* tmp_dload;
 	if ( (m_sSimCnf->nSimStep)%1440 == 0 ){
-		CDefLoad* tmp_dload = new CDefLoad ( m_sSimCnf );
-		m_pcNode->getLoad()->setDefLoad( tmp_dload );		
+
+		TVFloat next_day;
+		for ( int i = 0 ; i < 1440 ; i++ ){
+			if ( m_sSimCnf->GridProfile.dur == 0 )
+				next_day.push_back(1.0);
+			else
+				next_day.push_back(  m_sSimCnf->GridProfile.profile[ (m_sSimCnf->nSimStep + i)%(m_sSimCnf->GridProfile.dur) ] );
+		}
+		
+		int ac_time; 
+
+		tmp_dload = new CDefLoad ( m_sSimCnf );
+		ac_time   = m_sSimCnf->pcRandom->roulette( &next_day );
+		tmp_dload->setStartTime ( m_sSimCnf->nSimStep + ac_time );
+		tmp_dload->setIDLoad    ( 1 );	
+		m_pcNode->getLoad()->setDefLoad( tmp_dload );	
+
+		tmp_dload = new CDefLoad ( m_sSimCnf );
+		ac_time   = m_sSimCnf->pcRandom->roulette( &next_day );
+		tmp_dload->setStartTime ( m_sSimCnf->nSimStep + ac_time );
+		tmp_dload->setIDLoad    ( 2 );	
+		m_pcNode->getLoad()->setDefLoad( tmp_dload );
+
+		tmp_dload = new CDefLoad ( m_sSimCnf );
+		ac_time   = m_sSimCnf->pcRandom->roulette( &next_day );
+		tmp_dload->setStartTime ( m_sSimCnf->nSimStep + ac_time );
+		tmp_dload->setIDLoad    ( 3 );	
+		m_pcNode->getLoad()->setDefLoad( tmp_dload );	
 	}
 	
 
@@ -150,30 +176,3 @@ int CUser::_action ( int type ){
 
 };
 
-/******************************************************************************/
-int CUser::_roulette ( TVFloat* prob ){
-
-	/*
-	int     result;	
-	TVFloat roulette;
-	roulette.push_back( (*prob)[0] );
-	for ( int i = 1 ; i < prob->size() ; i++ ){
-		roulette.push_back( (*prob)[i] +  roulette.back() );
-	}	
-	float rand = m_sSimCnf->pcRandom->nextDouble( roulette.back() );	
-	bool  Exit = false;
-	int   cnt  = 0;
-	while (!Exit){
-		if ( roulette[cnt] > rand ){
-			result = cnt;
-			Exit   = true;
-		}
-		else{
-			cnt++;
-		}
-	}
-	return result;
-	*/
-	return 0;
-	
-};

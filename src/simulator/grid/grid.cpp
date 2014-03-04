@@ -30,41 +30,12 @@
 /* CONSTRUCTOR 							*/
 /****************************************************************/
 CGrid::CGrid ( sSimCnf*  sSimCnf ){
-
+	/* Simulator stuff */	
 	m_sSimCnf = sSimCnf;
 
-	//m_sParamsFile = sParamsFile;
-	//m_nSimStep    = nStep;
-
-	m_nGGType     = 0;
-	m_sSourceFile = "/home/manu/repo/simulator/gridSim/gridSim_1/input/profile";
-
-	/*
-	TXML_StringV tmp_pattern;
-	tmp_pattern.push_back ( "GRID" );
-	m_nGGType     = readParameter ( m_sParamsFile->c_str() , "TYPE" , &tmp_pattern );
-	m_sSourceFile = readString    ( m_sParamsFile->c_str() , "SRC"  , &tmp_pattern );		
-	*/
-	
-
-	switch( m_nGGType ){
-		case 1:
-			_configureSinusoidal ( ); 			
-			break;
-		case 2:
-			_configureProfile   ( ); 
-			break;
-		default:						
-			break;
-	}	
-
-	TVFloat   tmp_vfloat;
-	TVFreqCmp tmp_frq;
-	sFreqCmp  tmp_freqcmp;	
-
 	/* FFT */	
+	sFreqCmp  tmp_freqcmp;	
 	m_pcFFT        = new CFFT();
-
 	for ( int i = 0 ; i < (m_sSimCnf->nFFTsize)/2 + 1 ; i++ ){
 		m_vFreqSignal.push_back     ( tmp_freqcmp );
 		m_vFreqSignal_amp.push_back ( 0.0 );
@@ -83,10 +54,10 @@ void CGrid::restart ( void ){
 	m_vTimeSignal.clear();
 	m_vSampledSignal.clear();
 
+	/* Restart lines */
 	for ( int i = 0 ; i <  m_vLines.size() ; i++ ){
 		m_vLines[i]->restart();
 	}
-
 	return;
 };
 
@@ -105,7 +76,7 @@ CGrid::~CGrid ( void ){
 /****************************************************************/
 void CGrid::executionStep ( void ){	
 	/* Get General Grid Power */
-	float fPower = _gridPowerStep();		
+	float fPower = _nextGridPower();	
 	m_vGGridSignal.push_back( fPower );
 	/* Execute Lines */
 	for ( int i = 0 ; i < m_vLines.size() ; i++ )
@@ -130,6 +101,16 @@ void CGrid::executionStep ( void ){
 		m_bNewFFT = false;
 	}
 	return;
+};
+
+/****************************************************************/
+float CGrid::_nextGridPower       ( void ){
+	float result;
+	if ( m_sSimCnf->GridProfile.dur == 0 )	
+		result = m_sSimCnf->GridProfile.amp;
+	else
+		result = m_sSimCnf->GridProfile.amp * m_sSimCnf->GridProfile.profile[ (m_sSimCnf->nSimStep)%(m_sSimCnf->GridProfile.dur) ];
+	return result;
 };
 
 /****************************************************************/
@@ -165,99 +146,9 @@ void CGrid::_SignalFFT ( void ){
 	return;
 };
 
-/****************************************************************/
-float CGrid::_gridPowerStep            ( void ){
-	float fresult;
-	switch( m_nGGType ){		
-		case 1:
-			fresult = _nextInputSinusoidal( );
-			break;
-		case 2:
-			fresult  = _nextInputProfile( );			
-			break;
-		default:
-			fresult = 0.0;			
-			break;
-	}
-	return fresult;
-};
 
 
-/****************************************************************/
-float CGrid::_nextInputProfile( void ){
-	float  result = m_vInputProfile[ (m_sSimCnf->nSimStep)%m_vInputProfile.size() ];
-	float  next_p = m_vInputProfile[ (m_sSimCnf->nSimStep + 1440 )%m_vInputProfile.size() ];
-	m_vDailyProfile.push_back( next_p );
-	m_vDailyProfile.erase( m_vDailyProfile.begin() );	
-	return result;
-};
 
-/****************************************************************/
-float CGrid::_nextInputSinusoidal( void ){
-	float result = 0.0;	
-	for ( int i = 0 ; i < m_vSinusoidalInput.size() ; i++ ){
-		result += m_vSinusoidalInput[i].amp * ( 1.0 + cos( TWO_PI * float(m_sSimCnf->nSimStep)/m_vSinusoidalInput[i].period + m_vSinusoidalInput[i].phs ) );
-	}	
-	return result;
-};
-
-/****************************************************************/
-void CGrid::_configureProfile    ( void ){
-	ifstream InputFile    ( m_sSourceFile.c_str() );
-	m_vInputProfile.clear ( );
-	float tmp_float, slope;
-	InputFile.ignore   ( 256, ' ' );
-	InputFile.ignore   ( 256, ' ' );
-	InputFile.ignore   ( 256, ' ' );
-	InputFile >> tmp_float;
-	m_vInputProfile.push_back( 10000000.0 * tmp_float );
-	InputFile.ignore   ( 256, '\n' );
-	for ( int i = 1 ; i < 720 ; i++ ){
-		InputFile.ignore   ( 256, ' ' );
-		InputFile.ignore   ( 256, ' ' );
-		InputFile.ignore   ( 256, ' ' );
-		InputFile >> tmp_float;
-		tmp_float *= 10000000.0;
-		slope = (tmp_float - m_vInputProfile.back())/60.0;
-		for ( int j = 0 ; j  < 60 ; j++ ){
-			m_vInputProfile.push_back( m_vInputProfile.back() + slope );
-		}
-		InputFile.ignore   ( 256, '\n' );
-	}
-	InputFile.close();
-	/* Create DailyProfile */
-	for ( int i = 0 ; i < 1440 ; i++)
-		m_vDailyProfile.push_back( m_vInputProfile[i] );
-
-	return;
-};
-
-/****************************************************************/
-void CGrid::_configureSinusoidal ( void ){ 	
-	//int numberFC = int ( readParameter ( m_sSourceFile.c_str() , "FCOMP", NULL));
-	/*
-	string       tmp_data;	
-	sFreqCmp     tmp_FC;	
-	for (int i = 1 ; i <= numberFC ; i++ ){	
-		ostringstream tmp_str;			
-		tmp_str << i;
-		tmp_data.assign("FCPr_");		
-		tmp_data.append( tmp_str.str() );				
-		tmp_FC.period    = readParameter ( m_sSourceFile.c_str() , tmp_data.c_str(), NULL );
-			
-		tmp_data.assign("FCAm_");
-		tmp_data.append( tmp_str.str() );
-		tmp_FC.amp       = readParameter ( m_sSourceFile.c_str() , tmp_data.c_str(), NULL);
-		
-		tmp_data.assign("FCPh_");
-		tmp_data.append( tmp_str.str() );
-		tmp_FC.phs       = readParameter ( "param_file/signalComp.xml" , tmp_data.c_str(), NULL);
-			
-		m_vSinusoidalInput.push_back ( tmp_FC );
-	}
-	*/
-	return;
-};
 
 
 

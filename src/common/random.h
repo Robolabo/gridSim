@@ -31,11 +31,14 @@
 #include <math.h>
 #include <assert.h>
 #include <iostream>
+#include <vector>
 
 /* position of right-most step */
 #define PARAM_R 3.44428647676
 
 using namespace std;
+
+typedef vector <float> TVFloat_random;
 
 class CRandom {
 	private:
@@ -78,6 +81,9 @@ class CRandom {
   
   	// uniformly distributed boolean
  	bool nextBoolean();
+
+	// Roulette
+	unsigned int roulette ( TVFloat_random* prob );
   
 };
 

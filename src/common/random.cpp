@@ -261,4 +261,27 @@ unsigned long CRandom::_gsl_rng_uint32 (gsl_rng* r){
   	}
 };
 
+/******************************************************************************/
+unsigned int CRandom::roulette ( TVFloat_random* prob ){
+	int            result;	
+	TVFloat_random roulette;
+	roulette.push_back( prob->at(0) );
+	for ( int i = 1 ; i < prob->size() ; i++ ){
+		roulette.push_back( prob->at(i) +  roulette.back() );
+	}	
+	float rand = nextDouble( roulette.back() );	
+	bool  Exit = false;
+	int   cnt  = 0;
+	while (!Exit){
+		if ( roulette[cnt] > rand ){
+			result = cnt;
+			Exit   = true;
+		}
+		else{
+			cnt++;
+		}
+	}
+	return result;	
+};
+
 

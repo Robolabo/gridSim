@@ -58,6 +58,9 @@ CSimulator::CSimulator ( string pcParamsFile ){
 			attr                = elem->Attribute("fft_lng");
 			m_sSimCnf.nFFTsize  = atoi( attr.c_str() );
 		}
+		else if ( elemName == "Grid" ){
+			_configureGrid ( elem );
+		}
 		else if ( elemName == "Visualization" ){
 			attr    = elem->Attribute("active");
 			m_bVisu = bool (atoi( attr.c_str() ));
@@ -73,6 +76,9 @@ CSimulator::CSimulator ( string pcParamsFile ){
 		}
 	}
 	conf.Clear();
+	/* Read DBs */
+	_readLoadDB();
+	//_readGridProfile();
 	/* Initialize values */
 	restart();
 	
@@ -255,4 +261,158 @@ void CSimulator::ExecuteSimulation ( void ){
 	}
 	return;
 };
+
+/****************************************************************/
+void CSimulator::_configureGrid ( XMLElement* elem ){
+	string attr;
+	// Get Grid maximum amplitude
+	if ( elem->Attribute("amp") ){
+		attr = elem->Attribute("amp");
+		m_sSimCnf.GridProfile.amp = atof( attr.c_str() );
+	} 
+	else{
+		m_sSimCnf.GridProfile.amp = 0.0;
+	}
+	// Get Profile
+	if ( elem->Attribute("file") ){
+		attr = elem->Attribute("file");
+		ifstream inputFile    ( attr.c_str() );
+		if ( inputFile.is_open() ){
+			TVFloat  profile;
+			float tmp_float, slope;		
+			inputFile.ignore   ( 256, ' ' );
+			inputFile.ignore   ( 256, ' ' );
+			inputFile.ignore   ( 256, ' ' );
+			inputFile.ignore   ( 256, ' ' );
+			inputFile.ignore   ( 256, ' ' );
+			inputFile >> tmp_float;
+			profile.push_back( tmp_float );
+			inputFile.ignore   ( 256, '\n' );
+			for ( int i = 1 ; i < 720 ; i++ ){
+				inputFile.ignore   ( 256, ' ' );
+				inputFile.ignore   ( 256, ' ' );
+				inputFile.ignore   ( 256, ' ' );
+				inputFile.ignore   ( 256, ' ' );
+				inputFile.ignore   ( 256, ' ' );
+				inputFile >> tmp_float;				
+				slope = (tmp_float - profile.back())/60.0;
+				for ( int j = 0 ; j  < 60 ; j++ ){
+					profile.push_back( profile.back() + slope );
+				}
+				inputFile.ignore   ( 256, '\n' );
+			}
+			inputFile.close();
+			m_sSimCnf.GridProfile.dur     = profile.size();
+			m_sSimCnf.GridProfile.profile = profile;
+		}
+		else{
+			m_sSimCnf.GridProfile.dur = 0;
+		}		
+	}
+	else{
+		m_sSimCnf.GridProfile.dur = 0;
+	}
+
+
+	return;
+};
+
+/****************************************************************/
+/*
+void CSimulator::_readGridProfile    ( void ){
+	ifstream InputFile    ( "data/PERFF_2013" );
+	TVFloat  profile;
+	float tmp_float, slope;
+	InputFile.ignore   ( 256, ' ' );
+	InputFile.ignore   ( 256, ' ' );
+	InputFile.ignore   ( 256, ' ' );
+	InputFile.ignore   ( 256, ' ' );
+	InputFile.ignore   ( 256, ' ' );
+	InputFile >> tmp_float;
+	profile.push_back( 10000000.0 * tmp_float );
+	InputFile.ignore   ( 256, '\n' );
+	for ( int i = 1 ; i < 720 ; i++ ){
+		InputFile.ignore   ( 256, ' ' );
+		InputFile.ignore   ( 256, ' ' );
+		InputFile.ignore   ( 256, ' ' );
+		InputFile.ignore   ( 256, ' ' );
+		InputFile.ignore   ( 256, ' ' );
+		InputFile >> tmp_float;
+		tmp_float *= 10000000.0;
+		slope = (tmp_float - profile.back())/60.0;
+		for ( int j = 0 ; j  < 60 ; j++ ){
+			profile.push_back( profile.back() + slope );
+		}
+		InputFile.ignore   ( 256, '\n' );
+	}
+	InputFile.close();
+
+	m_sSimCnf.GridProfile.dur     = profile.size();
+	m_sSimCnf.GridProfile.profile = profile;
+
+	return;
+};
+*/
+
+/****************************************************************/
+void CSimulator::_readLoadDB        ( void ){
+
+	ifstream inputFile;
+	TVFloat  tmp_shape;
+	float    tmp_power;
+	sDefLoad tmp_def_load;
+
+	inputFile.open ("data/def_load_profiles/WM_60_1200");
+	tmp_shape.clear();
+	while ( !inputFile.eof() ){
+		inputFile.ignore( 256 , ' ' );
+		inputFile >> tmp_power;
+		tmp_shape.push_back( tmp_power );
+	}	
+	tmp_def_load.id      = 1;
+	tmp_def_load.dur     = tmp_shape.size();
+	tmp_def_load.profile = tmp_shape; 
+	m_sSimCnf.LoadDB.def_load.push_back( tmp_def_load );
+	inputFile.close();
+
+	inputFile.open ("data/def_load_profiles/DR_RP_1200");
+	tmp_shape.clear();
+	while ( !inputFile.eof() ){
+		inputFile.ignore( 256 , ' ' );
+		inputFile >> tmp_power;
+		tmp_shape.push_back( tmp_power );
+	}
+	tmp_def_load.id      = 2;
+	tmp_def_load.dur     = tmp_shape.size();
+	tmp_def_load.profile = tmp_shape; 
+	m_sSimCnf.LoadDB.def_load.push_back( tmp_def_load );
+	inputFile.close();
+
+	inputFile.open ("data/def_load_profiles/DW_RP");
+	tmp_shape.clear();
+	while ( !inputFile.eof() ){
+		inputFile.ignore( 256 , ' ' );
+		inputFile >> tmp_power;
+		tmp_shape.push_back( tmp_power );
+	}
+	tmp_def_load.id      = 3;
+	tmp_def_load.dur     = tmp_shape.size();
+	tmp_def_load.profile = tmp_shape; 
+	m_sSimCnf.LoadDB.def_load.push_back( tmp_def_load );	
+	inputFile.close();
+	return;
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
 
