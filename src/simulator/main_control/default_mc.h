@@ -46,6 +46,9 @@ class CDefault_MC : public CMainControl {
 	TVFloat* getEvaluation  ( void );
 
 	private:
+
+	TVFloat  m_vTimeSignal;
+	TVFloat  m_vSampledSig;
 		
 };
 

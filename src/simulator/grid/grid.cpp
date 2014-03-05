@@ -32,28 +32,31 @@
 CGrid::CGrid ( sSimCnf*  sSimCnf ){
 	/* Simulator stuff */	
 	m_sSimCnf = sSimCnf;
-
 	/* FFT */	
 	sFreqCmp  tmp_freqcmp;	
 	m_pcFFT        = new CFFT();
 	for ( int i = 0 ; i < (m_sSimCnf->nFFTsize)/2 + 1 ; i++ ){
 		m_vFreqSignal.push_back     ( tmp_freqcmp );
 		m_vFreqSignal_amp.push_back ( 0.0 );
-	}	
-	m_bNewFFT = false;
-
+	}
+	/* Clear variables */	
+	m_bNewSample   = false;
+	m_fPower       = 0.0;
+	m_fPower_lines = 0.0;
+	m_fPower_egrid = 0.0;
+	m_vSampledSignal.clear();
 };
 
 /****************************************************************/
 /* RESTART 							*/
 /****************************************************************/
 void CGrid::restart ( void ){
-
-	m_bNewFFT = false;
-
-	m_vTimeSignal.clear();
+	/* Clear variables */
+	m_bNewSample   = false;	
+	m_fPower       = 0.0;
+	m_fPower_lines = 0.0;
+	m_fPower_egrid = 0.0;
 	m_vSampledSignal.clear();
-
 	/* Restart lines */
 	for ( int i = 0 ; i <  m_vLines.size() ; i++ ){
 		m_vLines[i]->restart();
@@ -76,29 +79,27 @@ CGrid::~CGrid ( void ){
 /****************************************************************/
 void CGrid::executionStep ( void ){	
 	/* Get General Grid Power */
-	float fPower = _nextGridPower();	
-	m_vGGridSignal.push_back( fPower );
+	m_fPower_egrid = _nextGridPower();	
 	/* Execute Lines */
 	for ( int i = 0 ; i < m_vLines.size() ; i++ )
 		m_vLines[i]->executionStep ();
 	/* Get Lines Power */
-	fPower = 0.0;
+	m_fPower_lines = 0.0;
 	for ( int i = 0 ; i < m_vLines.size() ; i++ )
-		fPower += m_vLines[i]->getPower ();
-	
-	fPower *= 1e-3;
-
-	m_vLinesSignal.push_back( fPower );
-
-	/* Global Power */
-	m_vTimeSignal.push_back( m_vGGridSignal.back() + m_vLinesSignal.back() );	
+		m_fPower_lines += m_vLines[i]->getPower ();
+	/* Global Power */	
+	m_fPower = m_fPower_egrid + m_fPower_lines;
 	if ( (m_sSimCnf->nSimStep)%(m_sSimCnf->nSampling) == 0 ){		
-		m_vSampledSignal.push_back( m_vTimeSignal.back() );
-		/* FFT */	
-		_SignalFFT ( );	
+		m_vSampledSignal.push_back( m_fPower );	
+		m_bNewSample = true;
+		// FFT 	
+		_SignalFFT ( );			
+		// Clear sampled signal
+		if ( m_vSampledSignal.size() >= m_sSimCnf->nFFTsize )
+			m_vSampledSignal.erase( m_vSampledSignal.begin() );
 	}
 	else{
-		m_bNewFFT = false;
+		m_bNewSample = false;
 	}
 	return;
 };
@@ -141,7 +142,7 @@ void CGrid::_SignalFFT ( void ){
 			m_vFreqSignal.push_back     ( tmp_freqcmp );	
 			m_vFreqSignal_amp.push_back ( tmp_freqcmp.amp );							
 		}
-		m_bNewFFT = true;			
+		//m_bNewFFT = true;			
 	}	
 	return;
 };

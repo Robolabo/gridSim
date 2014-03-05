@@ -2,12 +2,12 @@
 <GridSim>
 	<Simulation seed="-1" length="525600" sampling="90" fft_lng="128"/>
 	<Visualization active="1" rf_rate="100">
-		<scr title="Grid power"       x_lng="10000" y_ini="-3000" y_end="3000"/>
-		<scr title="Grid power FFT"   x_lng="64" y_ini="-3000" y_end="3000"/>									
+		<scr title="Grid power"       x_lng="10000" y_ini="-30000" y_end="30000"/>
+		<scr title="Grid power FFT"   x_lng="64" y_ini="-30000" y_end="30000"/>									
 	</Visualization>
-	<Grid file="data/PERFF_2013" amp="10000000.0"/>
-	<Structure lines="0" > 
-		<line_1 nodes="5000" type="basic_node"/>
+	<Grid file="data/PERFF_2013" amp="100000000.0"/>
+	<Structure lines="1" > 
+		<line_1 nodes="1" type="basic_node"/>
 		<basic_node>
 			<!--<pv   gen="data/pv_ideal_profile" frc="data/pv_ideal_profile" power="1"/>-->
 			<!--<bat  cap="800.0" num_inv="1"/>-->

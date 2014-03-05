@@ -152,34 +152,6 @@ CNode* CSimulator::_createNode ( XMLElement* elem ){
 };
 
 /****************************************************************/
-/* RESTART SIMULATION						*/
-/****************************************************************/
-void CSimulator::restart ( void ){
-	/* Random */
-	if ( m_sSimCnf.pcRandom )
-		delete m_sSimCnf.pcRandom;	
-	if ( m_nSeed < 0 )	
-		m_sSimCnf.pcRandom = new CRandom ();
-	else
-		m_sSimCnf.pcRandom = new CRandom ( m_nSeed );
-	/* Clock */
-	m_sSimCnf.nSimStep       = 0;	
-	/* Create Visualization */
-	if ( m_bVisu ){
-		_configureVisu ( );
-	}
-	/* Restart objects */		
-	if ( m_pcMainControl )
-		m_pcMainControl->restart();		
-	m_pcGrid->restart();
-	for ( int i = 0 ; i < m_vCtr.size() ; i++ )
-		m_vCtr[i]->restart();
-	for ( int i = 0 ; i < m_vUsers.size() ; i++ )
-		m_vUsers[i]->restart();
-	return;
-};
-
-/****************************************************************/
 void CSimulator::_configureVisu ( void ){
 	if ( m_sSimCnf.pcPlotter )
 		delete m_sSimCnf.pcPlotter;				
@@ -211,54 +183,6 @@ void CSimulator::_configureVisu ( void ){
 		}
 	}
 	conf.Clear();
-	return;
-};
-
-/****************************************************************/
-/* DESTRUCTOR 							*/
-/****************************************************************/
-CSimulator::~CSimulator ( void ){
-	if ( m_sSimCnf.pcRandom ){		
-		delete m_sSimCnf.pcRandom;		
-	}
-	delete m_pcGrid;
-	delete m_pcMainControl;	
-	return;
-};
-
-/****************************************************************/
-/* MAIN FUNCTION						*/
-/****************************************************************/
-void CSimulator::ExecuteSimulation ( void ){	
-	bool  SimFinished = false;
-	while (!SimFinished){
-		/* EXECUTION */	
-		/* Main Control */
-		if ( m_pcMainControl )
-			m_pcMainControl->executionStep();
-		/* Users */
-		for ( int i = 0 ; i < m_vUsers.size() ; i++ ){
-			m_vUsers[i]->executionStep();
-		}		
-		/* Controllers */
-		for ( int i = 0 ; i < m_vCtr.size() ; i++ ){
-			m_vCtr[i]->executionStep();
-		}					
-		/* GRID */
-		m_pcGrid->executionStep();		
-		/* WRITE */
-		if ( m_sSimCnf.pcWriter )
-			m_sSimCnf.pcWriter->write_buffer();
-		/* VISUALIZATION */
-		if ( m_bVisu  )
-			m_sSimCnf.pcPlotter->updateDisplay ();
-		/* FINAL CONDITION */
-		if ( ( m_bVisu && m_sSimCnf.pcPlotter->closed() ) || ( m_nStepLimit > 0 && m_sSimCnf.nSimStep > m_nStepLimit ) ){
-			SimFinished = true;
-		}
-		/* STEP */
-		m_sSimCnf.nSimStep++;
-	}
 	return;
 };
 
@@ -318,43 +242,6 @@ void CSimulator::_configureGrid ( XMLElement* elem ){
 };
 
 /****************************************************************/
-/*
-void CSimulator::_readGridProfile    ( void ){
-	ifstream InputFile    ( "data/PERFF_2013" );
-	TVFloat  profile;
-	float tmp_float, slope;
-	InputFile.ignore   ( 256, ' ' );
-	InputFile.ignore   ( 256, ' ' );
-	InputFile.ignore   ( 256, ' ' );
-	InputFile.ignore   ( 256, ' ' );
-	InputFile.ignore   ( 256, ' ' );
-	InputFile >> tmp_float;
-	profile.push_back( 10000000.0 * tmp_float );
-	InputFile.ignore   ( 256, '\n' );
-	for ( int i = 1 ; i < 720 ; i++ ){
-		InputFile.ignore   ( 256, ' ' );
-		InputFile.ignore   ( 256, ' ' );
-		InputFile.ignore   ( 256, ' ' );
-		InputFile.ignore   ( 256, ' ' );
-		InputFile.ignore   ( 256, ' ' );
-		InputFile >> tmp_float;
-		tmp_float *= 10000000.0;
-		slope = (tmp_float - profile.back())/60.0;
-		for ( int j = 0 ; j  < 60 ; j++ ){
-			profile.push_back( profile.back() + slope );
-		}
-		InputFile.ignore   ( 256, '\n' );
-	}
-	InputFile.close();
-
-	m_sSimCnf.GridProfile.dur     = profile.size();
-	m_sSimCnf.GridProfile.profile = profile;
-
-	return;
-};
-*/
-
-/****************************************************************/
 void CSimulator::_readLoadDB        ( void ){
 
 	ifstream inputFile;
@@ -402,6 +289,84 @@ void CSimulator::_readLoadDB        ( void ){
 	inputFile.close();
 	return;
 };
+
+/****************************************************************/
+/* RESTART SIMULATION						*/
+/****************************************************************/
+void CSimulator::restart ( void ){
+	/* Random */
+	if ( m_sSimCnf.pcRandom )
+		delete m_sSimCnf.pcRandom;	
+	if ( m_nSeed < 0 )	
+		m_sSimCnf.pcRandom = new CRandom ();
+	else
+		m_sSimCnf.pcRandom = new CRandom ( m_nSeed );
+	/* Clock */
+	m_sSimCnf.nSimStep       = 0;	
+	/* Create Visualization */
+	if ( m_bVisu ){
+		_configureVisu ( );
+	}
+	/* Restart objects */		
+	if ( m_pcMainControl )
+		m_pcMainControl->restart();		
+	m_pcGrid->restart();
+	for ( int i = 0 ; i < m_vCtr.size() ; i++ )
+		m_vCtr[i]->restart();
+	for ( int i = 0 ; i < m_vUsers.size() ; i++ )
+		m_vUsers[i]->restart();
+	return;
+};
+
+/****************************************************************/
+/* DESTRUCTOR 							*/
+/****************************************************************/
+CSimulator::~CSimulator ( void ){
+	if ( m_sSimCnf.pcRandom ){		
+		delete m_sSimCnf.pcRandom;		
+	}
+	delete m_pcGrid;
+	delete m_pcMainControl;	
+	return;
+};
+
+/****************************************************************/
+/* MAIN FUNCTION						*/
+/****************************************************************/
+void CSimulator::ExecuteSimulation ( void ){	
+	bool  SimFinished = false;
+	/* EXECUTION */	
+	while (!SimFinished){		
+		/* MAIN CONTROL */
+		if ( m_pcMainControl )
+			m_pcMainControl->executionStep();
+		/* USERS */
+		for ( int i = 0 ; i < m_vUsers.size() ; i++ ){
+			m_vUsers[i]->executionStep();
+		}		
+		/* CONTROLLERS */
+		for ( int i = 0 ; i < m_vCtr.size() ; i++ ){
+			m_vCtr[i]->executionStep();
+		}					
+		/* GRID */
+		m_pcGrid->executionStep();		
+		/* WRITE */
+		if ( m_sSimCnf.pcWriter )
+			m_sSimCnf.pcWriter->write_buffer();
+		/* VISUALIZATION */
+		if ( m_bVisu  )
+			m_sSimCnf.pcPlotter->updateDisplay ();		
+		/* STEP */
+		m_sSimCnf.nSimStep++;
+		/* FINAL CONDITION */
+		if ( ( m_bVisu && m_sSimCnf.pcPlotter->closed() ) || ( m_nStepLimit > 0 && m_sSimCnf.nSimStep > m_nStepLimit ) ){
+			SimFinished = true;
+		}
+	}
+	return;
+};
+
+
 
 
 

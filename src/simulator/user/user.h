@@ -34,7 +34,6 @@ class CUser;
 #include "common.h"
 #include "grid/node.h"
 #include "elements/consumption/load.h"
-//#include "controllers/controller.h"
 
 typedef vector<CUser*> TVCUser;
 
@@ -46,13 +45,8 @@ class CUser {
 	CUser  ( sSimCnf*  sSimCnf , CNode* pcNode , XMLElement* cnf );
 	~CUser ( void );	
 
-	void restart( void );
-	
-	void executionStep  ( void );
-	//void linkNode       ( CNode* input ){m_pcNode = input;};	
-	//void linkGrid       ( CGrid* );	
-	void setID          ( int      input ){m_nID      = input;};
-	//void linkController ( CController* input ){m_pcController = input;};		
+	void restart( void );	
+	void executionStep  ( void );		
 
 	private:
 	/* Simulator stuff */
@@ -60,16 +54,8 @@ class CUser {
 
 	/* VARIABLES */		
 	CNode*       m_pcNode;
-	//CGrid*       m_pcGrid;	
-	//CController* m_pcController;	
-	TVFloat*     m_vInputProfile;	
-
-	//TVDefLoad    m_vToDo;
-	int          m_nID;
-	int          m_nProfile;
 
 	/* FUNCTIONS */		
-	int _action   ( int );
 	
 
 };

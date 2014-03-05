@@ -37,8 +37,8 @@ CDefault_MC::CDefault_MC ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vC
 void CDefault_MC::restart  ( void ){		
 	/* Set plotter */
 	if ( m_sSimCnf->pcPlotter ){	
-		m_sSimCnf->pcPlotter->setData    ( 0 , m_pcGrid->getTimeSignal ( )    );
-		m_sSimCnf->pcPlotter->setMarks   ( 0 , m_pcGrid->getTimeSample ( )    );
+		m_sSimCnf->pcPlotter->setData    ( 0 , &m_vTimeSignal                 );
+		m_sSimCnf->pcPlotter->setMarks   ( 0 , &m_vSampledSig                 );
 		m_sSimCnf->pcPlotter->setMarksSp ( 0 , m_sSimCnf->nSampling           );
 		m_sSimCnf->pcPlotter->setMarks   ( 1 , m_pcGrid->getFreqSignalAmp ( ) );		
 	}
@@ -60,10 +60,24 @@ TVFloat* CDefault_MC::getEvaluation  ( void ){
 /******************************************************************************/
 /* Execution Step */
 void CDefault_MC::executionStep( void ){
+	m_vTimeSignal.push_back( m_pcGrid->getPower() );
+
+	if ( m_pcGrid->is_Sample() ){		
+		m_vSampledSig.push_back( m_pcGrid->getPower_sampled() );
+	}	
+
 	if ( m_sSimCnf->pcWriter ){
-		if ( m_pcGrid->getTimeSignal()->size() > 0 )
-			m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getTimeSignal()->back() );		
+		m_sSimCnf->pcWriter->push_buffer( m_vTimeSignal.back() );		
 	}
+
+	/* Clean vectors */
+	/*
+	if ( m_vTimeSignal.size() > 10000 + m_sSimCnf->nSampling ){
+		for ( int i = 0 ; i < m_sSimCnf->nSampling ; i++ )
+			m_vTimeSignal.erase( m_vTimeSignal.begin() + i );
+		m_vSampledSig.erase( m_vSampledSig.begin() );		
+	}
+	*/
 	return;
 };
 

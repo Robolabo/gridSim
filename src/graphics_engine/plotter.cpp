@@ -237,9 +237,10 @@ void CPlotter::_updateDisplay ( int ptr ){
 			subvisu.draw_line( x0 , y0 , x1 , y1 , cimg_blue);
 			if ( vDisplay[ptr].v_marks != NULL && (ini + j)%vDisplay[ptr].v_marks_sp == 0 ){	
 				y0 = subheight * (( 1.0 - ( - vDisplay[ptr].y_ini)/ fScale ));
-				y1 = subheight * (( 1.0 - ( (*(vDisplay[ptr].v_marks))[ (ini + j)/vDisplay[ptr].v_marks_sp ] - vDisplay[ptr].y_ini)/ fScale ));		
+				y1 = subheight * (( 1.0 - ( (*(vDisplay[ptr].v_marks))[ (ini + j)/vDisplay[ptr].v_marks_sp ] - vDisplay[ptr].y_ini)/ fScale ));
 				subvisu.draw_line( x0 , y0 , x0 , y1 , cimg_green);			
-			}											
+			}
+														
 		}
 	}
 	else if ( vDisplay[ptr].v_marks != NULL ){
