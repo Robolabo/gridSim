@@ -60,14 +60,14 @@ TVFloat* CDefault_MC::getEvaluation  ( void ){
 /******************************************************************************/
 /* Execution Step */
 void CDefault_MC::executionStep( void ){
-	m_vTimeSignal.push_back( m_pcGrid->getPower() );
-
-	if ( m_pcGrid->is_Sample() ){		
-		m_vSampledSig.push_back( m_pcGrid->getPower_sampled() );
-	}	
-
+	if ( m_sSimCnf->pcPlotter ){
+		m_vTimeSignal.push_back( m_pcGrid->getPower() );
+		if ( m_pcGrid->is_Sample() ){		
+			m_vSampledSig.push_back( m_pcGrid->getPower_sampled() );
+		}
+	}
 	if ( m_sSimCnf->pcWriter ){
-		m_sSimCnf->pcWriter->push_buffer( m_vTimeSignal.back() );		
+		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getPower() );		
 	}
 
 	/* Clean vectors */
