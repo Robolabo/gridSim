@@ -68,7 +68,7 @@ void CDefLoad::simulationStep ( void ){
 };
 
 /****************************************************************/
-void CDefLoad::setIDLoad ( int input ){
+void CDefLoad::setLoadType ( int input ){
 	sDefLoad* info_ptr;
 	for ( int i = 0 ; i < m_sSimCnf->LoadDB.def_load.size() ; i++ ){		
 		if ( m_sSimCnf->LoadDB.def_load[i].id == input )

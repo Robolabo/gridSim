@@ -64,19 +64,22 @@ void CUser::executionStep ( void ){
 		tmp_dload = new CDefLoad ( m_sSimCnf );
 		ac_time   = m_sSimCnf->pcRandom->roulette( &next_day );
 		tmp_dload->setStartTime ( m_sSimCnf->nSimStep + ac_time );
-		tmp_dload->setIDLoad    ( 1 );	
+		tmp_dload->setLoadType  ( 1 );	
+		tmp_dload->setLoadID    ( 10 * m_sSimCnf->nSimStep + 1 );
 		m_pcNode->getLoad()->setDefLoad( tmp_dload );	
 
 		tmp_dload = new CDefLoad ( m_sSimCnf );
 		ac_time   = m_sSimCnf->pcRandom->roulette( &next_day );
 		tmp_dload->setStartTime ( m_sSimCnf->nSimStep + ac_time );
-		tmp_dload->setIDLoad    ( 2 );	
+		tmp_dload->setLoadType  ( 2 );	
+		tmp_dload->setLoadID    ( 10 * m_sSimCnf->nSimStep + 2 );
 		m_pcNode->getLoad()->setDefLoad( tmp_dload );
 
 		tmp_dload = new CDefLoad ( m_sSimCnf );
 		ac_time   = m_sSimCnf->pcRandom->roulette( &next_day );
 		tmp_dload->setStartTime ( m_sSimCnf->nSimStep + ac_time );
-		tmp_dload->setIDLoad    ( 3 );	
+		tmp_dload->setLoadType  ( 3 );	
+		tmp_dload->setLoadID    ( 10 * m_sSimCnf->nSimStep + 3 );
 		m_pcNode->getLoad()->setDefLoad( tmp_dload );	
 	}
 

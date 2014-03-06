@@ -48,7 +48,9 @@ class CLoad {
 
 	float            getPower          ( void ){return m_fPower;};	
 	CAirConditioner* getAirConditioner ( void ){return m_pcAir;};
-
+	TVCDefLoad*      getDefLoads       ( void ){return &m_vDefLoad;};
+	
+	
 	void             setDefLoad        ( CDefLoad* input ){m_vDefLoad.push_back( input );};
 	
 	//TVFloat* getShape    ( int type ){return &((*m_mLoadDB)[ type ]);};

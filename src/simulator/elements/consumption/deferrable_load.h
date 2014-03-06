@@ -46,16 +46,19 @@ class CDefLoad {
 	void    restart          ( void );
 
 	void    setStartTime     ( int input ){ m_nStartTime = input;};
-	void    setIDLoad        ( int input );
+	void    setLoadID        ( int input ){ m_nID        = input;};
+	void    setLoadType      ( int input );
 	
 	bool    isFinished       ( void ){return m_bEnd;};
 
 	float   getPower         ( void ){return m_fPower;};
+	int     getID            ( void ){return m_nID;};  
 	
 	private:
 	/* Simulator stuff */
 	sSimCnf*  m_sSimCnf;	
 	int       m_nStartTime;
+	int       m_nID;
 	sDefLoad* m_sLoadInfo;
 	bool      m_bEnd;
 	float 	  m_fPower;
