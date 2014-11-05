@@ -30,6 +30,9 @@
 /* LIBRARIES*/
 #include "controller.h"
 #include "bat_ctr.h"
+#include "ADSM_ctr.h"
+#include "mufco_ctr.h"
+#include "swarmgrid_ctr.h"
 
 /* Functions */
 CController* createCtr ( sSimCnf*  sSimCnf , CNode* pcNode , XMLElement* cnf );

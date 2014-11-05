@@ -27,13 +27,12 @@
 /* CONSTRUCTOR */
 CDefLoad::CDefLoad ( sSimCnf*  sSimCnf ) {
 	m_sSimCnf = sSimCnf;
-
 	m_fPower       = 0.0;	
 	m_nStartTime   = 0;
+	m_nRange       = 0;
 	m_bEnd         = false;
-
+	m_bCtrFlag     = false;
 	m_sLoadInfo    = NULL;
-
 };
 
 /****************************************************************/
@@ -52,13 +51,14 @@ CDefLoad::~CDefLoad ( void ){
  **************************************************/
 void CDefLoad::simulationStep ( void ){
 	m_fPower       = 0.0;
+	
 	if ( m_sLoadInfo ){
 		if ( m_sSimCnf->nSimStep >= m_nStartTime ){
 			if ( m_sSimCnf->nSimStep >= m_nStartTime + m_sLoadInfo->dur ){
 				m_bEnd   = true;
 			}
 			else{
-				m_fPower = m_sLoadInfo->profile[ m_sSimCnf->nSimStep - m_nStartTime ];
+				m_fPower = m_sLoadInfo->profile[ m_sSimCnf->nSimStep - m_nStartTime ];				
 			}
 		}
 	}

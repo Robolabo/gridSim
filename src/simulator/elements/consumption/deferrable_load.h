@@ -45,23 +45,30 @@ class CDefLoad {
 	void 	simulationStep	 ( void );
 	void    restart          ( void );
 
-	void    setStartTime     ( int input ){ m_nStartTime = input;};
-	void    setLoadID        ( int input ){ m_nID        = input;};
-	void    setLoadType      ( int input );
+	void    setStartTime     ( int  input ){ m_nStartTime = input;};	
+	void    setLoadType      ( int  input );
+	void    setRange         ( int  input ){ m_nRange = input;};
+	void	setCtrFlag       ( bool input ){ m_bCtrFlag = input;};
 	
 	bool    isFinished       ( void ){return m_bEnd;};
+	bool    isCtrFlag        ( void ){return m_bCtrFlag;};
 
-	float   getPower         ( void ){return m_fPower;};
-	int     getID            ( void ){return m_nID;};  
+	float     getPower         ( void ){return m_fPower;};	
+	int       getDur           ( void ){return m_sLoadInfo->dur;};  
+	int       getRange         ( void ){return m_nRange;};
+	int       getStartTime     ( void ){return m_nStartTime;};
+	sDefLoad* getLoadInfo      ( void ){return m_sLoadInfo;};
 	
 	private:
 	/* Simulator stuff */
 	sSimCnf*  m_sSimCnf;	
-	int       m_nStartTime;
-	int       m_nID;
+	int       m_nStartTime;	
 	sDefLoad* m_sLoadInfo;
 	bool      m_bEnd;
 	float 	  m_fPower;
+	int       m_nRange;
+
+	bool      m_bCtrFlag;
 	
 };
 

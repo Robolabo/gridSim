@@ -60,6 +60,7 @@ class CBattInverter {
 	void   setChargePowLimit ( double fchargepow );
 
 	double getSoC            ( void ){return m_pcBattery->getSoC();};
+	double getCap            ( void ){return m_pcBattery->getCap();};
 	double getAvailablePower ( void ){return AvailablePower();};
 	double getAcceptedPower  ( void ){return AcceptedPower();};
 

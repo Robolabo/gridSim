@@ -28,16 +28,28 @@
 
 /******************************************************************************/
 /* CONSTRUCTOR */
-CPV::CPV ( sSimCnf*  sSimCnf , XMLElement* cnf ){
+CPV::CPV ( sSimCnf*  sSimCnf , XMLElement* cnf , TVFloat* pv_gen , TVFloat* pv_frc ){
 	/* General Simulator Configuration */
 	m_sSimCnf = sSimCnf;
 	/* Get input files (hourly data) */
 	m_sPwGenFile = cnf->Attribute("gen");
 	m_sPwFrcFile = cnf->Attribute("frc");
 	m_fPAmp      = atof(cnf->Attribute("power"));
+	/* Get profiles */
+	if ( pv_gen->size() == 0 ){
+		_readAll( &m_sPwGenFile , pv_gen );
+	}
+	if ( pv_frc->size() == 0 ){
+		_readAll( &m_sPwFrcFile , pv_frc );
+	}
+	m_vPwGen = pv_gen;
+	m_vPwFrc = pv_frc;
+	return;
+};
 
-	_readAll( &m_sPwGenFile , &m_vPwGen );
-	_readAll( &m_sPwFrcFile , &m_vPwFrc );
+/******************************************************************************/
+void CPV::restart ( void ){
+	m_fPower = 0.0;
 	return;
 };	
 
@@ -50,20 +62,52 @@ CPV::~CPV ( void ){
 /******************************************************************************/
 /* Step execution */
 void CPV::executionStep( void ){	
-	m_fPower = m_fPAmp * m_vPwGen[(m_sSimCnf->nSimStep)%m_vPwGen.size()];
+	m_fPower = m_fPAmp * m_vPwGen->at( m_sSimCnf->nSimStep % m_vPwGen->size() );
 	return;
 };
 
 /******************************************************************************/
 float CPV::getNextHourFrc ( void ){
 	float result;
-	result = ( m_vPwFrc[ ( m_sSimCnf->nSimStep + 60 ) % m_vPwFrc.size() ] + m_vPwFrc[ m_sSimCnf->nSimStep % m_vPwFrc.size() ] ) / 2.0;
+	result = ( m_vPwFrc->at( ( m_sSimCnf->nSimStep + 60 ) % m_vPwFrc->size() ) + m_vPwFrc->at( m_sSimCnf->nSimStep % m_vPwFrc->size() ) ) / 2.0;
+	return result;
+};
+
+/******************************************************************************/
+TVFloat CPV::getNextDayFrc   ( int time_ref ){
+	TVFloat result;
+	result = getNextDayNrFrc( time_ref );
+	for ( int i = 0 ; i < result.size() ; i++ ){
+		result[i] *= m_fPAmp;
+	}
+	return result;
+};
+
+/******************************************************************************/
+TVFloat CPV::getNextDayNrFrc ( int time_ref ){
+	TVFloat result;
+	for ( int i = 0 ; i < 1440 ; i++ ){
+		result.push_back( m_vPwFrc->at( ( i + time_ref ) % m_vPwFrc->size() ) );
+	}
+	return result;
+};
+
+/******************************************************************************/
+TVFloat CPV::getRangeNrFrc ( int begin , int end ){
+	TVFloat result;
+	for ( int i = begin ; i < end ; i++ ){
+		result.push_back( m_vPwFrc->at ( ( i ) % m_vPwFrc->size() ) );
+	}
 	return result;
 };
 
 /******************************************************************************/
 void CPV::_readAll ( string* file_name , TVFloat* output ){
-	ifstream  inputFile ( file_name->c_str() );
+	// Read from file and interpolate
+	string file_address;	
+	file_address.assign ( m_sSimCnf->sDataFolder );
+	file_address.append ( *file_name );
+	ifstream  inputFile ( file_address.c_str() );
 	float     tmp_power, tmp_power_old, tmp_power_step;
 	inputFile >> tmp_power_old;		
 	inputFile.ignore(256, '\n');
@@ -76,7 +120,40 @@ void CPV::_readAll ( string* file_name , TVFloat* output ){
 		tmp_power_old = tmp_power;
 	}
 	inputFile.close();
+	// Normalize
+	float max = 0.0;
+	for ( int i = 0 ; i < output->size() ; i++ ){
+		if ( output->at(i) > max ){
+			max = output->at(i);
+		}
+	}
+	for ( int i = 0 ; i < output->size() ; i++ ){
+		output->at(i) /= max;
+	}
 	return;
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

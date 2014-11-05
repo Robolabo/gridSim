@@ -90,8 +90,14 @@ CStorage::~CStorage ( void ){
 /******************************************************************************/
 double CStorage::getSoC ( void ){
 	double result = 0.0;
-	for ( int i = 0 ; i < m_VBatInverter.size() ; i++ )
-		result += m_VBatInverter[i]->getSoC();
+	for ( int i = 0 ; i < m_VBatInverter.size() ; i++ ){
+		if ( m_VBatInverter[i]->getCap() <= 0.0 ){
+			result += 0.0;
+		}
+		else{
+			result += m_VBatInverter[i]->getSoC();
+		}
+	}
 	result /= float ( m_VBatInverter.size() );	
 	return result;
 };
@@ -99,16 +105,28 @@ double CStorage::getSoC ( void ){
 /******************************************************************************/
 double CStorage::getAvailablePower ( void ){
 	double result = 0.0;
-	for ( int i = 0 ; i < m_VBatInverter.size() ; i++ )		
-		result += m_VBatInverter[i]->getAvailablePower();	
+	for ( int i = 0 ; i < m_VBatInverter.size() ; i++ ){
+		if ( m_VBatInverter[i]->getCap() <= 0.0 ){
+			result += 0.0;
+		}		
+		else{
+			result += m_VBatInverter[i]->getAvailablePower();
+		}
+	}	
 	return result;
 };
 
 /******************************************************************************/
 double CStorage::getAcceptedPower  ( void ){
 	double result = 0.0;
-	for ( int i = 0 ; i < m_VBatInverter.size() ; i++ )		
-		result += m_VBatInverter[i]->getAcceptedPower();	
+	for ( int i = 0 ; i < m_VBatInverter.size() ; i++ ){	
+		if ( m_VBatInverter[i]->getCap() <= 0.0 ){
+			result += 0.0;
+		}
+		else{	
+			result += m_VBatInverter[i]->getAcceptedPower();
+		}
+	}	
 	return result;
 };
 
@@ -117,8 +135,14 @@ double CStorage::getAcceptedPower  ( void ){
 double CStorage::importPower ( double fpower ){
 	double result     = 0.0;
 	double fpower_ind = fpower / float( m_VBatInverter.size() );
-	for ( int i = 0 ; i < m_VBatInverter.size() ; i++ )
-		result += m_VBatInverter[i]->importPower( fpower_ind );
+	for ( int i = 0 ; i < m_VBatInverter.size() ; i++ ){
+		if ( m_VBatInverter[i]->getCap() <= 0.0 ){
+			result += 0.0;
+		}
+		else{
+			result += m_VBatInverter[i]->importPower( fpower_ind );
+		}
+	}
 	return result;
 }; 
 
@@ -127,7 +151,13 @@ double CStorage::importPower ( double fpower ){
 double CStorage::exportPower( double fpower ){
 	double result     = 0.0;
 	double fpower_ind = fpower / float( m_VBatInverter.size() );
-	for ( int i = 0 ; i < m_VBatInverter.size() ; i++ )
-		result += m_VBatInverter[i]->exportPower( fpower_ind );
+	for ( int i = 0 ; i < m_VBatInverter.size() ; i++ ){
+		if ( m_VBatInverter[i]->getCap() <= 0.0 ){
+			result += 0.0;
+		}
+		else{
+			result += m_VBatInverter[i]->exportPower( fpower_ind );
+		}
+	}
 	return result;
 };

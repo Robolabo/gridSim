@@ -33,7 +33,7 @@ class CController;
 /* LIBRARIES*/
 #include "common.h"
 #include "grid/node.h"
-#include "grid/grid.h"
+//#include "grid/grid.h"
 
 typedef vector<CController*> TVCController;
 
@@ -50,12 +50,24 @@ class CController {
 
 	//virtual void setDefLoad    ( sDefLoad ){};
 	//virtual int  getFComp      ( void ){return 0;};
-	virtual void setParameters ( float , float ){};
+	virtual void setParameters ( TVFloat ){};
 
 	virtual void setTmpStep    ( float ){ };
 	virtual void setSoC_dst    ( float ){ };
+
+	virtual void sendFFT       ( TVFreqCmp* i1, sFFTeval* i2 ){};
 	
-	virtual int  getCycles     ( void ){return 0;};
+	virtual int     getCycles     ( void ){return 0;};
+	virtual int     getCmp        ( void ){return 0;};
+	virtual int     getFCreject   ( void ){return 0;};
+	virtual TVFloat getStatus     ( void ){};
+	virtual float   getSelfC      ( void ){return 0.0;};
+
+	virtual bool flagLoadCtr      ( bool input ){ return false;};
+	virtual bool flagLoadCtr      ( void )      { return false;};
+
+	virtual bool flagBatCtr      ( bool input ){ return false;};
+	virtual bool flagBatCtr      ( void )      { return false;};
 	
 
 	//void   linkNode   ( CNode*   input ){m_pcNode   = input;};	

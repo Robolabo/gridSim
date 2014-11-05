@@ -84,7 +84,7 @@ void CPlotter::updateDisplay ( void ){
 		for ( int i = 0 ; i < vDisplay.size() ; i++ ){
 			if ( vDisplay[i].function != NULL && vDisplay[i].function->size() >  vDisplay[i].xrange )
 				_replotX( i );
-			else if ( vDisplay[i].v_marks != NULL && vDisplay[i].v_marks_sp * vDisplay[i].v_marks->size() >  vDisplay[i].xrange )
+			else if ( vDisplay[i].v_marks != NULL && vDisplay[i].xrange < vDisplay[i].v_marks_sp * vDisplay[i].v_marks->size() )				
 				_replotX( i );
 			_updateDisplay ( i );				
 		}

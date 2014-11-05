@@ -41,35 +41,44 @@ class CGrid {
 	
 	void       executionStep ( void );
 	void       restart       ( void );
+	void       setSCmp       ( XMLElement* );
 
 	void       addLine          ( CLine* input ) { m_vLines.push_back(input); };
 	
 	float      getPower         ( void )         { return m_fPower; };	
 	float      getPower_sampled ( void )         { return m_vSampledSignal.back(); };
+	float      getPower_lines   ( void )         { return m_fPower_lines;};
+	float      getPower_grid    ( void )         { return m_fPower_grid;};
 
 	TVFloat*   getTimeSample    ( void )         { return &m_vSampledSignal; };
 	TVFloat*   getFreqSignalAmp ( void )         { return &m_vFreqSignal_amp; };
 	TVFreqCmp* getFreqSignal    ( void )         { return &m_vFreqSignal; };
-	
+
+	TVGridSCmp* getSCmp         ( void )	     { return &m_vGridSCmp;};	
+
 	TVCLine*   getLines         ( void )         { return &m_vLines;};	
  
 	bool       is_Sample        ( void )         { return m_bNewSample; };	
+	bool       is_FFT           ( void )         { return m_bNewFFT; };
 
 	private:
 	/* Simulator stuff */
 	sSimCnf*  m_sSimCnf;
 
-	CFFT*     m_pcFFT;	
-	TVFreqCmp m_vFreqSignal;
-	TVFloat   m_vFreqSignal_amp;	
-	bool      m_bNewSample;
+	CFFT*      m_pcFFT;	
+	TVFreqCmp  m_vFreqSignal;
+	TVFloat    m_vFreqSignal_amp;	
+	bool       m_bNewSample;
+	bool       m_bNewFFT;
 	
-	TVFloat   m_vSampledSignal;
-	float     m_fPower;
-	float     m_fPower_lines;
-	float     m_fPower_egrid;
+	TVFloat    m_vSampledSignal;
+	float      m_fPower;
+	float      m_fPower_lines;
+	float      m_fPower_grid;
 
-	TVCLine   m_vLines;	
+	TVGridSCmp m_vGridSCmp;
+
+	TVCLine    m_vLines;	
 
 	/* FUNCTIONS */		
 	void  _SignalFFT           ( void );

@@ -84,6 +84,9 @@ class CRandom {
 
 	// Roulette
 	unsigned int roulette ( TVFloat_random* prob );
+
+	// Locate position in array
+	unsigned int position ( float *array, float value , unsigned int size );	
   
 };
 

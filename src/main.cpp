@@ -55,21 +55,24 @@ int main(int argc, char** argv) {
 	}
 
 	/* EXECUTION */	
+	int start_time = time(0);
 	CSimulator *pcSimulator = new CSimulator ( pcExperimentFilename );
 	pcSimulator->ExecuteSimulation ( );
 	// Get results
 	CMainControl *pcMainControl = pcSimulator->getMainControl();
 	if ( pcMainControl ){
 		TVFloat* result = pcMainControl->getEvaluation();	
-		cout << " RESULT: ";
+		cout << " RESULT:     ";
 		if ( result ){
 			for ( int i = 0 ; i < result->size() ; i++ ){
 				cout << result->at(i) << " ";
 			}
 		}
 		cout << endl;
+		cout << " ASSESSMENT: " << pcMainControl->getAssessment() << endl;
 	}
 	delete pcSimulator;
+	cout << " EXCT TIME:  "<< time(0) - start_time << endl;
 	return 0;		
 };
 

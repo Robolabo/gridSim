@@ -263,6 +263,40 @@ unsigned long CRandom::_gsl_rng_uint32 (gsl_rng* r){
 
 /******************************************************************************/
 unsigned int CRandom::roulette ( TVFloat_random* prob ){
+	unsigned int   result, size;
+	size = prob->size();	
+	float roulette[size];
+	roulette[0] = prob->at(0);
+	for ( int i = 1 ; i < size ; i++ ){
+		roulette[i] = prob->at(i) +  roulette[i-1];		
+	}	
+	float rand = nextDouble( roulette[size-1] );
+	result = position( roulette , rand , size );
+	return result;	
+};
+
+/******************************************************************************/
+unsigned int CRandom::position ( float *array, float value , unsigned int size ){
+	unsigned int result;
+	if ( size == 1 ){
+		result = 0;
+	}
+	else{
+		unsigned int h_size = size/2;
+		if ( value <= array[h_size - 1] ){
+			result = position( array , value , h_size );			
+		}
+		else{
+			result = h_size + position( &(array[h_size]) , value , size - h_size );
+		}
+	}
+	return result;
+};
+
+
+
+/*
+unsigned int CRandom::roulette ( TVFloat_random* prob ){
 	int            result;	
 	TVFloat_random roulette;
 	roulette.push_back( prob->at(0) );
@@ -273,7 +307,7 @@ unsigned int CRandom::roulette ( TVFloat_random* prob ){
 	bool  Exit = false;
 	int   cnt  = 0;
 	while (!Exit){
-		if ( roulette[cnt] > rand ){
+		if ( roulette[cnt] >= rand ){
 			result = cnt;
 			Exit   = true;
 		}
@@ -283,5 +317,6 @@ unsigned int CRandom::roulette ( TVFloat_random* prob ){
 	}
 	return result;	
 };
+*/
 
 

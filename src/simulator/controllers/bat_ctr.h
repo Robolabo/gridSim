@@ -42,7 +42,8 @@ class CBatCtr : public CController {
 	void executionStep ( void );
 	void restart       ( void );
 
-	int  getCycles     ( void ){return m_nCycle;};
+	int     getCycles     ( void ){return m_nCycle;};
+	TVFloat getStatus     ( void );
 
 	void setSoC_limits ( float l_min , float l_max ){m_fSoC_min=l_min;m_fSoC_max=l_max;};		
 
@@ -54,7 +55,7 @@ class CBatCtr : public CController {
 	float  m_fSoC_min_ini;
 	float  m_fSoC_max_ini;	
 	int    m_nBmode; // 0 - regulator, 1 - switch, 2 - both
-	int    m_nCycle;
+	int    m_nCycle;	
 
 	/* FUNCTIONS */	
 };

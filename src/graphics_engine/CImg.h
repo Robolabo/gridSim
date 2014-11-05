@@ -54,7 +54,7 @@
 
 // Set version number of the library.
 #ifndef cimg_version
-#define cimg_version 155
+#define cimg_version 159
 
 /*-----------------------------------------------------------
  #
@@ -89,7 +89,7 @@
  || defined(linux)       || defined(__linux)     || defined(__linux__) \
  || defined(sun)         || defined(__sun) \
  || defined(BSD)         || defined(__OpenBSD__) || defined(__NetBSD__) \
- || defined(__FreeBSD__) || defined __DragonFly__ \
+ || defined(__FreeBSD__) || defined (__DragonFly__) \
  || defined(sgi)         || defined(__sgi) \
  || defined(__MACOSX__)  || defined(__APPLE__) \
  || defined(__CYGWIN__)
@@ -221,9 +221,6 @@
 // advantages of multi-core CPUs.
 #ifdef cimg_use_openmp
 #include "omp.h"
-#define _cimg_static
-#else
-#define _cimg_static static
 #endif
 
 // Configure OpenCV support.
@@ -283,7 +280,11 @@ extern "C" {
 // (see methods 'CImg[List]<T>::{load,save}_tiff()').
 #ifdef cimg_use_tiff
 extern "C" {
+#define uint64 uint64_hack_
+#define int64 int64_hack_
 #include "tiffio.h"
+#undef uint64
+#undef int64
 }
 #endif
 
@@ -316,9 +317,9 @@ extern "C" {
 #define __STDC_CONSTANT_MACROS // ...or stdint.h wont' define UINT64_C, needed by libavutil
 #endif
 extern "C" {
-#include "avformat.h"
-#include "avcodec.h"
-#include "swscale.h"
+#include <libavformat/avformat.h>
+#include <libavcodec/avcodec.h>
+#include <libswscale/swscale.h>
 }
 #endif
 
@@ -665,6 +666,23 @@ extern "C" {
 #define cimg_forXZC(img,x,z,c) cimg_forC(img,c) cimg_forXZ(img,x,z)
 #define cimg_forYZC(img,y,z,c) cimg_forC(img,c) cimg_forYZ(img,y,z)
 #define cimg_forXYZC(img,x,y,z,c) cimg_forC(img,c) cimg_forXYZ(img,x,y,z)
+
+#define cimg_rof1(bound,i) for (int i = (int)(bound)-1; i>=0; --i)
+#define cimg_rofX(img,x) cimg_rof1((img)._width,x)
+#define cimg_rofY(img,y) cimg_rof1((img)._height,y)
+#define cimg_rofZ(img,z) cimg_rof1((img)._depth,z)
+#define cimg_rofC(img,c) cimg_rof1((img)._spectrum,c)
+#define cimg_rofXY(img,x,y) cimg_rofY(img,y) cimg_rofX(img,x)
+#define cimg_rofXZ(img,x,z) cimg_rofZ(img,z) cimg_rofX(img,x)
+#define cimg_rofYZ(img,y,z) cimg_rofZ(img,z) cimg_rofY(img,y)
+#define cimg_rofXC(img,x,c) cimg_rofC(img,c) cimg_rofX(img,x)
+#define cimg_rofYC(img,y,c) cimg_rofC(img,c) cimg_rofY(img,y)
+#define cimg_rofZC(img,z,c) cimg_rofC(img,c) cimg_rofZ(img,z)
+#define cimg_rofXYZ(img,x,y,z) cimg_rofZ(img,z) cimg_rofXY(img,x,y)
+#define cimg_rofXYC(img,x,y,c) cimg_rofC(img,c) cimg_rofXY(img,x,y)
+#define cimg_rofXZC(img,x,z,c) cimg_rofC(img,c) cimg_rofXZ(img,x,z)
+#define cimg_rofYZC(img,y,z,c) cimg_rofC(img,c) cimg_rofYZ(img,y,z)
+#define cimg_rofXYZC(img,x,y,z,c) cimg_rofC(img,c) cimg_rofXYZ(img,x,y,z)
 
 #define cimg_for_in1(bound,i0,i1,i) \
  for (int i = (int)(i0)<0?0:(int)(i0), _max##i = (int)(i1)<(int)(bound)?(int)(i1):(int)(bound)-1; i<=_max##i; ++i)
@@ -2016,9 +2034,16 @@ namespace cimg_library_suffixed {
     template<typename T>
     inline void unused(const T&, ...) {}
 
+    // [internal] Lock/unlock a mutex for managing concurrent threads.
+    // 'lock_mode' can be { 0=unlock | 1=lock | 2=trylock }.
+    // 'n' can be in [0,31] but mutex range [0,16] is reserved by CImg.
+    inline int mutex(const unsigned int n, const int lock_mode=1);
+
     inline unsigned int& _exception_mode(const unsigned int value, const bool is_set) {
       static unsigned int mode = cimg_verbosity;
+      cimg::mutex(0);
       if (is_set) mode = value;
+      cimg::mutex(0,0);
       return mode;
     }
 
@@ -2336,14 +2361,14 @@ namespace cimg_library_suffixed {
 #ifdef isinf
         return (bool)isinf(val);
 #else
-        return !is_nan(val) && val+1==val;
+        return !is_nan(val) && (val<cimg::type<double>::min() || val>cimg::type<double>::max());
 #endif
       }
       static bool is_nan(const double val) {
 #ifdef isnan
         return (bool)isnan(val);
 #else
-        return !(val<=0 || val>=0);
+        return !(val==val);
 #endif
       }
       static double min() { return -1.7E308; }
@@ -2358,8 +2383,20 @@ namespace cimg_library_suffixed {
     template<> struct type<float> {
       static const char* string() { static const char *const s = "float"; return s; }
       static bool is_float() { return true; }
-      static bool is_inf(const float val) { return cimg::type<double>::is_inf((double)val); }
-      static bool is_nan(const float val) { return cimg::type<double>::is_nan((double)val); }
+      static bool is_inf(const float val) {
+#ifdef isinf
+        return (bool)isinf(val);
+#else
+        return !is_nan(val) && (val<cimg::type<float>::min() || val>cimg::type<float>::max());
+#endif
+      }
+      static bool is_nan(const float val) {
+#ifdef isnan
+        return (bool)isnan(val);
+#else
+        return !(val==val);
+#endif
+      }
       static float min() { return -3.4E38f; }
       static float max() { return  3.4E38f; }
       static float inf() { return (float)cimg::type<double>::inf(); }
@@ -2445,9 +2482,9 @@ namespace cimg_library_suffixed {
     template<> struct superset<unsigned long,short> { typedef long type; };
     template<> struct superset<unsigned long,int> { typedef long type; };
     template<> struct superset<unsigned long,long> { typedef long type; };
-    template<> struct superset<unsigned long,float> { typedef float type; };
+    template<> struct superset<unsigned long,float> { typedef double type; };
     template<> struct superset<unsigned long,double> { typedef double type; };
-    template<> struct superset<long,float> { typedef float type; };
+    template<> struct superset<long,float> { typedef double type; };
     template<> struct superset<long,double> { typedef double type; };
     template<> struct superset<float,double> { typedef double type; };
 
@@ -2470,7 +2507,9 @@ namespace cimg_library_suffixed {
 #if cimg_display==1
     struct X11_info {
       volatile unsigned int nb_wins;
-      pthread_t*       event_thread;
+      pthread_t*       events_thread;
+      pthread_cond_t   wait_event;
+      pthread_mutex_t  wait_event_mutex;
       CImgDisplay*     wins[1024];
       Display*         display;
       unsigned int     nb_bits;
@@ -2483,13 +2522,27 @@ namespace cimg_library_suffixed {
       unsigned int curr_resolution;
       unsigned int nb_resolutions;
 #endif
-      X11_info():nb_wins(0),event_thread(0),display(0),
+      X11_info():nb_wins(0),events_thread(0),display(0),
                  nb_bits(0),is_blue_first(false),is_shm_enabled(false),byte_order(false) {
+        XInitThreads();
+        pthread_mutex_init(&wait_event_mutex,0);
+        pthread_cond_init(&wait_event,0);
 #ifdef cimg_use_xrandr
         resolutions = 0;
         curr_rotation = 0;
         curr_resolution = nb_resolutions = 0;
 #endif
+      }
+
+      ~X11_info() {
+        if (events_thread) {
+          pthread_cancel(*events_thread);
+          delete events_thread;
+        }
+        if (display) {} // XCloseDisplay(display);
+        pthread_cond_destroy(&wait_event);
+        pthread_mutex_unlock(&wait_event_mutex);
+        pthread_mutex_destroy(&wait_event_mutex);
       }
     };
 #if defined(cimg_module)
@@ -2512,6 +2565,34 @@ namespace cimg_library_suffixed {
 #else
     inline Win32_info& Win32_attr() { static Win32_info val; return val; }
 #endif
+#endif
+
+    struct Mutex_info {
+#if cimg_OS==2
+      HANDLE mutex[32];
+      Mutex_info() { for (unsigned int i = 0; i<32; ++i) mutex[i] = CreateMutex(0,FALSE,0); }
+      void lock(const unsigned int n) { WaitForSingleObject(mutex[n],INFINITE); }
+      void unlock(const unsigned int n) { ReleaseMutex(mutex[n]); }
+      int trylock(const unsigned int) { return 0; }
+#elif defined(_PTHREAD_H)
+      pthread_mutex_t mutex[32];
+      Mutex_info() { for (unsigned int i = 0; i<32; ++i) pthread_mutex_init(&mutex[i],0); }
+      void lock(const unsigned int n) { pthread_mutex_lock(&mutex[n]); }
+      void unlock(const unsigned int n) { pthread_mutex_unlock(&mutex[n]); }
+      int trylock(const unsigned int n) { return pthread_mutex_trylock(&mutex[n]); }
+#else
+      Mutex_info() {}
+      void lock(const unsigned int) {}
+      void unlock(const unsigned int) {}
+      int trylock(const unsigned int) { return 0; }
+#endif
+    };
+#if defined(cimg_module)
+    Mutex_info& Mutex_attr();
+#elif defined(cimg_main)
+    Mutex_info& Mutex_attr() { static Mutex_info val; return val; }
+#else
+    inline Mutex_info& Mutex_attr() { static Mutex_info val; return val; }
 #endif
 
 #if defined(cimg_use_magick)
@@ -2799,1152 +2880,846 @@ namespace cimg_library_suffixed {
 
     const double PI = 3.14159265358979323846;   //!< Value of the mathematical constant PI
 
-    // Define a 10x13 font (small size).
-    const unsigned int font10x13[256*10*13/32] = {
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x80100c0,
-      0x68000300,0x801,0xc00010,0x100c000,0x68100,0x100c0680,0x2,0x403000,0x1000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xfc,0x0,0x0,0x0,0x0,0x0,0x4020120,
-      0x58120480,0x402,0x1205008,0x2012050,0x58080,0x20120581,0x40000001,0x804812,0x2000000,0x0,0x300,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x140,0x80000,0x200402,0x800000,0x10,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x7010,0x7000000,0x8000200,0x20000,0xc0002000,0x8008,0x0,0x0,0x0,0x0,0x808,0x4000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x80000000,0x0,0x0,0x0,0x40000,0x0,0x0,0x0,0x0,0x480,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x70,0x80100c0,0x68000480,0x1001,
-      0xc00010,0x1018000,0x68100,0x100c0680,0x4,0x403000,0x1020000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x20140,0x28081883,0x200801,
-      0x2a00000,0x10,0x1c0201c0,0x70040f80,0xc0f81c07,0x0,0x70,0x3e0303c0,0x3c3c0f83,0xe03c2107,0xe08810,0x18c31070,0x3c0703c0,
-      0x783e0842,0x22222208,0x83e04010,0x1008000,0x4000200,0x20001,0x2002,0x408008,0x0,0x0,0x100000,0x0,0x1008,0x2000000,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x20080,0x38000880,0x8078140f,0x81c00000,0x3e000,0xc020180,0x60080001,0xe0000002,0xc00042,0x108e2010,
-      0xc0300c0,0x300c0303,0xf83c3e0f,0x83e0f81c,0x701c070,0x3c0c41c0,0x701c0701,0xc0001d08,0x42108421,0x8820088,0x4020120,0x58140480,
-      0x802,0x1205008,0x3014050,0xc058080,0x20120581,0x40000002,0x804814,0x2020050,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x20140,
-      0x281e2484,0x80200801,0x1c02000,0x10,0x22060220,0x880c0801,0x82208,0x80000001,0x20008,0x41030220,0x40220802,0x402102,0x209010,
-      0x18c31088,0x22088220,0x80080842,0x22222208,0x80204010,0x1014000,0x200,0x20001,0x2000,0x8008,0x0,0x0,0x100000,0x0,0x1008,
-      0x2000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x80,0x40000500,0x80800010,0x40200000,0x41000,0x12020040,0x10000003,0xa0000006,
-      0x12000c4,0x31014000,0xc0300c0,0x300c0302,0x80402008,0x2008008,0x2008020,0x220c4220,0x88220882,0x20002208,0x42108421,0x8820088,
-      0x0,0x300,0x0,0x0,0x0,0x14000000,0x0,0x200200,0x0,0x20000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x20000,0xfc282504,0x80001000,
-      0x82a02000,0x20,0x22020020,0x8140802,0x102208,0x80801006,0x18008,0x9c848220,0x80210802,0x802102,0x20a010,0x15429104,0x22104220,
-      0x80080842,0x22221405,0x404008,0x1022000,0x703c0,0x381e0701,0xc0783c02,0xc09008,0x1d83c070,0x3c078140,0x381c0882,0x21242208,
-      0x81e01008,0x2000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x201e0,0x40220500,0x80800027,0x20e02800,0x9c800,0x12020040,
-      0x20000883,0xa0200002,0x120a044,0x11064010,0x12048120,0x48120484,0x80802008,0x2008008,0x2008020,0x210a4411,0x4411044,0x10884508,
-      0x42108421,0x503c0b0,0x1c0701c0,0x701c0707,0x70381c07,0x1c07008,0x2008020,0x20f01c0,0x701c0701,0xc0201c08,0x82208822,0x883c088,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x20000,0x50281903,0x20001000,0x80802000,0x20,0x22020040,0x30240f03,0xc0101c08,0x80801018,
-      0x1fc06010,0xa48483c0,0x80210f03,0xe0803f02,0x20c010,0x15429104,0x22104220,0x70080841,0x41540805,0x804008,0x1041000,0x8220,
-      0x40220881,0x882202,0x40a008,0x12422088,0x22088180,0x40100882,0x21241408,0x80201008,0x2031000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x20280,0x401c0200,0x700028,0x21205000,0x92800,0xc1fc080,0x10000883,0xa0200002,0x1205049,0x12c19010,0x12048120,0x48120484,
-      0xf0803c0f,0x3c0f008,0x2008020,0x790a4411,0x4411044,0x10504908,0x42108421,0x5022088,0x2008020,0x8020080,0x88402208,0x82208808,
-      0x2008020,0x1e088220,0x88220882,0x20002608,0x82208822,0x8822088,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x20000,0x501c0264,
-      0xa0001000,0x8001fc00,0x7000020,0x22020080,0x83e0082,0x20202207,0x80000020,0x1020,0xa4848220,0x80210802,0x9c2102,0x20c010,
-      0x12425104,0x3c1043c0,0x8080841,0x41540802,0x804008,0x1000000,0x78220,0x40220f81,0x882202,0x40c008,0x12422088,0x22088100,
-      0x60100881,0x41540805,0x406008,0x1849000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x20280,0xf0140200,0x880028,0x20e0a03f,0x709c800,
-      0x201c0,0x60000881,0xa0000007,0xc0284b,0x122eb020,0x12048120,0x48120487,0x80802008,0x2008008,0x2008020,0x21094411,0x4411044,
-      0x10204908,0x42108421,0x2022088,0x1e0781e0,0x781e0787,0xf8403e0f,0x83e0f808,0x2008020,0x22088220,0x88220882,0x21fc2a08,0x82208822,
-      0x5022050,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x20001,0xf80a0294,0x40001000,0x80002000,0x20,0x22020100,0x8040082,0x20202200,
-      0x80000018,0x1fc06020,0xa48fc220,0x80210802,0x842102,0x20a010,0x12425104,0x20104240,0x8080841,0x41541402,0x1004008,0x1000000,
-      0x88220,0x40220801,0x882202,0x40a008,0x12422088,0x22088100,0x18100881,0x41540805,0x801008,0x2046000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x20280,0x401c0f80,0x80880028,0x20005001,0x94800,0x20000,0x880,0xa0000000,0x5015,0x4215040,0x3f0fc3f0,0xfc3f0fc8,
-      0x80802008,0x2008008,0x2008020,0x21094411,0x4411044,0x10505108,0x42108421,0x203c088,0x22088220,0x88220888,0x80402008,0x2008008,
-      0x2008020,0x22088220,0x88220882,0x20002a08,0x82208822,0x5022050,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xa00a0494,0x60001000,
-      0x80002004,0x8020,0x22020200,0x88040882,0x20402201,0x801006,0x18000,0x9f084220,0x40220802,0x442102,0x209010,0x10423088,0x20088220,
-      0x8080840,0x80882202,0x2004008,0x1000000,0x88220,0x40220881,0x882202,0x409008,0x12422088,0x22088100,0x8100880,0x80881402,
-      0x1001008,0x2000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x20280,0x40220200,0x80700027,0x20002801,0x92800,0x1fc000,0x980,
-      0xa0000000,0xa017,0x84417840,0x21084210,0x84210848,0x80402008,0x2008008,0x2008020,0x2208c220,0x88220882,0x20882208,0x42108421,
-      0x2020088,0x22088220,0x88220888,0xc8402208,0x82208808,0x2008020,0x22088220,0x88220882,0x20203208,0x82208822,0x2022020,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x20000,0xa03c0463,0x90000801,0x2004,0x8040,0x1c0703e0,0x70040701,0xc0401c06,0x801001,0x20020,
-      0x400843c0,0x3c3c0f82,0x3c2107,0x1c0881e,0x10423070,0x20070210,0xf0080780,0x80882202,0x3e04004,0x1000000,0x783c0,0x381e0701,
-      0x782202,0x408808,0x12422070,0x3c078100,0x700c0780,0x80882202,0x1e01008,0x2000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x201e0,
-      0xf8000200,0x80080010,0x40000001,0x41000,0x0,0xe80,0xa0000000,0x21,0x8e21038,0x21084210,0x84210848,0xf83c3e0f,0x83e0f81c,
-      0x701c070,0x3c08c1c0,0x701c0701,0xc0005c07,0x81e0781e,0x20200b0,0x1e0781e0,0x781e0787,0x30381c07,0x1c07008,0x2008020,0x1c0881c0,
-      0x701c0701,0xc0201c07,0x81e0781e,0x203c020,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x80000,0x801,0x4,0x40,0x0,0x0,0x0,0x1000,
-      0x0,0x3c000000,0x0,0x0,0x0,0x0,0x10000,0x0,0x0,0x4004,0x1000000,0x0,0x0,0x80000,0x400000,0x0,0x20008000,0x0,0x4,0x1008,0x2000000,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x80,0x0,0x8008000f,0x80000000,0x3e000,0x0,0x800,0xa0000400,0x0,0x0,0x0,0x0,0x80000,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x100000,0x0,0x0,0x0,0x0,0x2000,0x0,0x4020040,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x80000,
-      0x402,0x8,0x40,0x0,0x0,0x0,0x2000,0x0,0x0,0x0,0x0,0x0,0x0,0xc000,0x0,0x0,0x7004,0x70000fc,0x0,0x0,0x700000,0x800000,0x0,0x20008000,
-      0x0,0x4,0x808,0x4000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x80,0x0,0x80f00000,0x0,0x0,0x0,0x800,0xa0001800,0x0,0x0,0x0,0x0,
-      0x300000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x600000,0x0,0x0,0x0,0x0,0x0,0x0,0x4020040
-    };
+    // Define a 12x13 font (small size).
+    const char *const data_font12x13 =
+"                          .wjwlwmyuw>wjwkwbwjwkwRxuwmwjwkwmyuwJwjwlx`w      Fw                         mwlwlwuwnwuynwuwmyTwlwkwuwmwuwnwlwkwuwmwuw_wuxl"
+"wlwkwuwnwuynwuwTwlwlwtwnwtwnw my     Qw   +wlw   b{ \\w  Wx`xTw_w[wbxawSwkw  nynwky<x1w `y    ,w  Xwuw   CxlwiwlwmyuwbwuwUwiwlwbwiwrwqw^wuwmxuwnwiwlwmy"
+"uwJwiwlw^wnwEymymymymy1w^wkxnxtxnw<| gybwkwuwjwtwowmxswnxnwkxlxkw:wlymxlymykwn{myo{nymy2ykwqwqwm{myozn{o{mzpwrwpwkwkwswowkwqwqxswnyozlyozmzp}pwrwqwqwq"
+"wswswsxsxqwqwp}qwlwiwjybw`w[wcw_wkwkwkwkw mw\"wlwiw=wtw`xIw awuwlwm{o{mylwn|pwtwtwoy`w_w_wbwiwkxcwqwpwkznwuwjzpyGzqymyaxlylw_zWxkxaxrwqxrwqyswowkwkwkwk"
+"wkwkwk}qyo{o{o{o{owkwkwkwkznxswnymymymymyayuwqwrwpwrwpwrwpwrwqwqwpwkwtwlwkwlwuwnwuynwuwmyTwkwlwuwmwuwnwkwlwuwmwuwkxlwuxmwkwlwuwnwuynwuwTwkwlwuwmwuwlwm"
+"wkwtwUwuwuwowswowswowswowsw;wqwtw_ymzp~py>w bwswcwkwuwjwuwozpwtwuwnwtwowkwjwmwuwuwkwIxmxuxowuwmwswowswmxnwjwhwowswowsw0wmwowswuwnwrwowswpwswowkwjwrwqw"
+"rwpwkwkwtwnwkxsxqxswowswpwswnwswpwswowrwnwmwrwqwqwqwswswrwswowswjwpwlxjwkxuxLw[wcw_wSwkw mw\"wlwiw=wtwmxlwFw cwswnwuwnwkwjwswo{pwrwpwtwtwpwswby`w`yUwlw"
+"twpwqwpwswowlw\\wrwrxuwHwrwfwuwjwlwlwTyuwVwlwtwawswowswowswcwuwmwuwmwuwmwuwmwuwlwkwuwnwswpwkwkwkwkwkwkwkwkwswoxswowswowswowswowswowswowrwpwswpwrwpwrwpw"
+"rwpwrwpwswoznwtw  Ww (wGwtwtwqwqwqwuwuwuwqwswuwqwqw=wqxtw`{nzp~q{ozowrwnxmwtwow bzawkwuwl}rwuwnwtwuwnwtwowkwjwlyjwIwlwswmwiwkwnwuwnwkwhwnwswowswowkwew"
+"ewixnwsytwswuwnwrwpwkwrwpwkwkwkwrwpwkwkwuwmwkxsxqwuwtwpwqwqwswowqwqwswowiwmwrwpwswowtwtwpwuwmwuwjwowkwjwlxsxXynzmymznyozlzoznwkwkwtwnwkzuyrzmynzmzowux"
+"myozmwswpwrwowtwtwrwrwpwrwp{mwlwiwHyuwpwtwkwmxlynzoxswmwmwswnwswowtxq|owtwtwpym{p{owswnwuwmwlwkwqwqxuwuxqwrwpwtwtwqwqwowlwuwuwkwmwlwtwowuwuwdwjznwl{nw"
+"uwnwkx_wtxtwswtwlwtwWwuytwgyjwmwjwawswoyuwVwlwtwnwtwmwtwnwtwmwuwmwlwuwmwuwmwuwmwuwmwuwmwuwmxuwowkwkwkwkwkwkwkwkwkwrwpwuwtwpwqwqwqwqwqwqwqwqwqwowtwpwsw"
+"uwqwrwpwrwpwrwpwrwowuwnwswowuwlymymymymymymyuyqymymymymynwkwkwkwjynzmymymymymykwmzowswowswowswowswpwrwozowrwW}q}qwtwtwqwtwtwqwtwtwA}rwuw_{p~r~r}pwtwow"
+"rwnxmwtwow aw_w]wtwpwuwmxuwmybwjwlyjwIwlwswmwiwnynwtwnznzkwmynwswTyp}pylwmwtwtwtwswuwn{owkwrwp{o{owk|pwkwkxlwkwuwuwuwqwuwtwpwqwqwswowqwqwswoykwmwrwpws"
+"wowuwuwuwowkwjwnwkwjwDwowswowkwswowswowkwswowswowkwkwuwmwkwswswswswowswowswowswoxlwswowkwswpwrwowtwtwqwtwowrwlwoxkwhxVxuxpwtypwuwjwnwtwnwkwswowtxnxmws"
+"wowqwqwtwuxqwtwnwtwtwqwswowswmwm{nwuwlxnwkwqwqwtwtwqwrwpwtwtwqwuyuwpwiwhwnwmwrwnwbwkwuwlwlwswoxuxowlwtw`wuwrwszmwtwo}dwuwtwuw[}qymx`wswoyuwow_ylxlwtwo"
+"yuwoyuwoyuwmwlwuwmwuwmwuwmwuwmwuwmwuwmwt{swk{o{o{o{owkwkwkwlztwpwuwtwpwqwqwqwqwqwqwqwqwqwnxowtwtwqwrwpwrwpwrwpwrwnwmwswowuwiwkwkwkwkwkwkwswswkwswowswo"
+"wswowswowkwkwkwkwswowswowswowswowswowswowswcwtxowswowswowswowswpwrwowswpwrwWwtwtwqwqwqwuwuwuwqwuwswqwqw>wowuw`}q~q|q}qwrwpwrwowtwnwtwo~ izaw]wtwoykwux"
+"qwtwswfwjwmwuwuwn}eyaxlwswmwjwjwpwswjwowswmwmwswnzWy]ypwlwtwtwuwswswowrwpwkwrwpwkwkwsyqwrwpwkwkwuwmwkwuwuwuwqwtwuwpwqwqznwqwqzkynwmwrwowuwnwuwuwuwowkw"
+"jwnwkxkwGzowswowkwswo{owkwswowswowkwkxlwkwswswswswowswowswowswowjxmwkwswowtwnwuwuwuwpxmwtwlwlwlwiwlytwewtwtwqwswowtxoznwswnxmwswnwuwmwuwnwswowtwtwqwtw"
+"twqwtwnwtwtwqwswowswmwmwswowswmwmwkwqwqwtwtwqwrwowuwuwpwuyuwq~own~own~owbwkwuwmznwswmwbwswawuwrwgwtwhwdwuytwXwJwswnxuw=wtwmwswowtxowswqxmwswowswowswow"
+"swowswowswnwtwowkwkwkwkwkwkwkwkwkwrwpwtwuwpwqwqwqwqwqwqwqwqwqwnxowtwtwqwrwpwrwpwrwpwrwnwmwswowtwmznznznznznzn~swk{o{o{o{owkwkwkwkwswowswowswowswowswow"
+"swowswo}qwuwuwowswowswowswowswowtwnwswowtwUwuwuwowswowswowswowsw@}qx`}q~pzo{pwrwpwrwowtwnwtwow aw_w_}owuwmwuwtwrwswuwewjwkwiwJwkwswmwkwiwp|kwowswmwmws"
+"wkwWym}mypwlwszr{owrwpwkwrwpwkwkwqwqwrwpwkwkwtwnwkwtwtwqwtwuwpwqwqwkwqwqwtwiwnwmwrwowuwnwuwuwuwpwuwlwkwmwjwkwHwswowswowkwswowkwkwswowswowkwkwuwmwkwsws"
+"wswswowswowswowswowhwnwkwswowtwnwuwuwuwpxmwtwmwkwlwiwmwtydwtwtwqwswowswowtwnwswowkwswnwuwnwtwnwswowtwtwqwtwtwqwtwnwtwtwqwswowswmwmwswowswnwlwkwqwqxuwu"
+"xqwrwnyowqwpwiwhwpwuwuwowrwpwuwuwdwkwuwlwlwswo{owkxuwawtxtwszmwtwiwdwuwtwuwXwJwswmwuwKzmwtwlwtxowrwpwtxrxl{o{o{o{o{o{o{owkwkwkwkwkwkwkwkwkwrwpwtwuwpwq"
+"wqwqwqwqwqwqwqwqwowtwpwuwswqwrwpwrwpwrwpwrwnwmznwswowswowswowswowswowswowswowswowkwkwkwkwkwkwkwkwkwswowswowswowswowswowswowswcwuwuwowswowswowswowswowt"
+"wnwswowtwTymymymymy=wmw^wuwuwmxlxmyowrwowtwnwtwmxmw bwswIwuwmwuwmwuwtwrxswdwjw]wJwkxuxmwlwlwswlwjwowswmwmwswlwSycyawlwswowrwowswpwswowkwjwrwqwrwpwkwkw"
+"swowkwqwqwsxowswpwjwswpwswowrwnwmxtxnwlwswpwswmwlwlwjwkwHwswowswowkwswowswowkwswowswowkwkwtwnwkwswswswswowswowswowswowkwswowkwswnxlwswpwtwmxmwjwlwiwTx"
+"uxpwtxowswowtwnwswowkwswnynwtwnwswowtwtwqxuwuxqwtwnwtwtwqwswowswmwlwuwnwswowkwjwswo{pwrwmwmwswnwjwiwnymwtwnycwkwuwlwl{mwmwiw_wrwdwtwVwrw*wswmwuw?wtwlw"
+"tzqwrwpwtzswkwswowswowswowswowswowswowswnwswpwkwkwkwkwkwkwkwkwswowsxowswowswowswowswowswowrwpwswpxtxpxtxpxtxpxtxnwmwkwswowswowswowswowswowswowswowtxow"
+"kwswowswowswowswowkwkwkwkwswowswowswowswowswowswowswlwnxtwowswowswowswowswnxmwswnx >wlw\\wkx`wnwrwoznwtwmxl| gybw^wtwozmwsxpzuxfxlx]wnw_wlxjyn{o{nykwnz"
+"mymwkynymwkwewewjwjwrwswqwp{myozn{owizpwrwpwkwkwrwp{owqwqwsxnyowiyowrwozmwlzmwlwswqxsxnwm}qwjxlwGzozmymznynwjzowswowkwkwswowkwswswswswnynzmzowjymxlznx"
+"lwswqwrwnwm{mwlwiwHxuxpzmxlymynwswmwnwrwozmxuxo{pwtxn{pzmykwmyo}p{owkyuynwnwrwmwly`w_w_wbwjzo{pwqwnwmwhw_z>zY}M|nwuw2wqwqwryrwqwqyowqwqwqwqwqwqwqwqwqw"
+"qwqwqwr{qyo{o{o{o{owkwkwkwkznwsxnymymymymycwuynznznznzmwmwkwuynznznznznznznyuzrymymymymynwkwkwkwjynwswnymymymymybzmznznznznwlzmw     hwHwlwSwTw <w8z ]"
+"x tx Zxjwmx RwWw/wgw pw_ynwky=wCwmwaw\\w_wnw  1wIwlz 'wiwuwaw  mw    Pw   swlwjw     hw        f| pyWx/wgw rxSw/wCwmwaw\\w_wnw  1w  AwRx  nw    Pw   txk"
+"wlxm";
 
-    // Define a 12x24 font (normal size).
-    const unsigned int font12x24[12*24*256/32] = {
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x19,0x80000000,0x198000,0x0,0x0,0x0,0x0,
-      0x0,0x198,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xc001806,0xc81980,0x60000000,0xc001806,0x1980c00,0x18060198,0xc80c,
-      0x180600,0xc8198000,0xc001,0x80601980,0x18000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xf,0x0,0xf0000,0x0,0x0,0x0,0x0,0x0,0x198,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x600300f,0x1301980,0x90000000,0x600300f,0x1980600,0x300f0198,0x13006,0x300f01,0x30198000,0x6003,
-      0xf01980,0x30000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x6,0x0,0x60000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7007,0x3c0000,0x3006019,
-      0x80000000,0x90000000,0x3006019,0x80000300,0x60198000,0x3,0x601980,0x0,0x3006,0x1980000,0x60000000,0x0,0x0,0xe0000000,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x18000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x6000000,
-      0x0,0x0,0x0,0x0,0x0,0xc800019,0x80000000,0x198000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xc0,0x0,0x0,0x1001,0x420000,0x0,0x0,0x90000000,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x18000c06,0xc80001,0x10000000,0x18000c06,0x1800,0xc060000,0xc818,0xc0600,0xc8000000,
-      0x18000,0xc0600000,0xc000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x6019,0x80660207,0x800f8060,0x300c004,0x0,0x6,
-      0xe00703f,0x3f00383,0xf80f07fc,0x1f01f000,0x0,0xf8,0x607f,0x7c7e07,0xfe7fe0f8,0x6063fc1f,0x86066007,0xe7060f0,0x7f80f07f,
-      0x81f8fff6,0x6606c03,0x70ee077f,0xe0786000,0xf0070000,0xc000060,0xc0,0x3e000,0x60006003,0x600fc00,0x0,0x0,0x0,0x0,0x0,0x3c0603,
-      0xc0000000,0x7800000,0xf0000,0x0,0xf00001f,0x80001fe0,0x7fe000,0x0,0x0,0x0,0x168fe609,0x0,0x90e07,0x6000,0x3c000e,0x70000f8,
-      0x1980001f,0x0,0x1f8,0xf00000f,0xf00180,0xfe000,0xe00e,0x1001,0x20060,0x6006006,0x600600,0x600fe07c,0x7fe7fe7f,0xe7fe3fc3,
-      0xfc3fc3fc,0x7e07060f,0xf00f00,0xf00f0000,0xf360660,0x6606606e,0x76001e0,0xc00180f,0x1681981,0x10000000,0xc00180f,0x1980c00,
-      0x180f0198,0x3801680c,0x180f01,0x68198000,0xc001,0x80f01980,0x18600198,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x6019,
-      0x8044020c,0xc01f8060,0x2004004,0x0,0xc,0x3f81f07f,0x87f80383,0xf81f87fc,0x3f83f800,0x0,0x1fc,0x780607f,0x81fe7f87,0xfe7fe1fc,
-      0x6063fc1f,0x860c6007,0xe7061f8,0x7fc1f87f,0xc3fcfff6,0x6606c03,0x30c6067f,0xe0783000,0xf00d8000,0x6000060,0xc0,0x7e000,0x60006003,
-      0x600fc00,0x0,0x0,0xc00,0x0,0x0,0x7c0603,0xe0000000,0xfc00000,0x1f0000,0x0,0x900003f,0xc0003fe0,0x7fe000,0x0,0x0,0x0,0x1302660f,
-      0x0,0xf0606,0x6004,0x7e0006,0x60601f8,0x19800001,0x80000000,0x1f8,0x19800010,0x81080300,0x3f2000,0x2011,0x1001,0x1c0060,0x6006006,
-      0x600600,0x601fe1fe,0x7fe7fe7f,0xe7fe3fc3,0xfc3fc3fc,0x7f87061f,0x81f81f81,0xf81f8000,0x3fa60660,0x66066066,0x66003f0,0x6003009,
-      0x1301981,0x10000000,0x6003009,0x1980600,0x30090198,0x1f013006,0x300901,0x30198000,0x6003,0x901980,0x30600198,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x6019,0x80cc0f8c,0xc0180060,0x6006044,0x40000000,0xc,0x3181b041,0xc41c0783,0x388018,
-      0x71c71800,0x0,0x106,0x18c0f061,0xc38261c6,0x600384,0x60606001,0x86186007,0xe78630c,0x60e30c60,0xe7040606,0x630cc03,0x39c30c00,
-      0xc0603000,0x3018c000,0x3000060,0xc0,0x60000,0x60000000,0x6000c00,0x0,0x0,0xc00,0x0,0x0,0x600600,0x60000000,0x18400000,0x180000,
-      0x0,0x19800070,0x40003600,0xc000,0x0,0x0,0x0,0x25a06,0x0,0x6030c,0x4,0xe20007,0xe060180,0xf000,0x80000000,0xf0000,0x10800000,
-      0x80080600,0x7f2000,0x2020,0x80001001,0x20000,0xf00f00f,0xf00f00,0x601b0382,0x60060060,0x6000600,0x60060060,0x61c78630,0xc30c30c3,
-      0xc30c000,0x30e60660,0x66066063,0xc600738,0x3006019,0x80000000,0xe0000000,0x3006019,0x80000300,0x60198000,0x3e000003,0x601980,
-      0x0,0x3006,0x1980000,0x60600000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x6019,0x80cc1fcc,0xc0180060,0x6006035,0x80000000,
-      0x18,0x71c03000,0xc00c0583,0x300018,0x60c60c00,0x0,0x6,0x3060f060,0xc30060c6,0x600300,0x60606001,0x86306007,0x9e78670e,0x60670e60,
-      0x66000606,0x630c606,0x19830c01,0xc0601800,0x30306000,0x60,0xc0,0x60000,0x60000000,0x6000c00,0x0,0x0,0xc00,0x0,0x0,0x600600,
-      0x60000000,0x18000000,0x300000,0x0,0x78060,0x6600,0x1c000,0x300c,0x39819c0,0x0,0x25a00,0x0,0x30c,0x4,0xc00003,0xc060180,0x30c1f,
-      0x80000000,0x30c000,0x10800001,0x80700000,0x7f2000,0x2020,0x80001001,0x20060,0xf00f00f,0xf00f00,0xf01b0300,0x60060060,0x6000600,
-      0x60060060,0x60c78670,0xe70e70e7,0xe70e000,0x70c60660,0x66066063,0xc7f8618,0x0,0x0,0x0,0x0,0x0,0x0,0x7000000,0x0,0x0,0x0,
-      0x0,0x600000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x6019,0x87ff3a4c,0xc0180060,0x400600e,0x600000,0x18,0x60c03000,
-      0xc00c0d83,0x700018,0x60c60c00,0x20,0x400006,0x3060f060,0xc6006066,0x600600,0x60606001,0x86606006,0x966c6606,0x60660660,0x66000606,
-      0x630c666,0xf019801,0x80601800,0x30603000,0x1f06f,0xf01ec0,0xf03fe1ec,0x6703e01f,0x61c0c06,0xdc6701f0,0x6f01ec0c,0xe1f87fc6,
-      0xc60cc03,0x71c60c7f,0xc0600600,0x60000000,0x30000000,0x300000,0x40040,0x88060,0x6600,0x18000,0x300c,0x1981980,0x0,0x2421f,
-      0x80003ce0,0x7fc198,0x601f,0xc02021,0x980600c0,0x40230,0x80000000,0x402000,0x19806003,0x80006,0xc7f2000,0x2020,0x80001001,
-      0x420060,0xf00f00f,0xf00f00,0xf01b0600,0x60060060,0x6000600,0x60060060,0x6066c660,0x66066066,0x6606208,0x60e60660,0x66066061,
-      0x987fc670,0x1f01f01f,0x1f01f01,0xf039c0f0,0xf00f00f,0xf03e03,0xe03e03e0,0x1f06701f,0x1f01f01,0xf01f0060,0x1e660c60,0xc60c60c6,
-      0xc6f060c,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x6000,0x7ff3207,0x8c0c0000,0xc00300e,0x600000,0x30,0x60c03000,
-      0xc01c0983,0xf0600030,0x31860c06,0x6001e0,0x78000e,0x23e1f861,0xc6006066,0x600600,0x60606001,0x86c06006,0x966c6606,0x60660660,
-      0xe7000606,0x630c666,0xf01f803,0x600c00,0x30000000,0x3f87f,0x83f83fc3,0xf83fe3fc,0x7f83e01f,0x6380c07,0xfe7f83f8,0x7f83fc0d,
-      0xf3fc7fc6,0xc71cc03,0x3183187f,0xc0600600,0x60000000,0xff806000,0x300000,0x40040,0x88070,0x6600,0x60030060,0x6001818,0x1883180,
-      0x0,0x2423f,0xc0007ff0,0x607fc1f8,0x603f,0x80c01fc1,0xf80601e0,0x5f220,0x80420000,0x5f2000,0xf006006,0x80006,0xc7f2000,0x2020,
-      0x82107c07,0xc03c0060,0x1f81f81f,0x81f81f80,0xf03b0600,0x60060060,0x6000600,0x60060060,0x6066c660,0x66066066,0x660671c,0x61660660,
-      0x66066061,0xf860e6c0,0x3f83f83f,0x83f83f83,0xf87fe3f8,0x3f83f83f,0x83f83e03,0xe03e03e0,0x3f87f83f,0x83f83f83,0xf83f8060,
-      0x3fc60c60,0xc60c60c3,0x187f8318,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x6000,0x883200,0x300c0000,0xc003035,0x80600000,
-      0x30,0x66c03001,0xc0f81983,0xf86f0030,0x1f071c06,0x600787,0xfe1e001c,0x6261987f,0x86006067,0xfe7fc600,0x7fe06001,0x87c06006,
-      0xf6646606,0x60e6067f,0xc3e00606,0x61986f6,0x600f007,0x600c00,0x30000000,0x21c71,0x830831c3,0x1c06031c,0x71c06003,0x6700c06,
-      0x6671c318,0x71831c0f,0x16040c06,0xc318606,0x1b031803,0x80600600,0x60000000,0x30009000,0x300000,0x40040,0x7003e,0x67e0,0x90070090,
-      0x9001818,0x8c3100,0x0,0x60,0x4000e730,0x900380f0,0x6034,0x80c018c7,0xfe060338,0xb0121,0x80c60000,0x909000,0x6008,0x1080006,
-      0xc3f2000,0x2011,0x3180060,0x60060e0,0x19819819,0x81981981,0x9833c600,0x7fe7fe7f,0xe7fe0600,0x60060060,0x60664660,0x66066066,
-      0x66063b8,0x62660660,0x66066060,0xf06066c0,0x21c21c21,0xc21c21c2,0x1c466308,0x31c31c31,0xc31c0600,0x60060060,0x31871c31,0x83183183,
-      0x18318000,0x71860c60,0xc60c60c3,0x18718318,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x6000,0x1981a00,0xe03e0000,0xc003044,
-      0x40600000,0x60,0x66c03001,0x80f03182,0x1c7f8030,0x3f83fc06,0x601e07,0xfe078038,0x6661987f,0x86006067,0xfe7fc61e,0x7fe06001,
-      0x87e06006,0x66666606,0x7fc6067f,0x81f80606,0x61986f6,0x6006006,0x600600,0x30000000,0xc60,0xc60060c6,0xc06060c,0x60c06003,
-      0x6e00c06,0x6660c60c,0x60c60c0e,0x6000c06,0xc318666,0x1f031803,0x600600,0x603c2000,0x30016800,0x1fe0000,0x1f81f8,0x1c1f,0x804067e1,
-      0x68060168,0x16800810,0xc42300,0x0,0x60,0x20c331,0x68030060,0x6064,0x3fc1040,0xf006031c,0xa011e,0x818c7fe0,0x909000,0x7fe1f,
-      0x80f00006,0xc0f2060,0xf80e,0x18c0780,0x780781c0,0x19819819,0x81981981,0x9833c600,0x7fe7fe7f,0xe7fe0600,0x60060060,0xfc666660,
-      0x66066066,0x66061f0,0x66660660,0x66066060,0x606066e0,0xc00c00,0xc00c00c0,0xc066600,0x60c60c60,0xc60c0600,0x60060060,0x60c60c60,
-      0xc60c60c6,0xc60c000,0x61c60c60,0xc60c60c3,0x1860c318,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x6000,0x1980f81,0x80373000,
-      0xc003004,0x7fe0001,0xf0000060,0x60c03003,0x183180,0xc71c060,0x3181ec00,0x7000,0xe070,0x66619860,0xc6006066,0x60061e,0x60606001,
-      0x87606006,0x66626606,0x7f860661,0xc01c0606,0x6198696,0xf00600e,0x600600,0x30000000,0x1fc60,0xc60060c7,0xfc06060c,0x60c06003,
-      0x7c00c06,0x6660c60c,0x60c60c0c,0x7f00c06,0xc3b8666,0xe01b007,0x3c00600,0x3c7fe000,0xff03ec00,0x1fe0000,0x40040,0xe001,0xc0806603,
-      0xec0e03ec,0x3ec00010,0x0,0x60000000,0x7f,0x10c3f3,0xec070060,0x6064,0x3fc1040,0x6000030c,0xa0100,0x3187fe1,0xf09f1000,0x7fe00,
-      0x6,0xc012060,0x0,0xc63c03,0xc03c0380,0x19819819,0x81981981,0x98330600,0x60060060,0x6000600,0x60060060,0xfc662660,0x66066066,
-      0x66060e0,0x6c660660,0x66066060,0x6060e630,0x1fc1fc1f,0xc1fc1fc1,0xfc3fe600,0x7fc7fc7f,0xc7fc0600,0x60060060,0x60c60c60,0xc60c60c6,
-      0xc60c7fe,0x62c60c60,0xc60c60c1,0xb060c1b0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x6000,0xffe02c6,0x3c633000,0xc003004,
-      0x7fe0001,0xf00000c0,0x60c03006,0xc6180,0xc60c060,0x60c00c00,0x7000,0xe060,0x66639c60,0x66006066,0x600606,0x60606001,0x86306006,
-      0x66636606,0x60060660,0xc0060606,0x61f8696,0xf00600c,0x600300,0x30000000,0x3fc60,0xc60060c7,0xfc06060c,0x60c06003,0x7c00c06,
-      0x6660c60c,0x60c60c0c,0x1f80c06,0xc1b0666,0xe01b00e,0x3c00600,0x3c43c000,0x3007de00,0x600000,0x40040,0x30000,0x61006607,0xde0c07de,
-      0x7de00000,0x0,0xf07fefff,0x1f,0x8008c3f7,0xde0e0060,0x6064,0xc01047,0xfe00018c,0xb013f,0x86300061,0xf0911000,0x6000,0x6,
-      0xc012060,0x3f,0x8063c0cc,0x3cc0c700,0x39c39c39,0xc39c39c1,0x98630600,0x60060060,0x6000600,0x60060060,0x60663660,0x66066066,
-      0x66061f0,0x78660660,0x66066060,0x607fc618,0x3fc3fc3f,0xc3fc3fc3,0xfc7fe600,0x7fc7fc7f,0xc7fc0600,0x60060060,0x60c60c60,0xc60c60c6,
-      0xc60c7fe,0x64c60c60,0xc60c60c1,0xb060c1b0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x6000,0xffe0260,0x6661b000,0xc003000,
-      0x600000,0xc0,0x60c0300c,0xc7fe0,0xc60c060,0x60c01c00,0x1e07,0xfe078060,0x6663fc60,0x66006066,0x600606,0x60606001,0x86386006,
-      0x6636606,0x60060660,0xe0060606,0x60f039c,0x1b806018,0x600300,0x30000000,0x70c60,0xc60060c6,0x6060c,0x60c06003,0x7600c06,
-      0x6660c60c,0x60c60c0c,0x1c0c06,0xc1b03fc,0xe01f01c,0xe00600,0x70000000,0x3007fc00,0x600000,0x40040,0x0,0x62006607,0xfc1807fc,
-      0x7fc00000,0x0,0xf0000000,0x1,0xc004c307,0xfc1c0060,0x6064,0xc018c0,0x600000d8,0x5f200,0x3180060,0x50a000,0x6000,0x6,0xc012000,
-      0x0,0xc601c0,0x4201c600,0x3fc3fc3f,0xc3fc3fc3,0xfc7f0600,0x60060060,0x6000600,0x60060060,0x60663660,0x66066066,0x66063b8,
-      0x70660660,0x66066060,0x607f860c,0x70c70c70,0xc70c70c7,0xcc60600,0x60060060,0x6000600,0x60060060,0x60c60c60,0xc60c60c6,0xc60c000,
-      0x68c60c60,0xc60c60c1,0xf060c1f0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3300260,0x6661e000,0xc003000,0x600000,
-      0x180,0x71c03018,0xc7fe0,0xc60c0c0,0x60c01800,0x787,0xfe1e0060,0x6663fc60,0x630060c6,0x600306,0x60606001,0x86186006,0x661e70e,
-      0x60070c60,0x60060606,0x60f039c,0x19806038,0x600180,0x30000000,0x60c60,0xc60060c6,0x6060c,0x60c06003,0x6700c06,0x6660c60c,
-      0x60c60c0c,0xc0c06,0xc1b039c,0x1f00e018,0x600600,0x60000000,0x1803f800,0x600000,0x40040,0x39e00,0x63006603,0xf83803f8,0x3f800000,
-      0x0,0x60000000,0x0,0xc00cc303,0xf8180060,0x6064,0xc01fc0,0x60060070,0x40200,0x18c0060,0x402000,0x6000,0x6,0xc012000,0x0,0x18c0140,
-      0x2014600,0x3fc3fc3f,0xc3fc3fc3,0xfc7f0300,0x60060060,0x6000600,0x60060060,0x60c61e70,0xe70e70e7,0xe70e71c,0x60e60660,0x66066060,
-      0x6060060c,0x60c60c60,0xc60c60c6,0xcc60600,0x60060060,0x6000600,0x60060060,0x60c60c60,0xc60c60c6,0xc60c000,0x70c60c60,0xc60c60c0,
-      0xe060c0e0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x33022e0,0x6670c000,0xc003000,0x600600,0x60180,0x31803030,
-      0x41c0184,0x1831c0c0,0x71c23806,0x6001e0,0x780000,0x62630c60,0xe38261c6,0x600386,0x60606043,0x860c6006,0x661e30c,0x60030c60,
-      0x740e0607,0xe0f039c,0x31c06030,0x600180,0x30000000,0x61c71,0x830831c3,0x406031c,0x60c06003,0x6300c06,0x6660c318,0x71831c0c,
-      0x41c0c07,0x1c0e039c,0x1b00e030,0x600600,0x60000000,0x1c41b00e,0x601cc0,0x401f8,0x45240,0xe1803601,0xb03001b0,0x1b000000,
-      0x0,0x0,0x41,0xc008e711,0xb0300060,0x6034,0x80c02020,0x60060030,0x30c00,0xc60000,0x30c000,0x0,0x7,0x1c012000,0x0,0x3180240,
-      0x6024608,0x30c30c30,0xc30c30c3,0xc630382,0x60060060,0x6000600,0x60060060,0x61c61e30,0xc30c30c3,0xc30c208,0x70c70e70,0xe70e70e0,
-      0x6060068c,0x61c61c61,0xc61c61c6,0x1cc62308,0x30430430,0x43040600,0x60060060,0x31860c31,0x83183183,0x18318060,0x31c71c71,
-      0xc71c71c0,0xe07180e0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x6000,0x2203fc0,0x663f6000,0x6006000,0x600600,0x60300,
-      0x3f81fe7f,0xc7f80187,0xf83f80c0,0x3f83f006,0x600020,0x400060,0x33e6067f,0xc1fe7f87,0xfe6001fe,0x6063fc7f,0x60e7fe6,0x660e3f8,
-      0x6001f860,0x37fc0603,0xfc06030c,0x30c0607f,0xe06000c0,0x30000000,0x7fc7f,0x83f83fc3,0xfc0603fc,0x60c7fe03,0x61807c6,0x6660c3f8,
-      0x7f83fc0c,0x7f80fc3,0xfc0e039c,0x3180607f,0xc0600600,0x60000000,0xfc0e00c,0x601986,0x66040040,0x4527f,0xc0803fe0,0xe07fe0e0,
-      0xe000000,0x0,0x0,0x7f,0x80107ff0,0xe07fc060,0x603f,0x83fe0000,0x60060018,0xf000,0x420000,0xf0000,0x7fe00,0x7,0xfe012000,
-      0x0,0x2100640,0xc0643f8,0x60660660,0x66066067,0xec3e1fe,0x7fe7fe7f,0xe7fe3fc3,0xfc3fc3fc,0x7f860e3f,0x83f83f83,0xf83f8000,
-      0x5fc3fc3f,0xc3fc3fc0,0x606006fc,0x7fc7fc7f,0xc7fc7fc7,0xfcffe3f8,0x3fc3fc3f,0xc3fc7fe7,0xfe7fe7fe,0x3f860c3f,0x83f83f83,
-      0xf83f8060,0x7f83fc3f,0xc3fc3fc0,0x607f8060,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x6000,0x2201f80,0x3c1e7000,0x6006000,
-      0x600,0x60300,0xe01fe7f,0xc3f00183,0xe01f0180,0x1f01e006,0x600000,0x60,0x3006067f,0x807c7e07,0xfe6000f8,0x6063fc3e,0x6067fe6,
-      0x660e0f0,0x6000f060,0x3bf80601,0xf806030c,0x60e0607f,0xe06000c0,0x30000000,0x1ec6f,0xf01ec0,0xf80601ec,0x60c7fe03,0x61c03c6,
-      0x6660c1f0,0x6f01ec0c,0x3f007c1,0xcc0e030c,0x71c0c07f,0xc0600600,0x60000000,0x7804018,0xe01186,0x66040040,0x39e3f,0x80401fe0,
-      0x407fe040,0x4000000,0x0,0x0,0x3f,0x203ce0,0x407fc060,0x601f,0x3fe0000,0x60060018,0x0,0x0,0x0,0x7fe00,0x6,0xe6012000,0x0,
-      0x7e0,0x1807e1f0,0x60660660,0x66066066,0x6c3e07c,0x7fe7fe7f,0xe7fe3fc3,0xfc3fc3fc,0x7e060e0f,0xf00f00,0xf00f0000,0x8f01f81f,
-      0x81f81f80,0x60600670,0x1ec1ec1e,0xc1ec1ec1,0xec79c0f0,0xf80f80f,0x80f87fe7,0xfe7fe7fe,0x1f060c1f,0x1f01f01,0xf01f0000,0x4f01cc1c,
-      0xc1cc1cc0,0xc06f00c0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x200,0x0,0x6006000,0x600,0x600,0x0,0x0,0x0,0x0,
-      0x600000,0x0,0x18000000,0x0,0x0,0x0,0x0,0x0,0x1800,0x0,0x0,0x0,0x600060,0x30000000,0x0,0x0,0xc,0x3,0x0,0x0,0x60000c00,0x0,
-      0x0,0xc000,0x600600,0x60000000,0x18,0xc03100,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x4,0x0,0x601f8,0x0,0x0,0x0,0x0,0x6,
-      0x12000,0x2000000,0x40,0x20004000,0x0,0x0,0x10,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x10,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0xc06000c0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x200,0x0,0x2004000,0xc00,0x0,0x0,0x0,0x0,0x0,0xc00000,
-      0x0,0x1c000000,0x0,0x0,0x0,0x0,0x0,0xc00,0x0,0x0,0x0,0x780000,0xf0000000,0x0,0x0,0x21c,0x3,0x0,0x0,0x60000c00,0x0,0x0,0xc000,
-      0x7c0603,0xe0000000,0x10,0xc02300,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x4,0x0,0x601f0,0x0,0x0,0x0,0x0,0x6,0x12000,0x1000000,
-      0x40,0x7e004000,0x0,0x0,0x8,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x8,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xc06000c0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x200,0x0,0x300c000,0xc00,0x0,0x0,0x0,0x0,0x0,0xc00000,0x0,0x7800000,0x0,
-      0x0,0x0,0x0,0x0,0x800,0x0,0x0,0x0,0x780000,0xf0000000,0x0,0x0,0x3f8,0x3e,0x0,0x0,0x60000c00,0x0,0x0,0x38000,0x3c0603,0xc0000000,
-      0x10,0xfc00000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x4,0x0,0x60000,0x0,0x0,0x0,0x0,0x6,0x0,0x1000000,0x0,0x0,0x0,0x0,
-      0x8,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x8,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3,0x80600380,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xffc,0x0,
-      0x0,0x1f0,0x3c,0x0,0x0,0x60000c00,0x0,0x0,0x38000,0x600,0x0,0x0,0xf000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x6,0x0,0xe000000,0x0,0x0,0x0,0x0,0x70,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x70,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x3,0x80600380,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xffc,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x600,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0 };
+    // Define a 20x23 font (normal size).
+    const char *const data_font20x23 =
+"                                                9q\\q^r_rnp`qnq`plp7q\\q^q_qmqbq\\q^q_qmqHqmp_q\\q^r_rnp`qnq7q\\q^q_qmq_q \"r                               "
+"                        Mq^q^qnq`pnr`qnq`plp6q^q^pmp`qmqaq^q^pmp`qmqIpmq]q^q^qnq`pnr`qnq6q^q^pmp`qmq`q \"plp         'q     5qmq               Vq      "
+"               Xq    [plp      3qYq_p^rnpLplp8qYq_qNqYq_q4rmpaqYq_q_rmp%qYq^pGq  Irc|!pKp]raqjq`p   HtNq_qmq\\plqbp_shpdscq[q^q[p [q]s_r`uau]rbv`tcxbua"
+"t LsZucrav_udwcxdw`udqiqeq]q]qjreq]sksgrjqbtcv_tcvaud{eqiqgqfqgqjsjqlrjrhrirfzfs`q[sZqMqJqCqNsLq]q]q]q]q   .scq]s \\sKt%r  [s^raxdxat_qazgqlqlqctJqIqIq"
+"LqHsOqiqOtaqmq\\uft nufu`sLs`t\\qKv<r\\rLrepirepitgpeq]r^r^r^r^r^r^{gudxdxdxdxdq]q]q]q]wcrjqbt`t`t`t`tLtlpgqiqeqiqeqiqeqiqgrireq[s_q[q_pnp_pnr`qnq`plp7q["
+"q_s`qmqcq[q_s`qmq]pkpbpmr`q[q_s`pmraqmq8q[q^pnp_qnq^qaq\\qnq !pnqd{!pJp^tdunucr _y  dvOq_qmq\\plpap_pmpipdudq[p\\p_plplp _q^ubtawcw^rbvavdxcwcw Ou]yerawb"
+"xeyexdwbxeqiqeq]q]qkrdq]sksgrjqdxewbxewcwe{eqiqfqhqfqjsjqkqjqfqiqezfs`q[s[sMpJqCqOtLq]q]q]q]q  q 1tcq]t ^vaq_w&r  \\u_raxdxcxcuczgqlqlqexMsJqJsMq[p^uPq"
+"iqdq]uaqmq]qkqcq!qkqguaqmqNpkp\\p]pKtmp:p]plpKpfpfpfpcpipdq]r^r^r^r^r^r^{ixexdxdxdxdq]q]q]q]yerjqdxdxdxdxdxPwnpfqiqeqiqeqiqeqiqfqiqdq\\u_p[p^pnpKqnq_r5p"
+"[p^pmp`qmqbp[p^pmp`qmq]tKp[p^pmpLqmq7p[p]pnp_qnq^p`q\\qnq5uauauauaucq`qhq4p]pKr_ueunucr `q  \\rkpOq_qmq\\plpctbqmqkqerlpdq\\q\\q_qnpnq\\q%q^qkqcqnqapjrdpjr`"
+"sbq]rkp^qcrkrerkq Oplr`sirgtbqkrdripeqjsfq]q]ripeqiqeq]q]qlrcq]sksgskqerjrfqkrdrjrfqkrerjp`q`qiqfqhqeqkskqiqlqdqkq\\qeq]qZq\\qmqNqKqCqOqIq5q]q  q 1q`qZq"
+" _rlqbtaqjp$q  ^qkqatbr^q]rjrewdqhqgqlqlqfrjrOuKqKu8p_rlpOqkqcq]qFpgpcp\"pgpTpkp\\q^p\\p^qLump:p^pjpLpgpepgpbpjpPt`t`t`t`t`qnq_qnqcripeq]q]q]q]q]q]q]q]qj"
+"sfskqerjrfrjrfrjrfrjrfrjrRrjrfqiqeqiqeqiqeqiqeqkqcvbrlq`q]q_plp Iq]q_qmqNq]q_qmqKtIq]q_qmq ^q]q^plpKq`q mqkqcqkqcqkqcqkqcqkqdq`qhq5q^qLt`ueunudtasbqip"
+"`q`pipcq  [qIq_qmq`{gvcqmqkpdq_q\\q\\q]rZq%q_rkraqZq]qaqnqbq]qXqcqiqeqiq1pSpXq`qfrhqnqbqjqdq]qhqfq]q]q]qiqeq]q]qmrbq]qnqmqnqgskqeqhqfqjqdqhqfqjqeqYq`qiq"
+"frjreqkskqirnrdrmr]qdq]qZq]qkq)qCqOqIq5q]q  q 1q`qZq _qkq_qaq mq  ^qkqaqnqar_q]qhqfrnqnreqhqgqlqlqfqhqPwLqLw9p_q_phqdqkqcq]qGplslpiu#pmtlpUpkp\\q_q_r8u"
+"mp:p^pjpLpgpepgperipcq^qnq`qnq`qnq`qnq`qnq`qnq`qmqcq]q]q]q]q]q]q]q]q]qhqfskqeqhqfqhqfqhqfqhqfqhqdphpfqirfqiqeqiqeqiqeqiqermrcwcqkq    [q 3qZp Oq nqmqm"
+"qeqiqeqiqeqiqeqiqeq_piq4q^pLvatd|evdvcqipasaqkqdq  [qHq_qmq`{hrnpmpcqmqlpcq_q\\pZp]rZq%q_qiqaqZq]qapmqbq^qWqcqiqeqiqdq]qUsSs[qaqdqhqnqbqjqeq\\qgqgq]q^q\\"
+"qiqeq]q]qnraq]qnqmqnqgqnqlqfqfqgqjqeqfqgqjqeqYq`qiqeqjqdqlqmqlqhqnqbqmq]rdq]qZq^pgp=taqns`s`snqatdv_snqcqnsbq]q]qkqcq]qnsmshqns`saqnsasnqcqnr`tbvaqjqe"
+"qiqdqkqkqjrkreqiqdw`q`qZq#tnreqkq^qatauaqnsdqiq`raqjqdqiqdpmrcxdqmqmqatbxfyeqiqbqnq`r`q^qfqhrmqmrfqhqgqlqlqgqfqep[pnqnp[p`q`pipbpnqnpNq]taq^qnqnqbqmqb"
+"q\\qIqmpkpmqkqkp$qmpkpmqVqmq\\q`q[pLqjqeump:p^pjpLphpdphpapkpbq^qnq`qnq`qnq`qnq`qnq`qnq`qmqdq\\q]q]q]q]q]q]q]q]qgqgqnqlqfqfqhqfqhqfqhqfqhqfqfrjrhqiqnqgqi"
+"qeqiqeqiqeqiqdqmqbqkrdqmsbt`t`t`t`t`t`tlsfs_t`t`t`tbq]q]q]q[tbqns`s_s_s_s_s\\q`smpdqjqdqjqdqjqdqjqeqiqdqnscqiq;qlqlqgqgqgqnqmqnqgqjqnqgqgqfq_qjq<{fpjpL"
+"vatd|fxeqkqdqipasaqkqdp  \\yNqGplqeqmp`qmqmqcrLqZq`qnpnq\\q%q_qiqaqZq^rbqmqbubqms^qaqkqdqiqdq]qXuf{fu_q`qlrnqlqjqlqcqkreq\\qgqgq]q^q\\qiqeq]q]t`q]qnqmqnqg"
+"qnqlqfqfqgqkreqfqgqkres[q`qiqeqjqdqlqmqlqhs`s]rcq]qZq#vbwcvbwcwev`wcwcq]q]qlqbq]vnthwcwcwcwcubwcvaqjqdqkqcqkqkqiqkqdqiqdw`q`qZq7smsfxdqlr^qavdvawdqkq_"
+"raqjqdpgpeqntdxdqmqmqcwdyfyeqiqcqlq`raq^qfqhqlqlqfqhqgqlqlqgqfqfrZqZraqarkraqLq^vbq^wbqmqbq]tKpmpfpkpjp_plp9plpkplpUs[qaqZpLqjqeump:p^pjpaplp_piqdpiqa"
+"plqbq_qlqbqlqbqlqbqlqbqlqbqlqbrmqdq\\q]q]q]q]q]q]q]q]qgqgqnqlqfqfqhqfqhqfqhqfqhqfqerlrgqjqmqgqiqeqiqeqiqeqiqcsaqjqdqnq`vbvbvbvbvbvbvnuivbwcwcwcwcq]q]q]"
+"q]wcwcwcwcwcwcwOwcqjqdqjqdqjqdqjqeqiqdwdqiq;pkqkpgpepgpmumpgpjrmpgpepfq_qkq;{hrkpLxdxf|fxepipdqipas`pkpcp  ZqHqGplpdt_pmplpmshsMqZqaplplp]q&q^qiqaq[qa"
+"t`plqbvcx_q`ucrkr:uc{cucq`qlvlqjqlqcwdq\\qgqgxdvcqjtfyeq]q]s_q]qmsmqgqmqmqfqfqgwdqfqgwcv_q`qiqdqlqbqmqmqmqfr`s]qbq\\q[q#pjqcrlrdqkpcrlrcqkrdq^rlrcrlrdq]"
+"q]qmqaq]rlrlqirlrdqkqcrlrerlrcr_qjpbq]qjqdqkqcqlslqhqmqbqkq^q_q`qZq_tjpSqmsmpgrlsdqnsaqmqbqkqdq\\rlrdqlq_raqjqeqgqgrnqnrdqlqcqmqmqcqkqerkq`qaycqlq_rbq^"
+"qfqhqlqlqfqhqgqlqlqgqnvnqgrYqYrbqbrirbqLq_rnpmpdwaqmqcydq^qlqLpmpfpkpkq`plpa{RpltkpB{gpXpLqjqdtmpcqHp]plp_plp`pipjpipipmsfplpjphr_qlqbqlqbqlqbqlqbqlqb"
+"qlqbqlxkq\\xdxdxdxdq]q]q]q_vjqgqmqmqfqfqhqfqhqfqhqfqhqfqdrnrfqkqlqgqiqeqiqeqiqeqiqcsaqjqdqnq`pjqcpjqcpjqcpjqcpjqcpjqcpjrlrjqkpbqkrdqkrdqkrdqkrdq]q]q]q]"
+"qkrdrlrdqkqcqkqcqkqcqkqcqkqOqkqcqjqdqjqdqjqdqjqdqkqcrlrdqkq:pnwnpgpnwnpgplslpgpkrlpgpkqkpfq^qlq6qaqlpMzfzfzfzgqipdqipbqmp`qmqc|  fqHqHqlpcuasmplpmpiul"
+"qSqZq]p^{+q^qiqaq\\q`ubqlqbpkrdrkrarawcx<tEteq`qlqlqlqjqlqcwdq\\qgqgxdvcqjtfyeq]q]t`q]qmsmqgqmqmqfqfqgvcqfqgv_t`q`qiqdqlqbqmqmqmqgs_q]qaq\\q[q\"vcqjqeq]qj"
+"qdqiqdq^qjqcqjqdq]q]qnq`q]qkqkqiqjqeqiqdqjqeqjqcq^s^q]qjqdqkqbqmsmqgqmqbqkq_qas_qYsc{Spkqkphqkrcqntcvcqiqeq\\qjqdqmr`tbqjqeqgqgqmqmqdqlqcqmqmqdqiqfqiqa"
+"qaycqlq_qaq^qfqhqlqlqfqhqfqmqmqfqnvnqh}cqc}cqc}cqLq_qmpawbqkqasaq^qkqMpmpfpjsnpaplp`{RplpmqkpB{huatKqjqbrmpcqJt^r]plpctlpjqktlpmpkpltlpjqhq^qlqbqlqbql"
+"qbqlqbqlqcrlrcqlxkq\\xdxdxdxdq]q]q]q_vjqgqmqmqfqfqhqfqhqfqhqfqhqfqcteqlqkqgqiqeqiqeqiqeqiqbq`qkrdqmravbvbvbvbvbvbvjqkq]qiqeqiqeqiqeqiqdq]q]q]q^qiqdqjqe"
+"qiqeqiqeqiqeqiqeqiqd{hqkpnqdqjqdqjqdqjqdqjqdqkqcqjqdqkq:pnwnpgpnwnpgplslpgplrkpgpkqkpfq^qlq6qaqmqMzg|fxdxfqipdqipbqmqaqmqcp  \\wLqK{dt]qmqmqkrmrnrSqZqK"
+"{TtKq^qiqaq]r\\rdqkq\\qdqiqaqarkrcsmq<tEtfq_qlqlqlqkqjqdqjqeq\\qgqgq]q^qgqfqiqeq]q]qnraq]qmsmqgqlqnqfqfqgq^qfqgqkq]raq`qiqdqlqbqnqkqnqgt`q^raq\\q[q#wcqjqe"
+"q]qjqdydq^qjqcqjqdq]q]s_q]qkqkqiqjqeqiqdqjqeqjqcq]uaq]qjqcqmqaqmpmpmqfs`qmq_ras_qYscpjtRpkqkphqkrcqkreqlrcqiqcr_qjqdqmq_qnqbqjqeqlqlqgqmqmqdqlqcqmqmqd"
+"qiqfqiqaqaqiqdqjqaq`q^qfqhqlqlqfqhqfrnqnrfqfqh}cqc}cqc}cqLq_qmp_q^qkq`qMrlqMpmpfpWplpUqRplplqlp=q&qjq`pmp _plp]qkpnpdqhpeqkpnpiq^qjqdqjqdqjqdqjqdqjqdq"
+"jqdqkqdq\\q]q]q]q]q]q]q]q]qgqgqlqnqfqfqhqfqhqfqhqfqhqfqbrdqmqjqgqiqeqiqeqiqeqiqbq`wcqlrcwcwcwcwcwcwc~kq]yeyeyeydq]q]q]q^qiqdqjqeqiqeqiqeqiqeqiqeqiqd{hq"
+"lpmqdqjqdqjqdqjqdqjqcqmqbqjqcqmq9pkqkpgpepgpmumpgpmrjpgpepfq]pmq:{epmpLzg|evbveqipdqipbqmqaqmpbq  [qHqK{cpmq^plqmqkqktRqZqFqOtKq^qiqaq^rZqdy^qdqiqaqaq"
+"iq]q:uc{cudq_qlqlqmqjxdqiqfq\\qgqgq]q^qgqfqiqeq]q]qmrbq]qlqlqgqlqnqfqfqgq^qfqgqkr]qaq`qiqcqnqaqnqkqnqhrnq`q_r`q\\q[q$qjqcqjqeq]qjqdydq^qjqcqjqdq]q]s_q]q"
+"kqkqiqjqeqiqdqjqeqjqcqZsbq]qjqcqmqaqnqmqnqfs`qmq`r^r`qZr9pkqkphqkrcqjqeqkqcqiqet_qjqcqnq`rnqbqjqeqlqlqgqmqmqdqlqcqmqmqdqiqfqiqaqaqiqdqjqbr`q]qhqgrmqmr"
+"fqhqeweqfqgrYqYrdpnqnpdrirdpnqnpNq_qmp_q]qmqcyPrmqMqmpkpmqkvaplpVqRqmpkpmq=q&qjq`pmp(v_plp\\pkpmpdphqepkpmpjq]xdxdxdxdxdxdwdq\\q]q]q]q]q]q]q]q]qgqgqlqnq"
+"fqfqhqfqhqfqhqfqhqfqcteqnqiqgqiqeqiqeqiqeqiqbq`vbqjqeqjqdqjqdqjqdqjqdqjqdqjqdqjxkq]yeyeyeydq]q]q]q^qiqdqjqeqiqeqiqeqiqeqiqeqiqQqmplqdqjqdqjqdqjqdqjqcq"
+"mqbqjqcqmq9qlqlqgqgqgqnqmqnqgqnqjqgqgqfq]qnq:{eqnpLzg|dt`tdqipcpipbpkp`sbq  Zq plq`pmq_pkqmqkqjrQqZqFq'q]rkraq_rYqdy^qdqiqbq`qiq^q6uf{fuaq_qlyjzeqiqeq"
+"]qhqfq]q]qhqfqiqeq]q]qlrcq]qlqlqgqkseqhqfq]qhqfqjq]qaq`qiqcqnq`skshrmraq_q_q[q\\q$qjqcqjqeq]qjqdq\\q^qjqcqjqdq]q]qnq`q]qkqkqiqjqeqiqdqjqeqjqcqXqbq]qjqcq"
+"mqaqnqmqnqgqmq`s_q\\q`qZq7pmpnqmpgqkrcqjqeqkpbqiqeq\\qjqcs_qlqcqjqeqlqlqgqmqmqdqlqcqmqmqdqiqfqiqaq`qkqdrjrdr_q]riqfrnqnreqhqducqhqerZqZrdwdrkrdwOq_qmp_q"
+"^w`q`q[sKplslpTplpWqQpmpkqnp<q&qjq`pmp aplp\\pkplpephqepkplpjq^zfzfzfzfzfzfxcq]q]q]q]q]q]q]q]q]qhqfqkseqhqfqhqfqhqfqhqfqhqcrnreriqfqiqeqiqeqiqeqiqbq`q]"
+"qjqeqjqdqjqdqjqdqjqdqjqdqjqdqjqdq]q]q]q]q\\q]q]q]q^qiqdqjqeqiqeqiqeqiqeqiqeqiqQqnpkqdqjqdqjqdqjqdqjqbsaqjqbs7qmqmqeqiqeqiqeqiqeqiqeq]qnp7q]rJrnpnresnpn"
+"sct_rcqipcqkqcqkqasaq  [rkp&plpcplpnr`qkqmqkrltRqZqFq'q\\qkq`q`r_pjr^qcpjrcqkrbq`rkrdpkr3sSsLrlrnrhqhqeqjreripeqjsfq]q]riqfqiqeq]q]qkrdq]qgqgqkserjrfq]"
+"rjrfqjrfpiraq_qkqbt`skshqkqaq`q^q[q\\q$qkrcrlrdqkpcrlrcqipdq^rlrcqjqdq]q]qmqaq]qkqkqiqjqdqkqcrlrerlrcq^pjqbq]rlrbs_rkrfqmq`s`r\\q`qZq6qlrfrmscrlrepkqbrk"
+"qdqkpaqjqcs`rlqcrlrernsnrgrnqnrdqlqcrnqnrdrkqdqkraq`qkqdqhqer^q\\rkqdwdqhqbqarjrdpYqYpbubpipbuNq_rnpmpbq^qnqnq`q`qZqIpgpRplp7pgp;q&rlr`pmp bplp[pkufpiq"
+"dpkukrlpcqhqfqhqfqhqfqhqfqhqfqhqfqjqcripeq]q]q]q]q]q]q]q]qjsfqkserjrfrjrfrjrfrjrfrjrdrlrfrjreqkqcqkqcqkqcqkqaq`q]qnplqeqkrdqkrdqkrdqkrdqkrdqkrdqksjpjq"
+"kpbqipdqipdqipdqipdq]q]q]q]qkqcqjqdqkqcqkqcqkqcqkqcqkq^qbqkqcrlrdrlrdrlrdrlrbsarlrbs6qkqcqkqcqkqcqkqcqkqdq\\r7q\\qFp\\p]r^rcqipcvbqkqas`r  \\vOqIqlpcw_pip"
+"mpivnrRpZpEqbqIq^q[ubwdxdw]qcwbwaq_wcvbq]qRpSp[q^q^qhqexcxeyexdq\\xeqiqeq]q]qjrexdqgqgqjrdxeq\\xeqiqfx`q_war_ririqiqbqazfq[q\\q$xcwcvbwcxdq]wcqjqdq]q]qlq"
+"bq]qkqkqiqjqdwcwcwcq^wbu`wbs_rkrgqkq`q`w`q`qZq$yewdqmq`wdvaqjqbr`qkqcyeyewcqlsdwcxdw`sauczexdq^umteucqhqbq`xLqJsKsMq^vdxdpgpaq`qYqIqkq bqkq?{+yapmp Jp"
+"fpfpipcpfpiucqhqfqhqfqhqfqhqfqhqfqhqfqjxixexdxdxdxdq]q]q]q]yeqjrdxdxdxdxdxdrjrgpnwdwcwcwcwaq`q]qnuexdxdxdxdxdxdvnwjvbxdxdxdxdq]q]q]q]wcqjqdwcwcwcwcw^q"
+"bwbwcwcwcwaq`w`q4uauauauaucq\\r7p[qFp\\p\\p\\pbqipasapip`q^y  ctNqIqmqbu_phsgslrSq\\qEqbqIq^qZsawdxcu\\qbt^taq]uataq]q q]qgpiqfqfw`udwcxdqZudqiqeq]q]qirfxdq"
+"gqgqjrbtcqZtcqirfv_q]s_r_rirjrircqazfq[q\\q#tnqcqns`s`snqaucq\\snqcqjqdq]q]qkqcq]qkqkqiqjqbsaqnsasnqcq]t_t_snqaq^rkrhrkraq`w`q`qZq#smrevbs^t`s`qjqbq`qiq"
+"dqnrmqdrmrcubqkrcubqntat^r`sc|fxdq^umtcqaqhqbq^tJqIqIqLq]tcxLq`qYqHu `u>{+qnrmqapmp Kpepgpiuhpephscqfqhqfqhqfqhqfqhqfqhqfqhqixgudxdxdxdxdq]q]q]q]wcqjr"
+"bt`t`t`t`taphpgplt`s_s_s_s_q`q]qmsctnqctnqctnqctnqctnqctnqbsktgs_uauauaucq]q]q]q[saqjqbs_s_s_s_sNpms_snqbsnqbsnqbsnqaq`qns_q !p Zp      jp#q\\q6q7q   l"
+"q [sjq  Qq -q  OqZq]q  Cq;q HqWq $rIq`qZq _q iqbqKqFqIq`q     hp$q]u   JqYpmpLp   .p        jp    ]p Xr`q[r !p       Tp\"p\\p6q6q   mq Yx  Qr -r  Ps\\q_s"
+"  Ipkq:q HqWq $qHq`qZq _q iqbqKqFqIq`q     hp$q]t   IqYpmpLq   /q        kq     Fq_q[q #s       Tp\"q^q6p   1p Vu  Rs    YsJsMy &v<s HqWq &sHtcq]t _q i"
+"qbqKqFqIq`q     hp$q   2q2q   /q        kq     Hs_q]s \"q                (r     Xy %t;r GqWq &rFscq]s ^q iqbqKqFqIq`q         ,q4r   0r        lr     G"
+"r^q                               *q                                                                                   kr               i";
 
-    // Define a 16x32 font (large size).
-    const unsigned int font16x32[16*32*256/32] = {
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xc300000,0x0,0xc300000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xe70,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x70000e0,0x3c00730,0xe7001c0,0x0,0x70000e0,0x3c00e70,0x70000e0,0x3c00e70,0x730,0x70000e0,0x3c00730,
-      0xe700000,0x700,0xe003c0,0xe7000e0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x6600000,0x0,0x6600000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xe70,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x18001c0,0x6600ff0,0xe7003e0,0x0,0x18001c0,0x6600e70,0x18001c0,0x6600e70,0xff0,0x18001c0,0x6600ff0,0xe700000,0x180,
-      0x1c00660,0xe7001c0,0x0,0x0,0x0,0x380,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3c00000,
-      0x0,0x3c00000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xe70,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1c00380,
-      0xc300ce0,0xe700630,0x0,0x1c00380,0xc300e70,0x1c00380,0xc300e70,0xce0,0x1c00380,0xc300ce0,0xe700000,0x1c0,0x3800c30,0xe700380,
-      0x0,0x0,0x0,0x7c0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0xe000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1800000,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0xc300000,0x0,0xc300000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x700000,0x0,0x0,0x0,0x7c007c00,0x3e000000,
-      0x0,0x0,0x630,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xe000070,0x1800000,0xc60,0x0,0xe000070,0x1800000,0xe000070,
-      0x1800000,0x0,0xe000070,0x1800000,0x0,0xe00,0x700180,0x70,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x800000,0x0,0x600600,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x3f0,0xfc0,0x0,0x7000000,0x38000000,0x1c0000,0xfc0000,0x380001c0,0xe01c00,0x7f800000,0x0,0x0,0x0,0x0,0x0,0x0,0x7c,
-      0x1801f00,0x0,0x0,0x1c,0x0,0x0,0x3c00000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7300000,0x6600000,0x0,0x6600000,0x0,0x0,0x0,0x0,0xe700000,
-      0x0,0x0,0x0,0x0,0x0,0xe00000,0x0,0x0,0x0,0xc000c00,0x43800000,0x0,0x0,0x630,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0xf80,0x70000e0,0x3c00730,0xe700c60,0x0,0x70000e0,0x3c00e70,0x70000e0,0x3c00e70,0xe000730,0x70000e0,0x3c00730,0xe700000,0x700,
-      0xe003c0,0xe7000e0,0x38000e70,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1c0,0x6300000,0x803c00,0x7c00180,
-      0xc00300,0x1000000,0x0,0x1c,0x3c007c0,0xfc007e0,0xe01ff8,0x3f03ffc,0x7e007c0,0x0,0x0,0x7c0,0x1c0,0x7f8003f0,0x7f007ff8,0x7ff803f0,
-      0x70381ffc,0xff0700e,0x7000783c,0x783807c0,0x7fc007c0,0x7fc00fc0,0x7fff7038,0x700ee007,0x780f780f,0x7ffc03f0,0x70000fc0,0x3c00000,
-      0x3000000,0x38000000,0x1c0000,0x1fc0000,0x380001c0,0xe01c00,0x7f800000,0x0,0x0,0x0,0x0,0x0,0x0,0xfc,0x1801f80,0x0,0x1f80000,
-      0x7e,0x0,0x0,0x2400000,0xfc00000,0x7ff0000,0x7ffc0000,0x0,0x0,0x0,0x0,0xf30fb0c,0x2400000,0x0,0x240780f,0x1c0,0xfc,0x780f,
-      0x18003f0,0xe700000,0x7c00000,0x0,0xff0,0x3c00000,0x78007c0,0xc00000,0xff80000,0xf80,0x7c00000,0xc000c00,0x18001c0,0x1c001c0,
-      0x1c001c0,0x1c003e0,0x7fe03f0,0x7ff87ff8,0x7ff87ff8,0x1ffc1ffc,0x1ffc1ffc,0x7f007838,0x7c007c0,0x7c007c0,0x7c00000,0x7c67038,
-      0x70387038,0x7038780f,0x70001fe0,0x30000c0,0x2400f30,0xe700c60,0x0,0x30000c0,0x2400e70,0x30000c0,0x2400e70,0xf700f30,0x30000c0,
-      0x2400f30,0xe700000,0x300,0xc00240,0xe7000c0,0x38000e70,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1c0,
-      0x630018c,0x807e00,0xfe00180,0xc00300,0x1000000,0x0,0x38,0xff01fc0,0x3ff01ff0,0x1e01ff8,0x7f83ffc,0x1ff80ff0,0x0,0x0,0xff0,
-      0x1f003e0,0x7fe00ff8,0x7fc07ff8,0x7ff80ff8,0x70381ffc,0xff0701c,0x7000783c,0x78381ff0,0x7fe01ff0,0x7fe01ff0,0x7fff7038,0x781ee007,
-      0x3c1e380e,0x7ffc0380,0x380001c0,0x3c00000,0x1800000,0x38000000,0x1c0000,0x3c00000,0x380001c0,0xe01c00,0x3800000,0x0,0x0,
-      0x0,0x7000000,0x0,0x0,0x1e0,0x18003c0,0x0,0x3fc0000,0x70,0x0,0x0,0x6600000,0x1ff00000,0x1fff0000,0x7ffc0000,0x0,0x0,0x0,0x0,
-      0xcf0239c,0x3c00000,0x0,0x3c0380e,0x1c0,0x2001fe,0x380e,0x18007f8,0xe700000,0x8600000,0x0,0xff0,0x7e00000,0x8c00870,0x1800000,
-      0x1ff80000,0x180,0xc600000,0xc000c00,0x38001c0,0x3e003e0,0x3e003e0,0x3e001c0,0x7fe0ff8,0x7ff87ff8,0x7ff87ff8,0x1ffc1ffc,0x1ffc1ffc,
-      0x7fc07838,0x1ff01ff0,0x1ff01ff0,0x1ff00000,0x1fec7038,0x70387038,0x7038380e,0x70003ce0,0x1800180,0x6600cf0,0xe7007c0,0x0,
-      0x1800180,0x6600e70,0x1800180,0x6600e70,0x7c00cf0,0x1800180,0x6600cf0,0xe700000,0x180,0x1800660,0xe700180,0x38000e70,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1c0,0x630030c,0x3f0e700,0x1e200180,0x1800180,0x21100000,0x0,
-      0x38,0x1e7819c0,0x38781038,0x1e01c00,0xf080038,0x1c381c38,0x0,0x0,0x1878,0x7fc03e0,0x70e01e18,0x70e07000,0x70001e18,0x703801c0,
-      0x707038,0x70007c7c,0x7c381c70,0x70701c70,0x70703830,0x1c07038,0x381ce007,0x1c1c3c1e,0x3c0380,0x380001c0,0x7e00000,0xc00000,
-      0x38000000,0x1c0000,0x3800000,0x38000000,0x1c00,0x3800000,0x0,0x0,0x0,0x7000000,0x0,0x0,0x1c0,0x18001c0,0x0,0x70c0000,0xe0,
-      0x0,0x0,0xc300000,0x38300000,0x3c700000,0x3c0000,0x0,0x0,0x0,0x0,0xce022f4,0x1800000,0x0,0x1803c1e,0x1c0,0x2003c2,0x3c1e,
-      0x1800e08,0x7e0,0x300000,0x0,0x7e00000,0xe700000,0x600030,0x3000000,0x3f980000,0x180,0x18200000,0xc000c00,0x1e0001c0,0x3e003e0,
-      0x3e003e0,0x3e003e0,0xfe01e18,0x70007000,0x70007000,0x1c001c0,0x1c001c0,0x70e07c38,0x1c701c70,0x1c701c70,0x1c700000,0x3c787038,
-      0x70387038,0x70383c1e,0x70003870,0xc00300,0xc300ce0,0x380,0x0,0xc00300,0xc300000,0xc00300,0xc300000,0xfc00ce0,0xc00300,0xc300ce0,
-      0x0,0xc0,0x3000c30,0x300,0x38000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1c0,0x630031c,0xff8c300,
-      0x1c000180,0x1800180,0x39380000,0x0,0x70,0x1c3801c0,0x203c001c,0x3e01c00,0x1c000038,0x381c3838,0x0,0x0,0x1038,0xe0e03e0,0x70703c08,
-      0x70707000,0x70003808,0x703801c0,0x707070,0x70007c7c,0x7c383838,0x70383838,0x70387010,0x1c07038,0x381c700e,0x1e3c1c1c,0x780380,
-      0x1c0001c0,0xe700000,0x0,0x38000000,0x1c0000,0x3800000,0x38000000,0x1c00,0x3800000,0x0,0x0,0x0,0x7000000,0x0,0x0,0x1c0,0x18001c0,
-      0x0,0xe000000,0xe0,0x0,0x1000100,0x3800,0x70100000,0x38700000,0x780000,0x1c0,0x7801ce0,0xe380000,0x0,0x2264,0x0,0x0,0x1c1c,
-      0x0,0x200780,0x1c1c,0x1800c00,0x1818,0x7f00000,0x0,0x18180000,0xc300000,0x600070,0x0,0x7f980000,0x180,0x18300000,0xc000c00,
-      0x3000000,0x3e003e0,0x3e003e0,0x3e003e0,0xee03c08,0x70007000,0x70007000,0x1c001c0,0x1c001c0,0x70707c38,0x38383838,0x38383838,
-      0x38380000,0x38387038,0x70387038,0x70381c1c,0x7fc03870,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xbc00000,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x38000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1c0,0x6300318,0xe88c300,0x1c000180,0x38001c0,
-      0xfe00180,0x0,0x70,0x1c3801c0,0x1c001c,0x6e01c00,0x1c000078,0x381c3818,0x0,0x40000,0x40000038,0x1c0607e0,0x70703800,0x70707000,
-      0x70003800,0x703801c0,0x7070e0,0x70007c7c,0x7c383838,0x70383838,0x70387000,0x1c07038,0x381c700e,0xf780e38,0x700380,0x1c0001c0,
-      0x1c380000,0x0,0x38000000,0x1c0000,0x3800000,0x38000000,0x1c00,0x3800000,0x0,0x0,0x0,0x7000000,0x0,0x0,0x1c0,0x18001c0,0x0,
-      0xe000000,0xe0,0x0,0x1000100,0x4400,0x70000000,0x38700000,0x700000,0xe0,0x7001c70,0xe380000,0x0,0x2264,0x0,0x0,0xe38,0x0,
-      0x200700,0xe38,0x1800c00,0x300c,0xc300000,0x0,0x300c0000,0xc300180,0x6003c0,0x0,0x7f980000,0x180,0x18300000,0xc000c00,0x1800000,
-      0x7e007e0,0x7e007e0,0x7e003e0,0xee03800,0x70007000,0x70007000,0x1c001c0,0x1c001c0,0x70707c38,0x38383838,0x38383838,0x38380000,
-      0x38387038,0x70387038,0x70380e38,0x7ff039f0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1e00000,0x0,0x0,0x0,0x40000,0x0,0x0,0x38000000,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1c0,0x6300318,0x1c80e700,0x1c000180,0x38001c0,0x3800180,
-      0x0,0xe0,0x381c01c0,0x1c001c,0x6e01c00,0x38000070,0x381c381c,0x0,0x3c0000,0x78000078,0x38030770,0x70707800,0x70387000,0x70007000,
-      0x703801c0,0x7071c0,0x7000745c,0x7638701c,0x7038701c,0x70387000,0x1c07038,0x1c38718e,0x7700f78,0xf00380,0xe0001c0,0x381c0000,
-      0x7e0,0x39e003e0,0x79c03f0,0x3ffc079c,0x39e01fc0,0xfe01c1e,0x3807778,0x39e007e0,0x39e0079c,0x73c07e0,0x7ff83838,0x701ce007,
-      0x783c701c,0x1ffc01c0,0x18001c0,0x0,0x1c000100,0xe0,0x0,0x1000100,0x4200,0x70000000,0x70700100,0xf00100,0x10000e0,0x7000c70,
-      0xc700000,0x0,0x2204,0x7e00000,0x1e380100,0x1ffc0f78,0x0,0xf80700,0xf78,0x1800e00,0x63e6,0x18300000,0x0,0x6fe60000,0xe700180,
-      0xc00060,0x3838,0x7f980000,0x180,0x18300000,0xc000c00,0x18001c0,0x7700770,0x7700770,0x77007f0,0xee07800,0x70007000,0x70007000,
-      0x1c001c0,0x1c001c0,0x70387638,0x701c701c,0x701c701c,0x701c1008,0x707c7038,0x70387038,0x70380f78,0x707039c0,0x7e007e0,0x7e007e0,
-      0x7e007e0,0x1f3c03e0,0x3f003f0,0x3f003f0,0x1fc01fc0,0x1fc01fc0,0x7f039e0,0x7e007e0,0x7e007e0,0x7e00380,0x7ce3838,0x38383838,
-      0x3838701c,0x39e0701c,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1c0,0x6307fff,0x1c807e0c,0xe000180,
-      0x30000c0,0x3800180,0x0,0xe0,0x381c01c0,0x1c001c,0xce01fe0,0x38000070,0x381c381c,0x3800380,0xfc0000,0x7e0000f0,0x30030770,
-      0x70707000,0x70387000,0x70007000,0x703801c0,0x707380,0x700076dc,0x7638701c,0x7038701c,0x70387800,0x1c07038,0x1c3873ce,0x7f00770,
-      0xe00380,0xe0001c0,0x700e0000,0x1ff8,0x3ff00ff0,0xffc0ff8,0x3ffc0ffc,0x3bf01fc0,0xfe01c3c,0x3807f78,0x3bf00ff0,0x3ff00ffc,
-      0x77e0ff0,0x7ff83838,0x3838e007,0x3c783838,0x1ffc01c0,0x18001c0,0x0,0x7ff00380,0x1e0,0x0,0x1000100,0x4200,0x78000000,0x70700380,
-      0xe00380,0x3800060,0xe000e30,0x1c600000,0x0,0x2204,0xff00000,0x7f7c0380,0x1ffc0770,0x1c0,0x3fc0700,0x18040770,0x1800780,0x4e12,
-      0x18300104,0x0,0x4c320000,0x7e00180,0x1c00030,0x3838,0x7f980000,0x180,0x18302080,0xc000c00,0x18001c0,0x7700770,0x7700770,
-      0x7700770,0x1ee07000,0x70007000,0x70007000,0x1c001c0,0x1c001c0,0x70387638,0x701c701c,0x701c701c,0x701c381c,0x705c7038,0x70387038,
-      0x70380770,0x70383b80,0x1ff81ff8,0x1ff81ff8,0x1ff81ff8,0x3fbe0ff0,0xff80ff8,0xff80ff8,0x1fc01fc0,0x1fc01fc0,0xff83bf0,0xff00ff0,
-      0xff00ff0,0xff00380,0xffc3838,0x38383838,0x38383838,0x3ff03838,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x1c0,0x7fff,0x1c803c38,0xf000000,0x70000e0,0xfe00180,0x0,0x1c0,0x381c01c0,0x3c0078,0xce01ff0,0x39e000f0,0x1c38381c,0x3800380,
-      0x3e07ffc,0xf8001f0,0x307b0770,0x70e07000,0x70387000,0x70007000,0x703801c0,0x707700,0x700076dc,0x7638701c,0x7038701c,0x70387e00,
-      0x1c07038,0x1c3873ce,0x3e007f0,0x1e00380,0x70001c0,0x0,0x1038,0x3c381e18,0x1c7c1e3c,0x3801e3c,0x3c7801c0,0xe01c78,0x380739c,
-      0x3c781c38,0x3c381c3c,0x7c21e10,0x7003838,0x3838700e,0x1ef03838,0x3c01c0,0x18001c0,0x0,0x7fe007c0,0x1c0,0x0,0x1000100,0x6400,
-      0x7e000000,0x707007c0,0x1e007c0,0x7c00070,0xe000638,0x18600000,0x0,0x0,0x1e100000,0x73ce07c0,0x3c07f0,0x1c0,0x7240700,0x1ddc3ffe,
-      0x1800de0,0x8c01,0x1870030c,0x0,0x8c310000,0x3c00180,0x3800030,0x3838,0x7f980000,0x180,0x183030c0,0xc000c00,0x430001c0,0x7700770,
-      0x7700770,0x7700770,0x1ce07000,0x70007000,0x70007000,0x1c001c0,0x1c001c0,0x70387638,0x701c701c,0x701c701c,0x701c1c38,0x70dc7038,
-      0x70387038,0x703807f0,0x70383b80,0x10381038,0x10381038,0x10381038,0x21e71e18,0x1e3c1e3c,0x1e3c1e3c,0x1c001c0,0x1c001c0,0x1e383c78,
-      0x1c381c38,0x1c381c38,0x1c380380,0x1c383838,0x38383838,0x38383838,0x3c383838,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x1c0,0x630,0x1e8000e0,0x1f000000,0x70000e0,0x39380180,0x0,0x1c0,0x3b9c01c0,0x3c07f0,0x18e01078,0x3bf800e0,
-      0x7e0383c,0x3800380,0x1f807ffc,0x3f001c0,0x61ff0e38,0x7fc07000,0x70387ff0,0x7ff07000,0x7ff801c0,0x707f00,0x7000729c,0x7338701c,
-      0x7070701c,0x70703fc0,0x1c07038,0x1e7873ce,0x1c003e0,0x3c00380,0x70001c0,0x0,0x1c,0x3c381c00,0x1c3c1c1c,0x3801c3c,0x383801c0,
-      0xe01cf0,0x380739c,0x38381c38,0x3c381c3c,0x7801c00,0x7003838,0x3838700e,0xfe03c78,0x7801c0,0x18001c0,0x0,0x1c000c20,0xff8,
-      0x0,0x1ff01ff0,0x3818,0x3fc00100,0x707e0c20,0x3c00c20,0xc200030,0xc000618,0x18c00000,0x0,0x0,0x1c000080,0xe1ce0c20,0x7803e0,
-      0x1c0,0xe200700,0xff83ffe,0x1801878,0x9801,0x1cf0071c,0x7ffc0000,0x8c310000,0x7ffe,0x7000030,0x3838,0x3f980380,0x180,0xc6038e0,
-      0x7f9c7f9c,0x3e1c01c0,0xe380e38,0xe380e38,0xe380f78,0x1cfc7000,0x7ff07ff0,0x7ff07ff0,0x1c001c0,0x1c001c0,0xfe387338,0x701c701c,
-      0x701c701c,0x701c0e70,0x719c7038,0x70387038,0x703803e0,0x70383b80,0x1c001c,0x1c001c,0x1c001c,0xe71c00,0x1c1c1c1c,0x1c1c1c1c,
-      0x1c001c0,0x1c001c0,0x1c383838,0x1c381c38,0x1c381c38,0x1c380000,0x3c383838,0x38383838,0x38383c78,0x3c383c78,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1c0,0x630,0xf800380,0x3f830000,0x70000e0,0x31080180,0x0,0x380,0x3b9c01c0,
-      0x7807e0,0x38e00038,0x3c3800e0,0xff01c3c,0x3800380,0x7c000000,0x7c03c0,0x61870e38,0x7fc07000,0x70387ff0,0x7ff070fc,0x7ff801c0,
-      0x707f80,0x7000739c,0x7338701c,0x7ff0701c,0x7fe00ff0,0x1c07038,0xe7073ce,0x1c003e0,0x3800380,0x38001c0,0x0,0x1c,0x381c3800,
-      0x381c380e,0x380381c,0x383801c0,0xe01de0,0x380739c,0x3838381c,0x381c381c,0x7001e00,0x7003838,0x1c70718e,0x7e01c70,0xf00380,
-      0x18001e0,0x1e000000,0x1c001bb0,0xff8,0x0,0x1000100,0xe0,0xff00300,0x707e1bb0,0x3801bb0,0x1bb00010,0x8000308,0x30c00000,0x0,
-      0x0,0x1e0000c0,0xe1ce1bb0,0xf003e0,0x1c0,0x1c203ff8,0x63003e0,0x180181c,0x9801,0xfb00e38,0x7ffc0000,0x8fc10000,0x7ffe,0xe000860,
-      0x3838,0x1f980380,0x180,0x7c01c70,0x1f001f0,0x1f003c0,0xe380e38,0xe380e38,0xe380e38,0x1cfc7000,0x7ff07ff0,0x7ff07ff0,0x1c001c0,
-      0x1c001c0,0xfe387338,0x701c701c,0x701c701c,0x701c07e0,0x731c7038,0x70387038,0x703803e0,0x70383980,0x1c001c,0x1c001c,0x1c001c,
-      0xe73800,0x380e380e,0x380e380e,0x1c001c0,0x1c001c0,0x381c3838,0x381c381c,0x381c381c,0x381c0000,0x387c3838,0x38383838,0x38381c70,
-      0x381c1c70,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1c0,0xc30,0x7f00e00,0x33c30000,0x70000e0,0x1007ffe,
-      0x0,0x380,0x3b9c01c0,0xf00078,0x30e0001c,0x3c1c01c0,0x1c381fdc,0x0,0x70000000,0x1c0380,0x63030e38,0x70707000,0x70387000,0x700070fc,
-      0x703801c0,0x707b80,0x7000739c,0x7338701c,0x7fc0701c,0x7fc001f0,0x1c07038,0xe703e5c,0x3e001c0,0x7800380,0x38001c0,0x0,0x7fc,
-      0x381c3800,0x381c380e,0x380381c,0x383801c0,0xe01fe0,0x380739c,0x3838381c,0x381c381c,0x7001fc0,0x7003838,0x1c70718e,0x7c01c70,
-      0xe01f00,0x180007c,0x7f8c0000,0x7fc03fb8,0x1c0,0x0,0x1000100,0x700,0x1f00600,0x70703fb8,0x7803fb8,0x3fb80000,0x8000000,0x180,
-      0x0,0x0,0x1fc00060,0xe1ce3fb8,0xe001c0,0x1c0,0x1c203ff8,0xc1801c0,0x180c,0x9801,0x1c70,0xc0000,0x8cc10000,0x180,0xfe007c0,
-      0x3838,0x7980380,0xff0,0xe38,0x3e003e00,0x3e000380,0xe380e38,0xe380e38,0xe380e38,0x38e07000,0x70007000,0x70007000,0x1c001c0,
-      0x1c001c0,0x70387338,0x701c701c,0x701c701c,0x701c03c0,0x731c7038,0x70387038,0x703801c0,0x703838e0,0x7fc07fc,0x7fc07fc,0x7fc07fc,
-      0xe73800,0x380e380e,0x380e380e,0x1c001c0,0x1c001c0,0x381c3838,0x381c381c,0x381c381c,0x381c7ffc,0x38dc3838,0x38383838,0x38381c70,
-      0x381c1c70,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1c0,0xc60,0xf83878,0x71e30000,0x70000e0,0x1007ffe,
-      0x7f0,0x380,0x381c01c0,0x1e0003c,0x60e0001c,0x381c01c0,0x381c079c,0x0,0x7c000000,0x7c0380,0x63031c1c,0x70307000,0x70387000,
-      0x7000701c,0x703801c0,0x7071c0,0x7000739c,0x71b8701c,0x7000701c,0x71e00078,0x1c07038,0xe703e7c,0x7e001c0,0xf000380,0x38001c0,
-      0x0,0x1ffc,0x381c3800,0x381c3ffe,0x380381c,0x383801c0,0xe01fc0,0x380739c,0x3838381c,0x381c381c,0x7000ff0,0x7003838,0x1ef03bdc,
-      0x3800ee0,0x1e01f00,0x180007c,0x61fc0000,0x7fc07f3c,0x1c0,0x0,0x1000100,0x1800,0x780c00,0x70707f3c,0xf007f3c,0x7f3c0000,0x0,
-      0x3c0,0x3ffcffff,0x0,0xff00030,0xe1fe7f3c,0x1e001c0,0x1c0,0x1c200700,0xc183ffe,0xe0c,0x9801,0x1ff038e0,0xc07f0,0x8c610000,
-      0x180,0x0,0x3838,0x1980380,0x0,0x1ff0071c,0xe000e000,0xe0000f80,0x1c1c1c1c,0x1c1c1c1c,0x1c1c1e38,0x38e07000,0x70007000,0x70007000,
-      0x1c001c0,0x1c001c0,0x703871b8,0x701c701c,0x701c701c,0x701c03c0,0x761c7038,0x70387038,0x703801c0,0x70703870,0x1ffc1ffc,0x1ffc1ffc,
-      0x1ffc1ffc,0xfff3800,0x3ffe3ffe,0x3ffe3ffe,0x1c001c0,0x1c001c0,0x381c3838,0x381c381c,0x381c381c,0x381c7ffc,0x389c3838,0x38383838,
-      0x38380ee0,0x381c0ee0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1c0,0xfffc,0xbc60fc,0x70e30000,0x70000e0,
-      0x180,0x7f0,0x700,0x381c01c0,0x3e0001c,0x7ffc001c,0x381c03c0,0x381c001c,0x0,0x1f807ffc,0x3f00380,0x63031ffc,0x70387000,0x70387000,
-      0x7000701c,0x703801c0,0x7071e0,0x7000701c,0x71b8701c,0x7000701c,0x70f00038,0x1c07038,0x7e03e7c,0x77001c0,0xe000380,0x1c001c0,
-      0x0,0x3c1c,0x381c3800,0x381c3ffe,0x380381c,0x383801c0,0xe01fe0,0x380739c,0x3838381c,0x381c381c,0x70003f8,0x7003838,0xee03bdc,
-      0x3c00ee0,0x3c00380,0x18000e0,0xf00000,0x1c007e7c,0x3c0,0x0,0x1000100,0x0,0x381800,0x70707e7c,0xe007e7c,0x7e7c0000,0x0,0x7c0,
-      0x0,0x0,0x3f80018,0xe1fe7e7c,0x3c001c0,0x1c0,0x1c200700,0xc183ffe,0xf0c,0x8c01,0x38e0,0xc07f0,0x8c710000,0x180,0x0,0x3838,
-      0x1980000,0x0,0x71c,0x7000f0,0x700f00,0x1ffc1ffc,0x1ffc1ffc,0x1ffc1ffc,0x3fe07000,0x70007000,0x70007000,0x1c001c0,0x1c001c0,
-      0x703871b8,0x701c701c,0x701c701c,0x701c07e0,0x7c1c7038,0x70387038,0x703801c0,0x7ff03838,0x3c1c3c1c,0x3c1c3c1c,0x3c1c3c1c,
-      0x3fff3800,0x3ffe3ffe,0x3ffe3ffe,0x1c001c0,0x1c001c0,0x381c3838,0x381c381c,0x381c381c,0x381c0000,0x391c3838,0x38383838,0x38380ee0,
-      0x381c0ee0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xfffc,0x9c01ce,0x70f60000,0x70000e0,0x180,
-      0x0,0x700,0x381c01c0,0x780001c,0x7ffc001c,0x381c0380,0x381c003c,0x0,0x3e07ffc,0xf800380,0x63031ffc,0x70387000,0x70387000,
-      0x7000701c,0x703801c0,0x7070f0,0x7000701c,0x71b8701c,0x7000701c,0x70700038,0x1c07038,0x7e03e7c,0xf7801c0,0x1e000380,0x1c001c0,
-      0x0,0x381c,0x381c3800,0x381c3800,0x380381c,0x383801c0,0xe01fe0,0x380739c,0x3838381c,0x381c381c,0x7000078,0x7003838,0xee03a5c,
-      0x7c00fe0,0x78001c0,0x18001c0,0x0,0x1c003ef8,0x380,0x0,0x1000100,0x810,0x383000,0x70703ef8,0x1e003ef8,0x3ef80000,0x0,0x7c0,
-      0x0,0x0,0x78000c,0xe1c03ef8,0x78001c0,0x1c0,0x1c200700,0x63001c0,0x18003f8,0x4e12,0x1c70,0xc0000,0x4c320000,0x180,0x0,0x3838,
-      0x1980000,0x0,0xe38,0x700118,0x701e00,0x1ffc1ffc,0x1ffc1ffc,0x1ffc1ffc,0x7fe07000,0x70007000,0x70007000,0x1c001c0,0x1c001c0,
-      0x703871b8,0x701c701c,0x701c701c,0x701c0e70,0x7c1c7038,0x70387038,0x703801c0,0x7fc0381c,0x381c381c,0x381c381c,0x381c381c,
-      0x78e03800,0x38003800,0x38003800,0x1c001c0,0x1c001c0,0x381c3838,0x381c381c,0x381c381c,0x381c0000,0x3b1c3838,0x38383838,0x38380fe0,
-      0x381c0fe0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1860,0x9c0186,0x707e0000,0x30000c0,0x180,
-      0x0,0xe00,0x183801c0,0xf00001c,0xe0001c,0x181c0380,0x381c0038,0x0,0xfc0000,0x7e000000,0x61873c1e,0x70383800,0x70707000,0x7000381c,
-      0x703801c0,0x707070,0x7000701c,0x70f83838,0x70003838,0x70780038,0x1c07038,0x7e03c3c,0xe3801c0,0x1c000380,0xe001c0,0x0,0x381c,
-      0x381c3800,0x381c3800,0x380381c,0x383801c0,0xe01ef0,0x380739c,0x3838381c,0x381c381c,0x7000038,0x7003838,0xfe03e7c,0xfe007c0,
-      0x70001c0,0x18001c0,0x0,0xe001ff0,0x380,0x0,0x1000100,0x162c,0x381800,0x30701ff0,0x1c001ff0,0x1ff00000,0x0,0x3c0,0x0,0x0,
-      0x380018,0xe1c01ff0,0x70001c0,0x1c0,0x1c200700,0xff801c0,0x18000f0,0x63e6,0xe38,0x0,0x6c3e0000,0x0,0x0,0x3838,0x1980000,0x0,
-      0x1c70,0xf0000c,0xf01c00,0x3c1e3c1e,0x3c1e3c1e,0x3c1e3c1c,0x70e03800,0x70007000,0x70007000,0x1c001c0,0x1c001c0,0x707070f8,
-      0x38383838,0x38383838,0x38381c38,0x38387038,0x70387038,0x703801c0,0x7000381c,0x381c381c,0x381c381c,0x381c381c,0x70e03800,
-      0x38003800,0x38003800,0x1c001c0,0x1c001c0,0x381c3838,0x381c381c,0x381c381c,0x381c0380,0x3e1c3838,0x38383838,0x383807c0,0x381c07c0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x18c0,0x9c0186,0x783c0000,0x38001c0,0x180,0x3800000,
-      0x3800e00,0x1c3801c0,0x1e00003c,0xe00038,0x1c1c0780,0x381c0038,0x3800380,0x3c0000,0x78000000,0x61ff380e,0x70383808,0x70707000,
-      0x7000381c,0x703801c0,0x40707078,0x7000701c,0x70f83838,0x70003838,0x70384038,0x1c07038,0x7e03c3c,0x1e3c01c0,0x3c000380,0xe001c0,
-      0x0,0x383c,0x3c381c00,0x1c3c1c00,0x3801c3c,0x383801c0,0xe01c78,0x380739c,0x38381c38,0x3c381c3c,0x7000038,0x7003878,0x7c01e78,
-      0x1ef007c0,0xf0001c0,0x18001c0,0x0,0xe000ee0,0x7800380,0xe380000,0x1001ff0,0x2242,0x40380c00,0x38700ee0,0x3c000ee0,0xee00000,
-      0x0,0x0,0x0,0x0,0x380030,0xe1c00ee0,0xf0001c0,0x1c0,0xe200700,0xdd801c0,0x1800038,0x300c,0x71c,0x0,0x300c0000,0x0,0x0,0x3838,
-      0x1980000,0x0,0x38e0,0xb0000c,0xb01c08,0x380e380e,0x380e380e,0x380e380e,0x70e03808,0x70007000,0x70007000,0x1c001c0,0x1c001c0,
-      0x707070f8,0x38383838,0x38383838,0x3838381c,0x38387038,0x70387038,0x703801c0,0x7000381c,0x383c383c,0x383c383c,0x383c383c,
-      0x70e01c00,0x1c001c00,0x1c001c00,0x1c001c0,0x1c001c0,0x1c383838,0x1c381c38,0x1c381c38,0x1c380380,0x1c383878,0x38783878,0x387807c0,
-      0x3c3807c0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1c0,0x18c0,0x10b801ce,0x3c3e0000,0x38001c0,0x180,
-      0x3800000,0x3801c00,0x1e7801c0,0x3c002078,0xe02078,0x1c380700,0x1c3810f0,0x3800380,0x40000,0x40000380,0x307b380e,0x70701e18,
-      0x70e07000,0x70001c1c,0x703801c0,0x60e0703c,0x7000701c,0x70f83c78,0x70003c70,0x703c70f0,0x1c03870,0x3c01c3c,0x3c1c01c0,0x78000380,
-      0x7001c0,0x0,0x3c7c,0x3c381e18,0x1c7c1e0c,0x3801c3c,0x383801c0,0xe01c38,0x3c0739c,0x38381c38,0x3c381c3c,0x7001078,0x7803c78,
-      0x7c01c38,0x1c780380,0x1e0001c0,0x18001c0,0x0,0x70c06c0,0x7000380,0xe300000,0x1000100,0x2142,0x70f00600,0x3c7006c0,0x780006c0,
-      0x6c00000,0x0,0x0,0x0,0x0,0x10780060,0x73e206c0,0x1e0001c0,0x1c0,0x7240700,0x180c01c0,0x1800018,0x1818,0x30c,0x0,0x18180000,
-      0x0,0x0,0x3c78,0x1980000,0x0,0x30c0,0x130000c,0x1301c18,0x380e380e,0x380e380e,0x380e380e,0x70e01e18,0x70007000,0x70007000,
-      0x1c001c0,0x1c001c0,0x70e070f8,0x3c783c78,0x3c783c78,0x3c781008,0x7c783870,0x38703870,0x387001c0,0x70003a3c,0x3c7c3c7c,0x3c7c3c7c,
-      0x3c7c3c7c,0x79f11e18,0x1e0c1e0c,0x1e0c1e0c,0x1c001c0,0x1c001c0,0x1c783838,0x1c381c38,0x1c381c38,0x1c380380,0x1c383c78,0x3c783c78,
-      0x3c780380,0x3c380380,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1c0,0x38c0,0x1ff800fc,0x1fee0000,
-      0x1800180,0x180,0x3800000,0x3801c00,0xff01ffc,0x3ffc3ff0,0xe03ff0,0xff00700,0x1ff81fe0,0x3800380,0x0,0x380,0x3000780f,0x7ff00ff8,
-      0x7fc07ff8,0x70000ffc,0x70381ffc,0x7fe0701c,0x7ff8701c,0x70781ff0,0x70001ff0,0x701c7ff0,0x1c01fe0,0x3c01c38,0x380e01c0,0x7ffc0380,
-      0x7001c0,0x0,0x1fdc,0x3ff00ff0,0xffc0ffc,0x3800fdc,0x38383ffe,0xe01c3c,0x1fc739c,0x38380ff0,0x3ff00ffc,0x7001ff0,0x3f81fb8,
-      0x7c01c38,0x3c3c0380,0x1ffc01c0,0x18001c0,0x0,0x3fc0380,0x7000380,0xc70718c,0x1000100,0x2244,0x7ff00200,0x1fff0380,0x7ffc0380,
-      0x3800000,0x0,0x0,0x0,0x0,0x1ff000c0,0x7f7e0380,0x1ffc01c0,0x1c0,0x3fc3ffe,0x1c0,0x1800018,0x7e0,0x104,0x0,0x7e00000,0x7ffe,
-      0x0,0x3fde,0x1980000,0x0,0x2080,0x3300018,0x3300ff0,0x780f780f,0x780f780f,0x780f780e,0xf0fe0ff8,0x7ff87ff8,0x7ff87ff8,0x1ffc1ffc,
-      0x1ffc1ffc,0x7fc07078,0x1ff01ff0,0x1ff01ff0,0x1ff00000,0x7ff01fe0,0x1fe01fe0,0x1fe001c0,0x70003bf8,0x1fdc1fdc,0x1fdc1fdc,
-      0x1fdc1fdc,0x3fbf0ff0,0xffc0ffc,0xffc0ffc,0x3ffe3ffe,0x3ffe3ffe,0xff03838,0xff00ff0,0xff00ff0,0xff00000,0x3ff01fb8,0x1fb81fb8,
-      0x1fb80380,0x3ff00380,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1c0,0x31c0,0x7e00078,0x7cf0000,0x1800180,
-      0x0,0x3800000,0x3803800,0x3c01ffc,0x3ffc0fe0,0xe01fc0,0x3e00e00,0x7e00f80,0x3800380,0x0,0x380,0x18007007,0x7fc003f0,0x7f007ff8,
-      0x700003f0,0x70381ffc,0x3f80701e,0x7ff8701c,0x707807c0,0x700007c0,0x701e1fc0,0x1c00fc0,0x3c01818,0x780f01c0,0x7ffc0380,0x3801c0,
-      0x0,0xf9c,0x39e003e0,0x79c03f0,0x380079c,0x38383ffe,0xe01c1e,0x7c739c,0x383807e0,0x39e0079c,0x7000fc0,0x1f80f38,0x3801c38,
-      0x781e0380,0x1ffc01c0,0x18001c0,0x0,0x1f80100,0xe000700,0x1c60718c,0x1000100,0x1e3c,0x1fc00100,0x7ff0100,0x7ffc0100,0x1000000,
-      0x0,0x0,0x0,0x0,0xfc00080,0x3e3c0100,0x1ffc01c0,0x1c0,0xf83ffe,0x1c0,0x1800838,0x0,0x0,0x0,0x0,0x7ffe,0x0,0x3b9e,0x1980000,
-      0x0,0x0,0x2300038,0x23003e0,0x70077007,0x70077007,0x70077007,0xe0fe03f0,0x7ff87ff8,0x7ff87ff8,0x1ffc1ffc,0x1ffc1ffc,0x7f007078,
-      0x7c007c0,0x7c007c0,0x7c00000,0xc7c00fc0,0xfc00fc0,0xfc001c0,0x700039f0,0xf9c0f9c,0xf9c0f9c,0xf9c0f9c,0x1f1e03e0,0x3f003f0,
-      0x3f003f0,0x3ffe3ffe,0x3ffe3ffe,0x7e03838,0x7e007e0,0x7e007e0,0x7e00000,0x63e00f38,0xf380f38,0xf380380,0x39e00380,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x800000,0x0,0xc00300,0x0,0x3000000,0x3800,0x0,0x0,0x0,0x0,
-      0x0,0x300,0x0,0x0,0x1c000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xe0,0x0,0x0,0x0,0x0,0x380,0x3801c0,0x0,0x0,0x0,0x0,0x1c,0x0,0xe00000,
-      0x0,0x0,0x3800001c,0x0,0x0,0x0,0x700,0x1c0,0x18001c0,0x0,0x0,0xe000700,0x18600000,0x1000100,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x200000,0x0,0x1800ff0,0x0,0x0,0x0,0x0,0x0,0x0,0x3800,0x1980000,0x1800000,0x0,0x6300070,0x6300000,0x0,
-      0x0,0x0,0xc0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xc0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x40000000,
-      0x0,0x700,0x38000700,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x800000,0x0,0xc00300,0x0,0x7000000,
-      0x7000,0x0,0x0,0x0,0x0,0x0,0x700,0x0,0x0,0xf040000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x78,0x0,0x0,0x0,0x0,0x3f0,0x1c0fc0,0x0,0x0,
-      0x0,0x0,0x1c,0x0,0xe00000,0x0,0x0,0x3800001c,0x0,0x0,0x0,0x700,0x1e0,0x18003c0,0x0,0x0,0xc000700,0x18c00000,0x1000000,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x200000,0x0,0x18007e0,0x0,0x0,0x0,0x0,0x0,0x0,0x3800,0x1980000,0xc00000,
-      0x0,0x7f800e0,0x7f80000,0x0,0x0,0x0,0x60,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x60,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x700,0x38000700,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x800000,
-      0x0,0x600600,0x0,0x6000000,0x0,0x0,0x0,0x0,0x0,0x0,0x600,0x0,0x0,0x7fc0000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x30,0x0,0x0,0x0,0x0,
-      0x3f0,0xfc0,0x0,0x0,0x0,0x0,0x838,0x0,0x1e00000,0x0,0x0,0x3800001c,0x0,0x0,0x0,0xf00,0xfc,0x1801f80,0x0,0x0,0x8008e00,0x30c00000,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x200000,0x0,0x1800000,0x0,0x0,0x0,0x0,0x0,0x0,0x3800,0x1980000,0xc00000,
-      0x0,0x3001c0,0x300000,0x0,0x0,0x0,0x60,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x60,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0xf00,0x38000f00,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x800000,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xfc0000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0xff0,0x0,0x1fc00000,0x0,0x0,0x3800001c,0x0,0x0,0x0,0x3e00,0x7c,0x1801f00,0x0,0x0,0x800fe00,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x200000,0x0,0x1800000,0x0,0x0,0x0,0x0,0x0,0x0,0x3800,0x0,0x7c00000,0x0,0x3001fc,0x300000,
-      0x0,0x0,0x0,0x3e0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3e0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x3e00,0x38003e00,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xfff8,0x0,0x0,0x0,0x7e0,0x0,0x1f000000,
-      0x0,0x0,0x3800001c,0x0,0x0,0x0,0x3c00,0x0,0x1800000,0x0,0x0,0x7800,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3800,0x0,0x7800000,0x0,0x0,0x0,0x0,0x0,0x0,0x3c0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3c0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3c00,0x38003c00,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xfff8,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1800000,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0 };
+    // Define a 47x53 font (extra-large size).
+    const char *const data_font47x53 =
+"                                                                                                                                                      "
+"        9])]2_2]T\\8^U^3]  E])]2`4^U^>])]2_4^U^ 6^T\\5])]1_2]T\\8^U^  K])]2`4^V^3]                                                                       "
+"                                                                                                                    U]*\\2a4`V\\8^U^5a  F]*\\1\\X\\4^U^=]*\\"
+"2a5^U^ 7aV\\4]*\\1a4`V\\8^U^  J]*\\1\\X\\4^V^3\\                                                                                                             "
+"                                                                              S],\\1\\W\\5g8^U^6c  F],\\1\\V\\5^U^<],\\2]W]6^U^ 8h3],\\0\\W\\5g8^U^  I],\\1\\V\\5^V"
+"^4\\      ;]                                                                                                                                           "
+"                                         :\\-]2\\U\\6\\V`7^U^7]U]  F\\-]2\\T\\6^U^;\\-]3]U]7^U^ 8\\Va1\\-]1\\U\\6\\V`7^U^  H\\-]2\\T\\6^V^5]      =a                  "
+"              J]                                                                                                                                      "
+"              N\\/]2\\S\\7\\T]6^U^7\\S\\  E\\/]2\\R\\7^U^:\\/]3]S]8^U^ 8\\T^/\\/]1\\S\\7\\T]6^U^  G\\/]2\\R\\7^V^6]      =c                                L^           "
+"                                                         *^                            U`                                         O^             )\\S\\ "
+"                    !^$^3\\  E]U\\  K^$^4^ G^$^4]   J^$^3\\   #^$^3\\ 4^            B[                                                                    "
+"&^                            Xe                                         S^             (\\S\\               )Z      Q^&^3^2]S\\ A\\S\\  K^&^3^ F^&^4_  >]S"
+"\\9^&^3^2]S\\   W^&^3^ 6^        Q]    M[               ?`   ![1^H]?` =]4](\\    %` >b4c  Bb ?`2a    .a   Ib   Pb      Aa <a @b      Fb =b  F^ :] '] Da A"
+"].].].].]            <_:]._    Xh ?c   W^       @`   La   Pa        Sa   Va5^U^ @`   \"f4_ >`0`*^   $^.` <^F]F^F]G`G]     F\\S\\ ;b        %a2a2a2a2a <bR"
+"\\     D`4^(^3`4`U\\8^V^6\\S\\  J^(^3`4^U^@^(^3_4^U^/^/`U\\8^(^3`4`U\\8^V^  K^(^3`4^V^1^9]+^V^      ?`    O\\  D\\6]M]            We D]1]T] 9[3bJ\\@e<])]2])\\  "
+"  T]0d3_7h9i/_;k5f?n:f7e    3g :_8i3h@h9n?l5iB]H]C].].]J^B].`I`H_J]<g?g1g?g4hAuB]H]G]C]F]K_K]S^J^F^G^CrBb7]*b'_ D] :] '] Fc A].].].].]            >a:]"
+".a   !^T_ Bg   `       Dd2_8n?m7g3]:rD]P]P]@g <] 8] 8] B] 3e J^K^ If7^U^+b@d   Fb@f5a Ad4e-] :f  Ra0d AaF\\HaF\\HeJ\\?]._0_0_0_0_2\\U\\0tHh@n?n?n?n?].].].]"
+"-h:_J]<g8g8g8g8g BhV]G]H]C]H]C]H]C]H]G^G^B]*d5](]2\\X\\4aW]8^V^6\\S\\  I](]3]X]5^U^?](]3\\W\\5^U^.^R[9aW]7](]2\\X\\4aW]8^V^  J](]2\\X\\4^V^1]8]+^V^      ?a>w   "
+"P[ 9[/a:aQa7[    Wl      \"h E]1]T]+\\R\\;[4dL]Ag=])]2])\\    U^1f8c8k;j1`;k7h?n;h9g    5i*b:_8k6kBl=n?l7mD]H]C].].]L_A].`I`H`K]>kAj6kAj9kBuB]H]F]E]E^L_L^"
+"R^L^D^I^BrBb7^+b(a D] ;] '] Gd A].].].].]      ;]     (b:].b   #^Q] Dj  !a       Ff3_8n?m8i4]:rD]P]P]Bk ?_ 9] 9_ C]&[0f I]K]=]0g7^U^-fC\\S]   IfBf6c B["
+"S]5[S].] <i  R\\W\\1]T] B\\W\\G]H\\W\\G]H[S]K]?]._0_0_0_0_2c1uIkBn?n?n?n?].].].]-l>`K]>k<k<k<k<k EoF]H]C]H]C]H]C]H]F^I^A],h6]*]2\\V\\6]Wa7^V^6\\S\\  H]*]2\\V]6^U"
+"^>]*]3]W]6^U^._V_;]Wa5]*]2\\V\\6]Wa7^V^  I]*]2\\V\\5^V^2]7]+^V^      @]W\\=v   P[ 9\\1c<cSd:]   \"o      #_S^ F]1]T],]S];[5^V^N]A_T]=]*]0]*\\    U]1^T^;e8`S_<"
+"^R_2`;k8^R]?n<_T_;^S^    6^S_.i>_8m:`R`Cn?n?l9`QaE]H]C].].]M_@].aKaH`K]?`S`Bk8`S`Bk;_R_BuB]H]F]E]D]MaM]P]L]B^K^ArB]1]&])c D] <] '] G] :].].].].]      "
+";]     (^6]*^   #]P^ E^P\\   V^       H^T^4_8n?m:`S`6]:rD]P]P]C`S` Aa :] :a D]&[1^S\\ I^M^=]0^R[7^U^/^R^EZO\\   L^R^ N]U] :],\\0] <j  M\\2]R] >\\H]B\\H]=\\M]>"
+"]._0_0_0_0_0_/uK`R`Cn?n?n?n?].].].]-n@`K]?`S`>`S`>`S`>`S`>`S` H`ScE]H]C]H]C]H]C]H]E^K^@],^T^5],]1\\V\\6\\U`7^V^6]U\\  F],]2\\T\\6^U^=],]2\\U\\6^U^-e9\\U`4],]1\\"
+"V\\6\\U`7^V^  H],]1\\V\\5^V^3]6]+^V^  B`1`1`1`1`6]W]>u   P[ 9]2e>eUf;^   %q      $^O\\ F]1]T],]S];[5]T]N\\@]P[=]*]0]2ZR\\RZ   $]2]P]<_W]8]N]<ZL^4a;]+]MZ/]<^P"
+"^=^Q^    7\\O]1nAa9]N_<_M]C]NaA].]+_L^E]H]C].].]N_?].aKaHaL]@^M^C]P_:^M^C]P_=^M\\6]6]H]F^G^D]MaM]P^N^B^K^-^B]1]&]*e D] =] '] H] 9].].].].]      ;]     )"
+"^5])^   %^O]8^3]LZ   U]       I^R^6a9_0]+^M^7]:]H]D]P]P]D^M^ Cc ;] ;c E]&[2^PZ H]M]<]1^-^U^1]L];[   N]L] Q]S] :\\,\\1] <dU\\  M\\2\\P\\ >\\H\\A\\H\\<\\M\\=]/a2a2a"
+"2a2a1_/]V];_M]C].].].].].].].]-]ObBaL]@^M^@^M^@^M^@^M^@^M^ J^N`D]H]C]H]C]H]C]H]E^K^@]-^Q]5].]1\\T\\7\\S]6^V^5c  E].]2]S\\7^U^<].]2\\S\\7^U^,a6\\S]2].]1\\T\\7\\S"
+"]6^V^  G].]1\\T\\6^V^4]5]+^V^  De6e6e6e6e9\\U\\>u   P[ :_3f@gVf<_   &r      $]M[ F]1]T],\\R]>d<^T^P]A^OZ=]+].]4]T\\T]   &^3^P^=[S]8[K].]4\\X];],]!]<]N]>^O^  "
+"  8ZM^3`P`Ba9]M^=^J\\C]K_B].],^H\\E]H]C].].]O_>].aKaHaL]A^K^D]N^<^K^D]N^>]JZ6]6]H]E]G]C]MaM]O^P^@^M^-^A]1]&]+_W_ D] >] '] H] 9]  B].]      ;]     )]4](]"
+"   %]N]:c6]   G]       J^P^7a8_1],^K^;c=]H]D]P]P]E^K^ Ee <] <e F]&[2] =^O^<]1] 0\\H\\<\\   P\\H\\ R\\Q\\+]3\\,\\2] <eU\\  M\\3]P\\ >\\I]A\\I]<\\N]=]/a2a2a2a2a2a1]U]<"
+"^J\\C].].].].].].].]-]K_CaL]A^K^B^K^B^K^B^K^B^K^ K]K^D]H]C]H]C]H]C]H]D^M^?]-]P]4]0]1\\R\\  Ha  C]0]2]R] E]0]2\\Q\\ 9c 9]0]1\\R\\   !]0]1\\R\\ ?]4]   Di:i:i:i:i"
+";\\6]G]   P\\ :`5g@gWh>a   (_       J]KZ F]1]T],\\R\\?h>]R]P\\@]1]+].]3^V\\V^.]   T]2]N]5]8ZJ]-]6]X];]-]!^=]L]?]M]    *]5_J_Ec:]L^>]H[C]I^C].],]F[E]H]C].].]"
+"P_=].]X]M]X]HbM]A]I]D]M]<]I]D]M]?]%]6]H]E]G]C^NaN^N]Q^>^O^-^@]0]'],_U_  &] '] H] 9]  B].]      ;]     )]4](]   %]N]:d7]   F]       K]N]8c8^1],]I]>i@]H"
+"]D]P]P]E]I] Fg =] =g G]&[2] <]O];]1] 1\\F\\=\\   Q\\F\\ S\\Q\\+]3\\.]  IeU\\  M\\3\\N\\ ?\\I\\@\\I\\=]M\\<]0c4c4c4c4c3a1]U]<]H[C].].].].].].].]-]J_DbM]A]I]B]I]B]I]B]I]"
+"B]I] L]J_E]H]C]H]C]H]C]H]C^O^>].]N]    .]        '`X_           I]   FbWa=bWa=bWa=bWa=bWa<\\6^I^  ?Z2[ :a5gAiXh?c   *^       H] 7]1]T]-]S]Aj>]R]Q]@]1],"
+"],\\1^X\\X^,]   T]3]L]6]'].]7]W];]-]!]<]L]?]M^    +]6^F^F]W]:]K]?]FZC]H^D].]-]DZE]H]C].].]Q_<].]X]M]X]H]X]M]B]G]E]M^>]G]E]M^@]%]6]H]E^I^B]O^X]O]M^R^=]O^"
+"-^@]0]']-_S_  '] '] H] 9]  B].]      ;]     )]4](]   %]N]:e8_   H]       L]M]8]W]7^2]-]G]AmB]H]D]P]P]F]G] Hi >] >i  J[3] ;^Q^;]1] 2\\RbT\\Ge   R\\VdR\\ T\\"
+"Q\\+]4\\2a  IfU\\  M\\3\\N\\ ?\\J\\?\\J\\AaM\\ G]W]4]W]4]W]4]W]4]W]4c3^U]=]FZC].].].].].].].]-]H]D]X]M]B]G]D]G]D]G]D]G]D]G]A[H[B]J`E]H]C]H]C]H]C]H]B]O^>g8]N]    "
+"         1]T_      3[    9]   G_O^?_O^?_O^?_O^?_O^=\\5]I^  @\\3[ ;c6gAy?d7`8]L]7^7]L]>^       H] 6]1]T]-]S]B_W[U]>]R]R]?]1],],]0d*]   T]3]L]6]'].]7\\V];]"
+".] ]<]L]@]K]  7Z PZ X]7^D^G]W]:]K]?]/]G]D].]-]/]H]C].].]R_;].]X^O^X]H]X^N]B]G]E]L]>]G]E]L]@]%]6]H]D]I]A]O]W]O]L^T^<^Q^-^?]0]'].^O^  Sb7]U`2b4`U]8a8])`"
+"7]T_  M].]%_O_@_2`0`3`/_3c9]     )]4](]   N_6]N]3^7a/c0_ <^  D[U^  Ga  N]L]9]W]6^3]-]G]B`W]W`C]H]D]P]P]F]G] I_X]X_ ?] ?_X]X_  Nb7]2ZFZ=]Q]:]0] 3[SfU[I"
+"g   R[UfS[ T\\Q\\+]5]2a  IfU\\  M\\3\\N\\ ?\\K]?\\K]AaN] G]W]4]W]4]W]4]W]4]W]4]W]3]T]=]/].].].].].].].]-]G]E]X^N]B]G]D]G]D]G]D]G]D]G]B]J]C]KbF]H]C]H]C]H]C]H]B"
+"^Q^=j;]P_9b3b3b3b3b3b3bN`Bb3a2a2a2a    V_2_2`1`1`1`1` ;aU]    :]U`   S^T]U^A^L^A^L^A^L^A^L^?]5]I]  @^5\\ <e7gAy@f;e:]L]8`8^N^?^       G] 6]1]T]-\\R\\A]U["
+"RZ>]R]R\\>]1],],].`(]   U^3]L]6]'].]8]V];].]!^<]L]@]K]  :] P]#^8^A]I^W^;]K]@].]G^E].].].]H]C].].]S_:].]W]O]W]H]W]N]C]E]F]L]?]E]F]L]@]%]6]H]D]J^A]O]W]O]"
+"L^U^:^S^-^>]0^(]/^M^  Wh:]Wd6f8dW]:e>h2dW]?]Vd<].].]O_>].]WdScK]Vd8f;]Wd7dW]?]Wa6h>h6]L]B]I]A]P`P]K^L^B^K^@l4]4](]   PdU]A]N]2^8e5g;]Vd?^J^8]6]L] E]V`"
+">pA]S]S]:e6kDo>]L]:^W^6^4].]E]D_U]U_D]H]D]P]P]G]E] K_W]W_ @] @_W]W_  Qf9]3\\H\\>^S^:]0_ 6[ThT[K]Q\\   S[T\\R]S[ U]S]+]6],] ?]L]@fU\\  M\\3\\N\\ ?\\K\\>\\K\\;]O\\ G"
+"^W^6^W^6^W^6^W^6^W^5]W]4^T]>].].].].].].].].]-]G^F]W]N]C]E]F]E]F]E]F]E]F]E]D_L_E]K]W]F]H]C]H]C]H]C]H]A^S^<k<]Ra<h9h9h9h9h9h9hTeFf7e6e6e6e;].].].]\"^;]V"
+"d8f7f7f7f7f/^6eX]@]L]?]L]?]L]?]L]B^K^?]Wd>^K^  O]S]S]B]I]B]I]B]I]B]I]@]5^K^  @]4[ ;f8gAyAg<h<]L]8`7]N]>]       F] 6]1]T]-\\R\\B]T[6]R]S]>^2]-]*\\.`(]   U"
+"]2]L]6]'].]9]U];].]!];]L]@]K]  =` P`'^7]?\\I]U];]K]@].]F]E].].].]H]C].].]T_9].]W]O]W]H]W^O]C]E]F]L]?]E]F]L]@]%]6]H]C]K]@^P]W]P^K^V^9]S]-^=]/](]0^K^  Xi"
+";]Xf9h9fX]<h?h3fX]?]Xg=].].]P_=].]XfVfL]Xg:h<]Xf9fX]?]Xb7i>h6]L]A]K]@^Q`Q^J^N^@]K]?l4]4](]   QfW^A]O^1]6f9h;]Xg@_K]7]6]L]=]G]C^Wc@pA]S]S]<h9mDo>]L]:]U"
+"]5^5].]E]E^S]S^E]H]D]P]P]G]E]@Z+]V]V^-Z4]5ZKZ:]V]V^  Sh9]4^J^>]S]9]._ 8[U_Q[T[L]P\\   S[T\\Q]T[ T]U]*]7]*] @]L]@fU\\  M\\3\\N\\ ?\\L]>\\L]:]Q]:]1]U]6]U]6]U]6]"
+"U]6]U]6^W^5]S]>].].].].].].].].]-]F]F]W^O]C]E]F]E]F]E]F]E]F]E]C_N_D]L^W]F]H]C]H]C]H]C]H]@]S];]P_=]S^8i:i:i:i:i:i:iVgIh9h9h9h9h<].].].]'d<]Xg:h9h9h9h9h"
+"0^8k?]L]?]L]?]L]?]L]A]K]>]Xf>]K]  O]R]R]D]G]D]VZOZV]D]KZV]D]G]A]4]K]  @]3[ <g7fAyBi>j=]L]8`7]N]?]       F^ 6]1]T]5uI]T[6]R]S\\<^3]-]*]1d*]   U]3]J]7]']"
+".]9\\T];].\\Ua-^;]L]@]K^?].] Uc Pc+_8]>]J]U];]K]@].]F]E].].].]H]C].].]U_8].]W^Q^W]H]V]O]C]E]F]L]?]E]F]L]@^&]6]H]C]K]?]Q^V]Q]I^X^8^U^.^<]/](]1^I^  ]R_<aT"
+"_;_R\\:^Tb=_S^@h4_Ub?bT^=].].]Q_<].aT_X]T^LbT^;_T_=aT_;^Tb?aTZ8_R]>h6]L]A]K]?]Q`Q]H^P^?]K]?l4]4](]   R^U^W]@]O]0^7g;_S];bT^@`L]8_7]L]>]E]E^W]V]@pA]S]S]"
+"=_T_<oDo?]K^;]U]5_6].\\D]E]R]R]E]H]D]P]P]G]E]A\\+[U]U\\,\\6]6\\L\\;[U]U\\  S_W[V\\9]3^V`V^=^U^9]/a :[T]G[M\\O\\1ZQZ  M[S\\P\\S[ Ud)]8](\\ @]L]@fU\\  M\\3\\N\\9ZQZ0\\L\\="
+"\\L\\8\\Q\\9]1]U]6]U]6]U]6]U]6]U]6]U]5]S]>].].].].].].].].]-]F]F]V]O]C]E]F]E]F]E]F]E]F]E]B_P_C]L]V^G]H]C]H]C]H]C]H]@^U^;]N^>]T]6]R_;]R_;]R_;]R_;]R_;]R_;]R"
+"_X_T^K_R\\:_S^;_S^;_S^;_S^=].].].]*h=bT^;_T_;_T_;_T_;_T_;_T_1^9_T`>]L]?]L]?]L]?]L]A]K]>aT_?]K]  P]Q]R]E]F]E]V\\Q\\W]E]K\\W]E]F]A]4^L]  A^@ZN\\ =i8e@yCk?^R^"
+"=]L]9b8]O^?]       Im B]1]T]5uI]T[6]S^T]<^3]-]*]3^X\\X^,]   V^3]J]7](^/]9]T];e7]We/]9]N]?]K^?].] Wd Nd._8]O`U\\T\\K]S]<]L^A]-]F^F].]/]-]H]C].].]V_7].]V]Q"
+"]V]H]V^P]D]C]G]L]@]C]G]L]?^']6]H]C^M^?]Q]U]Q]Ic6^W^._<]/^)]2^G^ !ZM^=`Q^=^NZ;^Q`>^P^=].^Q`?`Q^>].].]R_;].`R^X\\R^M`Q^=^P^>`Q^=^Q`?`1]MZ;].]L]A^M^?]Q`Q]"
+"G^R^>^M^1^4]4](]  D]P^A]R^X]@]P^/]9^Vb=^NZ;`Q^AaN^8_7]L]>]E]F^V]U]>]P]>]S]S]>^P^>`T`7]6]J]<]S]5^6]/]C]G]Q]Q]F]H]D]P]P]H]C]C^&]TZ,^7]7^N^6]TZ H]/^U[TZ9"
+"]2n;]U]8]0d <[U]F[M\\P]2[R[  M[S\\P\\S[ Tb(]9]'\\ @]L]@fU\\  M\\3]P]9[R[1\\M\\<\\M\\7\\R\\8]2]S]8]S]8]S]8]S]8]S]7]U]6]R]?]-].].].].].].].]-]F]F]V^P]D]C]H]C]H]C]H]"
+"C]H]C]B_R_C]L]T]G]H]C]H]C]H]C]H]?^W^:]M]>]U^6ZM^<ZM^<ZM^<ZM^<ZM^<ZM^<ZMbP]M^NZ;^P^=^P^=^P^=^P^>].].].]+i=`Q^=^P^=^P^=^P^=^P^=^P^2^:^P^>]L]?]L]?]L]?]L]"
+"A^M^>`Q^@^M^  P]Q]Q]F]E]F]W^S^W]F]L^W]F]E]B]3]M^  B^B^O[ =k8d?xClA^P^>]L]9]X]8^P]>\\       Hl A] 9uI]T[5]T]T]:^ =]*]5^V\\V^.]   V]2]J]7](]/^:]S];h:]Xg0]"
+"9^P^?]K^?].]!e Je2_7\\PdW\\S\\L]S]<]M^@]-]E]F].]/]-]H]C].].]X_5].]V]Q]V]H]U^Q]D]C]G]L]@]C]G]M^?`)]6]H]B]M]>]Q]U]Q]Hb5c-^;].])]   B]=_O]=].]O_>]N^>].]O_?_"
+"O]>].].]S_:]._P`P]M_O]=]N]>_O]=]O_?_1]-].]L]@]M]>]RbR]G^R^=]M]1^3]4](]  FaSaD^Qa?]R_.]9]R`>]._O]>^N]8`7]L]>]E]G^U]U^?]P]>]S]S]>]N]>^P^7]6]J]<]S]4^7]/]"
+"C]G]Q]Q]F]H]D]P]P]H]C]D_&]&_8]8_N_7] B]/]T[3]1l:^W^8]1]W` >\\U\\E\\N\\P]3\\S\\  N\\S\\P\\S\\ S_']:]&\\ @]L]@fU\\  M\\2\\P\\8\\S\\2\\N]<\\N]7\\S]8]2]S]8]S]8]S]8]S]8]S]8]S]"
+"7]R]?]-].].].].].].].]-]E]G]U^Q]D]C]H]C]H]C]H]C]H]C]A_T_B]M]S]G]H]C]H]C]H]C]H]>c9]M^?]U]'].].].].].].`O^N].]N^>]N^>]N^>]N^?].].].],_R^>_O]=]N]=]N]=]N]"
+"=]N]=]N]2^:]O_?]L]?]L]?]L]?]L]@]M]=_O]?]M]  O\\P]Q]F\\D]F\\U^U^V]F\\L^V]F\\D]B]3]M]  RuJ`O[ >m9c>wCmA]N]>]L]9]X]7]P]?]       Im A] 2\\R\\A]T[5^V^T\\:` ?](\\6]T"
+"\\T]/]   V]2]J]7])^1_9]S];i;bS^2^8^S_>]K^?].]$e@u@e6_7]QfX\\S\\M^S^=]N^?]-]E]F].]/]-]H]C].].c4].]U]S]U]H]T]Q]D]C]G]M^@]C]G]M]=c-]6]H]B]M]>^R]U]R^G`4c.^:]"
+".])]   B]=^M]?^/]M^?]L]>]/]M^?^N^?].].]T_9].^O_O^N^N^?]M^?^M]?]M^?^0]-].]L]@]M]>^S]X]S^F^T^<^O^2_3]4](]  GcUcE]Pa?]Vb-]:]O_?].^N^>]O^8a8]L]?]C]H]T]T]?"
+"]P]>]S]S]?]L]@^N^8]6]J]=^S^4^8]/]C]H^Q]Q^G]H]D]P]P]H]C]E_%]%_9]9_L_8] B]0^T[3]0_T_>cWc=]1]U_ ?[U\\C[N]R^4]T]  N[R\\Q]R[ 'uG]&] @]L]?eU\\  M\\2]R]8]T]3\\N\\;"
+"\\N\\7]S\\7]3^S^:^S^:^S^:^S^:^S^9]S]8^R]?]-].].].].].].].]-]E]G]T]Q]D]C]H]C]H]C]H]C]H]C]@_V_A]N]R]G]H]C]H]C]H]C]H]>c9]L]?]U]'].].].].].]._M]O^/]L]?]L]?]L"
+"]?]L]?].].].]-^O]>^N^?]M^?]M^?]M^?]M^?]M^ I]O`?]L]?]L]?]L]?]L]@^O^=^M]@^O^  P]P]P\\G]C\\G]T^W^T\\G]M^T\\G]C\\B]3^O^  RuJ[X]P[ >o=\\XaX]BwDoC]L\\>]L]:^X^8]P]?"
+"]       E] 5] 3]S]A^U[4dT];b @](]6ZR\\RZ.]   V]2]J]7]*^7d8]R];]R_<aQ^3]5f<^M_?].]'e=u=e:_6\\Q^S`S]N]Q]=l>]-]E]Fm>k=]-rC].].b3].]U]S]U]H]T^R]D]C]G]M]?]C]"
+"G]N^<f1]6]H]B^O^=]S^U^S]F_2a.^9].])]   A]>^M]?].]M^?]L]>]/]M^?^M]?].].]U_8].^N^N]N^M]?]L]?^M]?]M^?^0]-].]L]@^O^=]S]X]S]D^V^:]O]2_2]4](]  H\\U^W]U\\E]Pa?"
+"]Vb-];]M^?].^M]>^P]7a8]L]?]C]H]T]T]?]P]>]S]S]?]L]@]L]8]6p=]Q]3^9]/]C]H]P]P]G]H]C]Q]Q]G]ViV]F_$]$_:]:_J_9] B]0]S[3]0]P]>o=]2]S_ @[U\\C[M]T_5^U^;u O[R\\R]"
+"Q[ 'uH]/ZQ] ?]L]?eU\\  M\\1]T]7^U^4\\O]O]I\\O]T`MZQ]S]O]E]3]Q]:]Q]:]Q]:]Q]:]Q]:^S^9]QmO]-m>m>m>m>].].].]1hL]G]T^R]D]C]H]C]H]C]H]C]H]C]?_X_@]O]Q]G]H]C]H]C]"
+"H]C]H]=a8]L]?]U]&].].].].].].^M]O].]L]?]L]?]L]?]L]?].].].].^M]?^M]?]L]?]L]?]L]?]L]?]L] I]Pa?]L]?]L]?]L]?]L]?]O]<^M]?]O]  O]P]P\\G]C\\G]ScS\\G]N^S\\G]P]P\\B"
+"]2]O]  QuF]Q[ >oAqDuDqD]L]?]L]:^X^8^R^?\\       D] 5] 3]S]@`X[3bS\\R^G]W^N] P](].\\&]   W]1]J]7]*^7c8]Q];ZM^=`O^4]4d:]M_?].])d:u:d=_5\\R]O^R\\N]Q]=j<]-]E]F"
+"m>k=]-rC].].a2].]U^U^U]H]S]R]D]C]G]N^?]C]G]P_:g3]6]H]A]O]<]S]S]S]E^1_.^8]-]*]   A]>^M]?]/^M^?]K]?]0^M^?]L]?].].]V_7].]M]M]N]L]@^L]?^M]@^M^?]/]-].]L]?]"
+"O]<]S]X]S]C^X^9]O]2^1]4](]0_IZ O[R\\X]S\\G^O_>]Vd9_U];]L]?].]L]=]P]8]X^9]L]?]C]I^T]S]@]P]>]S]S]?]L]@]L^9]6p=]Q]3^9]/]C]H]P]P]G]H]C]Q]Q]G]ViV]G_#]#_;];_H"
+"_:] B]0]S[3]0\\N\\>o=]2]Q^ A[U\\C[LcX\\6]T]9u O[RfP[ 'uIf7e >]L]>dU\\<] :f5d4]T]:fT\\O^NfT\\UdOeR\\O^F^3]Q]:]Q]:]Q]:]Q]:]Q]:]Q]:^QmO]-m>m>m>m>].].].]1hL]G]S]R"
+"]D]C]H]C]H]C]H]C]H]C]>d?]P^Q]G]H]C]H]C]H]C]H]<_7]L]?]U^'].].].].].].^L]P].]K]@]K]@]K]@]K]@].].].].]L]?]L]@^L]@^L]@^L]@^L]@^L] I]Q]X^@]L]?]L]?]L]?]L]?]"
+"O]<^M]?]O]  O\\WmX]H\\WmX]H\\QaR]H\\N^R]H\\O]P]C]2]O]  QuF]R\\ ?qCsDtDrE]L]?]L]:]V]7]R]>x      '] 5] 3\\R\\?e3^R\\SbJ^V^O] P](].\\&]   W]1]J]7]+^6e:]Q]-^>_M]5^6"
+"h<^O`  Qe8u8e@^5]R\\M]R\\O^Q^>m?]-]E]Fm>k=]KdFrC].].b3].]T]U]T]H]S^S]D]C]G]P_>]C]Gk6f5]6]H]A^Q^<]S]S]S]F_1_/_8]-]*]   A]>]K]A].]K]@]J]?]0]K]?]L]?].].]W_"
+"6].]M]M]N]L]@]J]@]K]A]K]?]/^.].]L]?]O]<]T^W]T]C^X^9^Q^3^1]3]']3dN\\ P\\R`Q[G]N_>]Q`;bW];\\K^?]/]L]=]Q^8]W]9]L]?]C]I]S]S]@]P]>]S]S]@]J]B^L^9]6p>^Q^4^9]/]C"
+"]H]P]P]G]H]C]Q]Q]G]ViV]H_\"]\"_<]<_F_;] B]1]R[3]1]N]8a6]2]P^ B[U\\C[K`V\\7]T]8u O[RdN[ 'uIf5a <]L]=cU\\<] :f3`1]T];fU\\N^NfU\\T[S]NaQ\\N^G^3^Q^<^Q^<^Q^<^Q^<^Q"
+"^;]Q]:]PmO]-m>m>m>m>].].].]1hL]G]S^S]D]C]H]C]H]C]H]C]H]C]=b>]P]P]G]H]C]H]C]H]C]H]<_7]L]?]U_(].].].].].].]K]Q].]J]A]J]A]J]A]J]@].].].].]L]?]L]@]J]A]J]A"
+"]J]A]J]A]J] K]P\\V]@]L]?]L]?]L]?]L]?^Q^<]K]@^Q^  O\\WmX]H\\WmX]H\\P_Q]H\\O^Q]H\\O]P]C]2^Q^  D^<]R[ >qDuEsCqD]L]?]L]:]V]7]R]>x      '] 5] 3\\R\\=f+]TdL^T^P] P]"
+"(].\\2u  *]1]J]7],^-_=]P],]>_M]5]7_R^<^Qa  Sd .dC^4\\R]M]R\\O]O]>]N_@]-]E]F].]/]KdF]H]C].].]X^4].]T]U]T]H]R]S]D]C]Gk=]C]Gj1c6]6]H]@]Q];^T]S]T^Ga1].^7]-]*"
+"]   Lh>]K]A].]K]@]J]?]0]K]?]L]?].].]X_5].]M]M]N]L]@]J]@]K]A]K]?]._0].]L]>]Q];^U]V]U^Bb7]Q]3^1^3]'^6iS^ P[P^P[G]N_>]N^=dX]<]J]>^1]L]=^R]8^W]9]L]@]A]J]S"
+"]S]@]P]>]S]S]@]J]B]J]9]6]J]>]O]5^8]/]C]H]P]P]G]H]B]R]R]F]C]Iz<]<z=]=z<] B]1]R[7j:\\L\\7_5]2]P^ B[U\\C[ V]T]7u O[R\\U^O[  T]   ]L];aU\\<]   I]T],]O[X\\>]K]@]"
+"O[X\\I`3]O]<]O]<]O]<]O]<]O]<]O];]P]?]-].].].].].].].]-]E]G]R]S]D]C]H]C]H]C]H]C]H]C]<`=]Q]O]G]H]C]H]C]H]C]H];]6]L]?]T_4h9h9h9h9h9h9hK]Q].]J]A]J]A]J]A]J]"
+"@].].].]/]J]@]L]@]J]A]J]A]J]A]J]A]J]?tG]Q\\U]@]L]?]L]?]L]?]L]>]Q];]K]?]Q]  N\\WmX]H\\WmX]H\\P_Q]H\\P^P]H\\O]P]C]1]Q]  C]:]S[ ?sEvEqAoC]L]?]L];^V^8^T^>x     "
+" '] 5] 4]S]<g-\\T^V^M]S_Q\\ O](].\\2u Se =^1]J]7]-^*^?]O],^?^K]7^7]N]<^Sb  Sa (aC]3\\R\\K\\R\\P^O^?]L^A]-]E]F].]/]KdF]H]C].].]W^5].]T^W^T]H]R^T]D]C]Gj<]C]Gj-"
+"`7]6]H]@]Q]:]U^S^U]Fb2]/^6]-^+]   Nj>]K]A].]K]@p?]0]K]?]L]?].].b3].]M]M]N]L]@]J]@]K]A]K]?].c4].]L]>]Q]:]U]V]U]@`6^S^4^5b2]&b<u P[O]P\\H]N^=]M]>^Ua<]J]="
+"c7]L]<]S^8]V^:]L]@]A]J]S]S]@]P]>]S]S]@]J]B]J]9]6]J]?^O^7^7]/]C]H]P]P]G]H]B]R]R]F]C]Iz<]<z=]=z<] B]1]R[7j:\\L\\7_ C^P] B[U\\C[ W]T] W] O[R\\T^P[  T]   ]L]7"
+"]U\\<]   H]T]-\\O\\X\\>\\I\\@\\O\\X\\J`3^O^>^O^>^O^>^O^>^O^=]O]<^P]?]-].].].].].].].]-]E]G]R^T]D]C]H]C]H]C]H]C]H]C];^<]R]N]G]H]C]H]C]H]C]H];]6]L]?]S`8j;j;j;j;j"
+";j;|Q].pApApAp@].].].]/]J]@]L]@]J]A]J]A]J]A]J]A]J]?tG]R]U]@]L]?]L]?]L]?]L]>^S^;]K]?^S^  N\\WmX]H\\WmX]H\\QaR]H\\Q^O]H\\O]P]C]1^S^  D]9]T\\ ?sFwDo?nC]L]?]L];"
+"]T]7]T]=]       Hj ?] 4]S]8d/]T]T]N^R_R\\ O](] =u Se =]0]J]7].^(]?]O]+]?^K]7]7]L]<gX]  Sa (aC]3\\R\\K\\R\\P]M]?]K]A]-]E]F].]/]D]F]H]C].].]V^6].]S]W]S]H]Q]T"
+"]D]C]Gg9]C]G]Q_,^7]6]H]@^S^:]U]Q]U]G^X]2]0^5],]+]   Pl>]K]A].]K]@p?]0]K]?]L]?].].a2].]M]M]N]L]@]J]@]K]A]K]?]-f8].]L]>^S^:]U]V]U]?^4]S]4^4`0]$`<^Si O[O"
+"\\O\\H]N^=]M^@^S`<]J]=c7]L]<]S]8^U]:]L]@]O]O]J]S]S]@]P]>]S]S]@]J]B]J]9]6]J]?]M]7]6]/^E^H]P]P]G]H]A]S]S]E]C]Iz<]<z=]=z<] B]1]R[7j:\\L\\6] A^Q] B[U\\C[Ni:]T]"
+" V] O[R\\S]P[  T]   ]L]6\\U\\<]  Dh2]T]/]P\\W\\?]I\\A]P\\W\\K`2]M]>]M]>]M]>]M]>]M]>^O^=]O]?]-].].].].].].].]-]E]G]Q]T]D]C]H]C]H]C]H]C]H]C]<`=]S]M]G]H]C]H]C]H]"
+"C]H];]6]M^?]R`;l=l=l=l=l=l=~Q].pApApAp@].].].]/]J]@]L]@]J]A]J]A]J]A]J]A]J]?tG]S]T]@]L]?]L]?]L]?]L]=]S]:]K]>]S]  M]P]P\\G]C\\G]ScS\\G]S^N\\G]P]P\\B]0]S]  D]"
+"7\\T[ >sFwCn?mB]L]?]L];]T]7]T]=]       Hi >] 4]S]7[Xa1]T^T^O]P_T] O](] =u Se =]0]J]7]/^'^A]N]+]?^K]7]8^L^<eW]  Sd .dC]3\\R\\K\\R\\P]M]?]K]A]-]E]F].]/]D]F]H"
+"]C].].]U^7].]ScS]H]Q^U]D]C]G]/]C]G]O^,^8]6]H]?]S]9]U]Q]U]H^W^3]1^4],]+]   Q`P]>]K]A].]K]@p?]0]K]?]L]?].].b3].]M]M]N]L]@]J]@]K]A]K]?]+e9].]L]=]S]9]V]T]"
+"V]@_4]S]5_4b2]&b<\\Nd M[O]P\\H]N^=]L]@]Q_<]J]?e7]L];]T]8]T]:]L]@]O]O]J]S]S]@]P]>]S]S]@]J]B]J]9]6]J]?]M]8^6].]E]G]P]Q^G]H]A^T]T^E]C]Iz<]<z=]=z<] B]1]R[3]"
+"1\\L\\6] A_R] B\\U\\E\\Ni:]T] V] O\\S\\R]R\\  T]   ]L]6\\U\\<]  Dh2]T]/\\O[V\\?\\H\\A\\O[V\\L`1]M]>]M]>]M]>]M]>]M]>]M]>^O]?]-].].].].].].].]-]E]G]Q^U]D]C]H]C]H]C]H]C]"
+"H]C]=b>]T]L]G]H]C]H]C]H]C]H];]6]M]>]Qa>`P]>`P]>`P]>`P]>`P]>`P]>`PoQ].pApApAp@].].].]/]J]@]L]@]J]A]J]A]J]A]J]A]J]?tG]T]S]@]L]?]L]?]L]?]L]=]S]:]K]>]S]  "
+"L\\P]P\\F\\C\\F\\T^W^T\\F\\T^M\\F\\C\\B]0]S]  E^7]U[ >sFwBl=kA]L]?]L]<^T^8^V^=]       Ij >] <u=[U^1\\S]R]O]O_U\\ N](] 1] Ge =]0]J]7]0_&]A]N]+]?^K]8^8]J]:aU\\  Pe 4"
+"eA]3\\R\\K\\R\\Qo@]J]A].]F^F].].]E]F]H]C].].]T^8].]RaR]H]P]U]C]E]F].]E]F]N^,]8]6]H]?]S]9^V]Q]V^H^V^4]2_4],]+]   Q]M]>]K]A].]K]@],]0]K]?]L]?].].c4].]M]M]N]"
+"L]@]J]@]K]A]K]?](d;].]L]=]S]9^W]T]W^@`5^U^5^/_3]'_8ZJ` K[O]P\\H]N^=]L]@]P];]J]@_0]L];]U^9^T^;]L]@]O]O]J]S]S]@]P]>]S]S]@]J]B]J]9]6]J]@^M^:^5].]E]F]Q]Q]F"
+"]H]@^U]U^C]E]G_\"]\"_BZT]TZB_F_;] B]1]R[3]1\\L\\?o I_S] A[U]F[ V]T] W] N[S\\R]R[  S]   ]L]6\\U\\   ']T]/\\O\\V\\@\\H\\A\\O\\V\\M_0o@o@o@o@o?m>l>].].].].].].].].]-]F^"
+"G]P]U]C]E]F]E]F]E]F]E]F]E]=d?^V]L]F]H]C]H]C]H]C]H];]6]N^>]O`?]M]>]M]>]M]>]M]>]M]>]M]>]M]?].].].].]-].].].]/]J]@]L]@]J]A]J]A]J]A]J]A]J] K]U]R]@]L]?]L]?"
+"]L]?]L]=^U^:]K]>^U^  L\\P]Q]F\\D]F\\U^U^V]F\\U^M]F\\D]B\\/^U^  OuD]V[ =sFwBk;i@]L]?]L]<]R]7]V];]       F^   Nu=[T^3]S]R]O]N_V\\ N](] 1]   ].]L]6]1_%]Aq0]>]K]"
+"8]7]J]/]  Md:u:d>]3\\R\\K\\S\\Po@]J]A].]F]E].].]E]F]H]C].].]S^9].]RaR]H]P^V]C]E]F].]E]F]M],]8]6]H]>]U^8]W^Q^W]H^U^4]2^3]+],]   R^M]>]K]A].]K]@],]0]K]?]L]?"
+"].].]X_5].]M]M]N]L]@]J]@]K]A]K]?]$`;].]L]=^U^8]W]T]W]@b5]U]5^,]3]']  J\\Q_Q[G]N^=]L]A]O];]J]@].]L];]U]8]R];]L]@]O]O]J]S]S]@]P]>]S]S]@]J]B]J]9]5]L]?]K];"
+"^4].^G^F]Q]Q]F]H]?_W]W_B]E]F_#]#_B\\U]U\\B_H_A\\U]U[ H]1]R[3]1]N]?o H`V] @[T]G[ U]T] X] N[S\\Q]S[  S]   ]L]6\\U\\   (]T]/]P\\U\\A]I]B]P\\U\\M^/o@o@o@o@o@o@m>].]"
+".].].].].].].]-]F]F]P^V]C]E]F]E]F]E]F]E]F]E]>_X_?]W^L]F]H]C]H]C]H]C]H];]6]P_=]M^@^M]?^M]?^M]?^M]?^M]?^M]?^M]?].].].].]-].].].]/]J]@]L]@]J]A]J]A]J]A]J]"
+"A]J] K]U\\Q]@]L]?]L]?]L]?]L]<]U]9]K]=]U]  K]Q]Q]F]E]F]W^S^W]F]W^L]F]E]B\\.]U]  NuC\\V[ =eXZXdFgXhAi9h@]L]?]L]<]R]7]V];]       E]   Nu=[S]3\\R]R]O]M_X\\ M]("
+"] 1]   ].]L]6]2_$]Aq0]>]K]8]7]J]/]  Ke=u=e<]3\\R\\K\\S\\Po@]J]A].]F]E].].]E]F]H]C].].]R^:].]RaR]H]O^W]C]E]F].]E]F]M^-]8]6]H]>]U]7]W]O]W]I^S^5]3^2]+],]   R"
+"]L]>]K]A].]K]@],]0]K]?]L]?].].]W_6].]M]M]N]L]@]J]@]K]A]K]?]\"_<].]L]<]U]7]W]T]W]Ac5^W^6^+^4](]  H[R\\X]S\\G]N^=]L]A]O];]J]A^.]L]:]W^9^R];]L]@]O]O]J]S]S]@"
+"]P]>]S]S]@]J]B]J]9]5]L]?]K];^4]-]G]D]R]R]E]H]>kA]E]E_$]$_B^V]V^B_J_A^V]V] I]1]R[3]0\\N\\>o G`X] ?\\U_Q[T\\ T]T] ] N\\T\\Q]T\\  S]   ]L]6\\U\\   )]T].\\P\\T\\A\\I]A"
+"\\P\\T\\N^.o@o@o@o@o@o@m>].].].].].].].].]-]F]F]O^W]C]E]F]E]F]E]F]E]F]E]?_V_@]W]K]F]H]C]H]C]H]C]H];]6k<]L^A]L]?]L]?]L]?]L]?]L]?]L]?]L]?].].].].]-].].].]/"
+"]J]@]L]@]J]A]J]A]J]A]J]A]J] K]V\\P]@]L]?]L]?]L]?]L]<^W^9]K]=^W^  J]R]R]D]G]D]W\\Q\\W]D]W\\L]D]G]A\\.^V]  NuC]W[ <cWZXdEfXh@g8g?]L]?]L]=^R^8^X^:]       F]  "
+" G\\R\\5[S]4]R]R]O]Lb M](\\ 0]   ].]L]6]3_#]Aq0]>]K]9]6]J]/]  He@u@e H\\R]M]T]Q^J]A]J]@]/]G^E].]-]F]F]H]C].].]Q^;].]Q_Q]H]N]W]B]G]E]-]G^F]L]-]8]6]I^>^W^7]"
+"W]O]W]I^R^6]4^1]+],]   R]M^>^M^@]/^M^?]-]0^M^?]L]?].].]V_7].]M]M]N]L]@^L]?^M^A^M^?] ]<].]L]<]U]7]X]R]X]B^W^5]W]6^)]4](]  H\\T]W]U\\F]O_=]L]A]P^;^L^A]-]L"
+"]:]W]8]P]<]L]@]O]O]J^T]T]?]P]>]S]S]@^L]A^L]8]5]L]@^J]=^3]-^I^D^S]S^E]H]<g>]G]C_%]%_A_W]W_A_L_@_W]W_ J]0]S[3]0]P]5]4],b =[ThT[ R]T]!] M[T\\P]U[  R]   ]L"
+"]6\\U\\   *]T].]P[S\\B]J]A]P[S\\N].^J]B^J]B^J]B^J]B^J]B^K^A]M]=]/].].].].].].].]-]G^F]N]W]B]G]D]G]D]G]D]G]D]G]?_T_AbK]E]I^C]I^C]I^C]I^;]6j;]K]A]M^?]M^?]M^"
+"?]M^?]M^?]M^?]M_?].].].].].].].].]/]J]@]L]@^L]@^L]@^L]@^L]@^L] J^X]Q]?]L]?]L]?]L]?]L];]W]8^M^<]W]  I]R]S]C]H]C]VZOZW]C]VZL]C]H]@\\-]W]  MuC]X[ ;cWZWbDe"
+"WZXe>e6e>]L]?]L]=]P]8^X^:]       F^   H\\R\\5[S]5]Q]R]O^L` K]*] 0]  !^.]L]6]4_\"]2],^>^M]8]6]J]0]  DeCuCe E]R\\M]T\\P]I]A]J]@]/]G]D].]-]F]F]H]C].].]P^<].]Q"
+"_Q]H]N^X]B]G]E]-]G]E]L^.]8]5]J]<]W]6^X]O]X^J^Q^6]5^0]+^-]   R]M^>^M]?].]M^?]-]/]M^?]L]?].].]U_8].]M]M]N]L]?]L]?^M]?]M^?] ]<].]M^<^W^6aRbB^V^6]W]7^(]4]"
+"(]  GcUcE]P_=]L]A]P]9]L]@]-]L]:^X]9^P]<]M^@]P^O]I]T]T]?]P]>]S]S]@^L]@]L]8]5]M]?]I]>^2],]I]B_U]U_D]H]:c<]G]B_&]&_?_X]X_?_N_>_X]X_ I]0]S[3]0_T_5]4]+` ;["
+"SfU[ P^U^#] L[U\\P]V[  Q]   ]M^6\\U\\   ,^U^-\\P\\S\\B\\J]@\\P\\S\\N].]I]B]I]B]I]B]I]B]I]B]I]B^M]=]/].].].].].].].]-]G]E]N^X]B]G]D]G]D]G]D]G]D]G]@_R_A`J]D]J]A]J"
+"]A]J]A]J]:]6g8]K]A]M^?]M^?]M^?]M^?]M^?]M^?]M_?].].].].].].].].].]L]?]L]?]L]?]L]?]L]?]L]?]L]3^;aP]?]M^?]M^?]M^?]M^;]W]8^M];]W]  H]S]T^B]J^B]J^B]J^B]J^@"
+"\\-]W]  G^1_ :aW[V`BcW[Wc<d5c=]L]>]N]<]P]7]X]8]       F]KZ   X]S]5[S]5\\P]R]N]K_ K]*] 0]  !],]N]5]5_\"]1],]<]M]9^6^L^0]  Ad Nd A\\R]O^U\\P^I^B]K^?]H[C]H^D]"
+".],]G]F]H]C].].]O^=].]P^Q]H]M]X]A]I]D],]I^E]K]AZH^8]5]J]<]W]5bObJ^O^7]6_0]*]-]   R]M^>^M]?^/]M^?^.]/]M^?]L]?].].]T_9].]M]M]N]L]?]L]?^M]?]M^?] ]<].]M^;"
+"]W]5aRaB^U^6c8_(]4](]  FaSaD]P_=]M]@]P]9]L]@]-]L]9b9]O^=^N^?\\P_Q]H]T]T]?]P]=]T]T]?^L]@]L]8]4]N]@^I^?]1],^K^A`W]W`C]H]7]8]I]@^&]&^=i=^N^<i H]0^T[3]1l6]"
+"4])_ <\\RbT\\ O]T]#] L\\V\\O]X\\     M^N^6\\U\\   ,]T]-\\OhF\\J]@\\OhQ]/^I^D^I^D^I^D^I^D^I^C]I]B]L]<]H[C].].].].].].].]-]H]D]M]X]A]I]B]I]B]I]B]I]B]I]@_P_B_J]C]J"
+"]A]J]A]J]A]J]:]6].]K]A]M^?]M^?]M^?]M^?]M^?]M^?]M_?^/^/^/^/^/].].].].]L]?]L]?]L]?]L]?]L]?]L]?]L]3^;`O]?]M^?]M^?]M^?]M^;c8^M];c  G^U]U^@^M^@^M^@^M^@^M^?"
+"\\-c  H^0_ 9^U[U^@aV[Va:b3a<]L]>^P^=^P]7]X]8_       H^M[ F] 6]S]>ZQ[T^6]P]S^N^K^ K]*] 0]:] 8]0],]O^5]6_2ZI]1]-^<^O^9]4]L]0]<].] Uc Pc1]2\\Q^S`W^P]G]B]K]"
+">^J\\C]I^C].],^H]F]H]C].].]N^>].]C]H]MbA^K^D],^K^D]K^B[I]7]5^L^<c5aMaJ^N]7]6^/]*]-]   R^O_>_O]=].]O_>].].]O_?]L]?].].]S_:].]M]M]N]L]>]N]>_O]=]O_?] ]<]-"
+"]O_;]X^5aRaC^S^6a8_']4](]  D]P^B^Ra>^N]@]Q]7]N]?^.]L]9a8]N]=^N^?]Q_Q]G]U]U]>]P]=]T]T]?_N]>]N]7]4^P^@]G]@^1]+^M^?mB]H]7]8^K^?\\%]%\\;g;\\L\\:g G]/]T[3]2n7]"
+"4]'^ <\\F\\ M\\S\\  J\\F\\     L^N^6\\U\\   ,\\S\\-]OhG]K]@]OhQ]LZ=]G]D]G]D]G]D]G]D]G]D]G]D^L]<^J\\C].].].].].].].]-]J_D]MbA^K^B^K^B^K^B^K^B^K^A_N_B^K]B^L^A^L^A^"
+"L^A^L^:]6].]K]A^O_?^O_?^O_?^O_?^O_?^O_?^Oa?].].].].]/].].].]-]N]>]L]>]N]=]N]=]N]=]N]=]N]2^;_O]=]O_>]O_>]O_>]O_:a7_O]9a  E^P_>^P_>^P_>^P_>^P_>\\,a  H^.]"
+" /[5]T[S\\8a1`<]L]=^R^<]O^8b7_       H^O\\ F] 6\\R\\=[R[U^5\\N]T]L^M` L]*] 0]:] 8]1^+]P]4]7_1[L_1]<ZL^:^Q^8]4^N^>ZM];].] R` P`.]2]QfXaN]G]B]L^=^L]C]K_B].]+"
+"_J]F]H]C].].]M^?].]C]H]La@^M^C]+^M^C]J]B]L^7]4^N^:a4aMaK^M^8]7^.]*^.]   Q]P`>`Q^=^NZ;^Q`>_LZ>].^Q`?]L]?].].]Q^;].]M]M]N]L]>^P^>`Q^=^Q`?]/ZL];]-^Q`:a4`"
+"P`D^Q^7a8^&]4](]   S]Sb>_P^@]R^7^P^>^MZ<]L]9a9]M]=_P`XZB]Q_Q]G^V]V^>]P]=^U]U^?`P^>^P^6]4]Q^?]G]A^0]*^O^<i@]H]7]7^M^=Z$]%Z8e9ZKZ7e F]/^U[TZ9]3^V`V^8]4]"
+"&^ <\\H\\ K[R[  I\\H\\     K_P`XZ9\\U\\   ,[R[,\\E\\D\\K]?\\E\\M]O\\=]G]D]G]D]G]D]G]D]G]D]G]D]K];^L]C].].].].].].].]-]K_C]La@^M^@^M^@^M^@^M^@^M^A_L_C`N^A^N^?^N^?^"
+"N^?^N^9]6].]L]?]P`>]P`>]P`>]P`>]P`>]P`>]P]X^LZN^NZ;_LZ>_LZ>_LZ>_LZ?].].].]-^P^>]L]>^P^=^P^=^P^=^P^=^P^2^:^P^=^Q`>^Q`>^Q`>^Q`:a7`Q^9a  Dk<k<k<k<k>],a  "
+"H]-] /[,[._0_;]L]=j<]N]7`5a       J_S^ F] 6\\R\\=^U[W_5]N^V^K_Rd L],] /]:] 8]1])^T^3]8_0^Q`0]<]Q_8^S^8^3_R_=]R^:].] O] P]+]1\\PdW`N^G^C]N_;`R`C]NaA].]*`O"
+"`F]H]C].].]L^@].]C]H]La?`S`B]*`S`B]J]B`Q_6]3_R_9a4aMaL^K^9]8^-])].]   Q_Tb>aS^;_R\\:^Sa=`Q]>]-^Sa?]L]?].].]P^<].]M]M]N]L]=_T_=aS^;^Sa?]/^R_:]-^Sa:a3_P_"
+"C^P^7_8^%]4](]   S_V^X^?aS^>]T^5_T_=`R]<]L]8_8]M^>`SdA]SaS]E^W]W^=]P^=_W]W_>]X]T_<_T_5^4^T^?^G^C^/])^Q^8c=]H]7]6`S` ?] ;c >c E]._W[V\\9]4^J^9]4]%] ;]L]"
+" IZQZ  H]L] !u  ,`Sd9\\U\\   ,ZQZ,]E\\E]L]?]E\\M_S^>^G^F^G^F^G^F^G^F^G^F^G^F^K]:`R`C].].].].].].].]-]ObB]La?`S`>`S`>`S`>`S`>`S`?]J]CcS`?_R_=_R_=_R_=_R_8]6"
+"].]V[R^?_Tb>_Tb>_Tb>_Tb>_Tb>_Tb>_T^V_Q]M_R\\:`Q]=`Q]=`Q]=`Q]?].].].],_T_=]L]=_T_;_T_;_T_;_T_;_T_1^:`T_;^Sa=^Sa=^Sa=^Sa9_6aS^7_  Bi:i:i:i:i=]+`  I],] /["
+",[-].]:]L]<h;]N]7`3q      \"h E] 7]S]=k5]LdIjW^ M],] /]:] 8]1](f9k?n?l/]<j6g7]1j<h9].] LZ PZ(]1]O`U]K]E]Cm8kBn?n?](nE]H]C].].]K^Am>]C]H]K`>kA])kA]J^Cm5"
+"]2j7_2`M`K^J]9]8tC])].]   PgX]>]Xf9h9fX]<k>],fX]?]L]?].].]O^=].]M]M]N]L]<h<]Xf9fX]?]/j9d4gX]:a3_P_D^O^7_8m4]4](]   RfXaBk=^V^3h;j<]L]8_9^L]>qA^U]W]U^D"
+"i<]O`?k=]Xg:h3a7f>uCn?]/eSe;]:]H]7]5k >] :a <a D]-h>n?\\H\\8]4]%] 9^R^   *^R^  Xu  ,q9\\U\\    /]D\\F]LfH]D\\Li>]E]F]E]F]E]F]E]F]E]F]E]F]JnIkBn?n?n?n?].].]."
+"]-n@]K`>k<k<k<k<k=[H[Co<j;j;j;j7]6].]Vf=gX]=gX]=gX]=gX]=gX]=gX]=gTjLh9k<k<k<k?].].].]+h<]L]<h9h9h9h9h Fk:gX]=gX]=gX]=gX]9_6]Xf6_  @e6e6e6e6e;]+_  G\\+["
+" /].]-[,[9]L];e:^N^8`2p       e D] 7]S]<i4\\JbGgT^ M\\,\\ .]:] 8]1]'d8k?n>i-]<i4e6]0h;g8].]   I]0]3]E]Cl6h@l=n?]&jC]H]C].].]J^Bm>]C]H]K`<g?]'g?]I]Bj3]1h6"
+"_2_K_L^I^:]8tC])].]   OdV]>]Wd6f8dW]:i>]+dW]?]L]?].].]N^>].]M]M]N]L];f;]Wd7dW]?]/i7c3dV]9_2_P_E^M^8_8m4]4](]   QdV`B]Xe;d1f8h<]L]8_9]K]>]XdW_@eWeBg;]O"
+"`=g;]Vd8f1`6d=uCn?]/eSe;]:]H]7]3g <] 9_ :_ C]+f>n>ZFZ7]4]%] 7f   &f  Vu  ,]XdW_9\\U\\    /\\C\\F\\KfH\\C\\Kg=]E]F]E]F]E]F]E]F]E]F]E]F]JnHh@n?n?n?n?].].].]-l>"
+"]K`<g8g8g8g8g J]Vh:h9h9h9h6]6].]Ve;dV]<dV]<dV]<dV]<dV]<dV]<eRiJf7i:i:i:i?].].].]*f;]L];f7f7f7f7f F]Xe7dV]<dV]<dV]<dV]9_6]Wd5_  <\\-\\-\\-\\-\\6]+_  FZ*[ /]"
+".],Z+Z9]L]8`8]L]7^.m       W` A] 7\\R\\7b2]H^BaP_ O].] .]:\\ 7]2^%`6k?n:b*]9c/a5],b6b5].\\   H]/\\4]C]Di0b=h9n?]#c?]H]C].].]I_Dm>]C]H]J_9a<]$d?]I^?c0].b3_2"
+"_K_M^G^;]8tC](]/]   M`T]>]U`2b4`U]7c;])`U]?]L]?].].]M^?].]M]M]N]L]8`8]U`3`U]?],c2a0_T]9_2^N^F^K^8]7m4]4](]   O`R^B]Va8b-`3d:]L]7]9^J]?]V`T]>cUc?c9]N_:"
+"a8]T`3`-_4`<wDn?]/eSe;]:]H]7]0a 9] 8] 8] B])b<n @]4]&^ 5b   \"b  Tu  ,]V`T]8\\U\\    0].].]0b;]C]H]C]H]C]H]C]H]C]H^E^H^JnEb=n?n?n?n?].].].]-h:]J_9a2a2a2a"
+"2a G\\Rb4b3b3b3b3]6].]Vc7`T]:`T]:`T]:`T]:`T]:`T]:aMcEb2c4c4c4c<].].].]'`8]L]8`1`1`1`1` D]Ua2_T]9_T]9_T]9_T]8]5]U`2]      =]                       &[   "
+"O].]  E]  E]         ']    S]        R]      ^       (](]/]        C]  S]    '] V]      F^ 7]4](]   %])[  4]7] @])_Q_:] 9]6]                6[   S]0[R"
+"^           H]%\\U\\ A\\            @\\             /Z            <\\             ,[    M^5](^      =]                       &[   N]0]  D\\  D]         '\\  "
+"  Q^DZ       1]      _       )](]/]        D^  S]    '] V]      F] 6]4](]   %]   ;]7] @] /] 9]6]                6[   S]0g           H]%\\U\\ @\\         "
+"   @\\                          J\\                  X]4](]      <]                       &[   N]0]  D\\  E^         '\\    P^G]       2]      X^       )]"
+"(^0]        D]  R]    '] V]      G^ 6]4](]   %]   ;]7] @] /] 9]6]                6[   S]0e           F]%\\U\\ ?[            ?[                          "
+"I[                  ^4])^      @ZV]                       &[   M]2]  D]  E]         ']    O_K_       3]      V^       *b,]5b        E^  R]    '] V]   "
+"   G^ 6^5])^   %]   ;]7] @] /] 9]6]                6[   S].a           D]%\\U\\ ?\\            @\\                          J\\                 !^4])^     "
+" B\\V]                       &[   M]2]  D\\            G\\    L`P`       2]      U^       +b =b        RZN^  R^    '] V]      H^ 4^6]*^   $]   ;]7] @] /]"
+" 9]6]                6[   S]            J]  :\\            @\\                          J\\                 \"^3]*^      A\\V\\                       %[   L"
+"]4]                   Vm       2^      S^       ,b =b        R\\Q_  R]    &] V]      I^ 3b:].b   $]   ;]7] @] /] 9]6]                6[   S]           "
+" J]  @ZU]            FZU]                          PZU]                 #^2]+^      @b                       %[                       Si       4b     "
+"                  %i  Ua    &] V]      Mb 2a:].a   #]   ;]7] @] /] 9]6]                   .]            J]  @b            Fb                          "
+"Pb                 'b2]       E`                                               Qb       1a                       $g  S`    %] V]      Ma /_:]._   !]  "
+" ;]7] @] /] 9]6]                   .]            J]  @a            Ea                          Oa                 &a1]       D^                       "
+"                                X^                 Ip      Fc  Q^    #] V]      M_  A]    )]   ;]7] @] /] 9]6]                                T]  @`  "
+"          D`                          N`                 %_/]       BZ                                                                        Ap      "
+"                 6]                                                                                                                                   "
+"                                                        p                       6]                                                                    "
+"                                                                                                                                                      "
+"                                                F]']2]    +]']2^ D]']3_   E]']1]   \"]']2^ 8]                             H";
 
-    // Define a 29x57 font (extra large size).
-    const unsigned int font29x57[29*57*256/32] = {
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x781e00,0x0,0x0,0x7,0x81e00000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7c0000,0xf8000,0x7e00000,0x0,0x7,
-      0xc0000000,0x0,0x7c00,0xf80,0x7e000,0x0,0x7c00000,0xf80000,0x7e000000,0x0,0x0,0x1f00,0x3e0,0x1f800,0x0,0x0,0x0,0x3,0xe0000000,
-      0x7c00003f,0x0,0xf8,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x3c3c00,0x0,0x0,0x3,0xc3c00000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3e1f00,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3e0000,
-      0x1f0000,0x7e00000,0xf838001f,0xf80001f,0xf0000000,0x0,0x3e00,0x1f00,0x7e000,0x3e1f000,0x3e00000,0x1f00000,0x7e00003e,0x1f000000,
-      0x3e0,0xe0000f80,0x7c0,0x1f800,0x3e0e00,0x7c3e000,0x0,0x1,0xf0000000,0xf800003f,0x1f0f,0x800001f0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1e7800,0x0,0x0,
-      0x1,0xe7800000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3e1f00,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1e0000,0x1e0000,0xff00001,0xfe38001f,0xf80003f,
-      0xf8000000,0x0,0x1e00,0x1e00,0xff000,0x3e1f000,0x1e00000,0x1e00000,0xff00003e,0x1f000000,0x7f8,0xe0000780,0x780,0x3fc00,0x7f8e00,
-      0x7c3e000,0x0,0x0,0xf0000000,0xf000007f,0x80001f0f,0x800001e0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xef000,0x0,0x0,0x0,0xef000000,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3e1f00,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xf0000,0x3c0000,0x1e780003,0xfff8001f,0xf80003c,0x78000000,0x0,0xf00,0x3c00,0x1e7800,
-      0x3e1f000,0xf00000,0x3c00001,0xe780003e,0x1f000000,0xfff,0xe00003c0,0xf00,0x79e00,0xfffe00,0x7c3e000,0x0,0x0,0x78000001,0xe00000f3,
-      0xc0001f0f,0x800003c0,0x0,0x0,0x0,0x0,0x0,0x0,0x7,0xc0000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7e000,0x0,0x0,0x0,0x7e000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x3e1f00,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x78000,0x780000,0x3c3c0003,0x8ff0001f,0xf800078,0x3c000000,0x0,0x780,0x7800,0x3c3c00,0x3e1f000,0x780000,0x7800003,0xc3c0003e,
-      0x1f000000,0xe3f,0xc00001e0,0x1e00,0xf0f00,0xe3fc00,0x7c3e000,0x0,0x0,0x3c000003,0xc00001e1,0xe0001f0f,0x80000780,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x1f,0xf0000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x7e000,0x0,0x0,0x0,0x7e000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3e1f00,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xfc00,0x7e000,0xfe000,0x0,0x3c000,0xf00000,0x781e0003,
-      0x83e0001f,0xf800070,0x1c000000,0x0,0x3c0,0xf000,0x781e00,0x3e1f000,0x3c0000,0xf000007,0x81e0003e,0x1f000000,0xe0f,0x800000f0,
-      0x3c00,0x1e0780,0xe0f800,0x7c3e000,0x0,0x0,0x1e000007,0x800003c0,0xf0001f0f,0x80000f00,0x0,0x0,0x0,0x0,0x0,0x0,0x3f,0xf8000000,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3fc00,0x1fe000,0x3ff800,0x0,0x0,0x0,0x0,0x0,0x70,0x1c000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3c,0x78000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1f00000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xf80,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x78,0xf000000,0x0,0x0,0x780f0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7c0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x3fc00,0x1fe000,0x3ffc00,0x0,0x0,0x0,0x0,0x0,0x70,0x1c000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1f00000,0x3e000,0x3e00000,0x0,0x78,0x3c000000,0x0,0x1f000,0x3e0,
-      0x3e000,0x0,0x1f000000,0x3e0000,0x3e000000,0x0,0x0,0x7c00,0xf8,0xf800,0x0,0x0,0x0,0xf,0x80000000,0x1f00001f,0x0,0x3e,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x30000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xf80000,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0xf80,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x781c0000,0x38,0xe000000,0x0,0x0,0x380e0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xf80,0x0,0x0,0x0,0x0,0x0,0x0,0x39c00,0x1ce000,0x303e00,
-      0x0,0x0,0x0,0x0,0x0,0x78,0x3c000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x4000,0x0,0x0,0x0,0x0,
-      0x0,0x0,0xf80000,0x7c000,0x3e00000,0xf0380000,0x70,0x1c000000,0x0,0xf800,0x7c0,0x3e000,0x0,0xf800000,0x7c0000,0x3e000000,
-      0x0,0x3c0,0xe0003e00,0x1f0,0xf800,0x3c0e00,0x0,0x0,0x7,0xc0000000,0x3e00001f,0x0,0x7c,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x30000000,0xff,0x0,
-      0xf8,0xf8000,0x1c000,0x0,0x0,0x0,0x0,0x1f,0xc0000000,0x1ff8,0xff00,0x0,0x0,0x3fe000,0x0,0x1fc00001,0xfe000000,0x0,0x0,0x0,
-      0x0,0x7f800,0x0,0x0,0x0,0xff00000,0x0,0x0,0xff,0x0,0x0,0x0,0x0,0x0,0x0,0x3,0xf8000000,0xfe,0x0,0x7f80,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x3f,0xf0000000,0x7fe0,0x0,0x0,0x780000,0x1,0xe0000000,0x0,0x780000,0x3,0xfe000000,0x78000,0x3c00,0xf000,0x7800003,0xffe00000,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xfc0000f0,0x3f000,0x0,0x0,0x3fc00,0x0,0x0,0x1fc000,0x0,0x0,0x0,0x1fc0,
-      0x0,0xff000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xfe1c0000,0x1c,0x1c000000,0x0,0x0,0x1c1c0,0x0,0x0,0x0,0x0,0x1fe0000,
-      0x0,0x0,0x1ff,0x1f0f8,0x0,0xff000,0x0,0x0,0x0,0x3f,0xff00000f,0x80000000,0xfe0,0x3f80,0xf00,0x0,0x0,0x0,0x1,0xf8000003,0xe0000000,
-      0x1c00,0xe000,0xe00,0x0,0x0,0x0,0x0,0x0,0x3c,0x78000000,0xff,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7f0,0x3f80,0x1fc00,0xfe000,
-      0x7f0000,0x0,0x1fc07000,0x0,0x0,0x0,0x0,0x0,0x3f800,0x780000,0x78000,0x7f00001,0xfc38001f,0xf800070,0x1c000000,0x0,0x7800,
-      0x780,0x7f000,0x3e1f000,0x7800000,0x780000,0x7f00003e,0x1f0003f0,0x7f0,0xe0001e00,0x1e0,0x1fc00,0x7f0e00,0x7c3e000,0x0,0x3,
-      0xc0000000,0x3c00003f,0x80001f0f,0x80000078,0x1e0000,0x3e1f00,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0x3c1e0000,0x1e078000,0x30000000,0x3ff,0xc00001e0,0xf0,
-      0x78000,0x1c000,0x0,0x0,0x0,0x0,0x1e0007f,0xf000007e,0x1ffff,0x7ffe0,0x1f80,0x3ffff80,0xfff803,0xfffff800,0xfff80007,0xff800000,
-      0x0,0x0,0x0,0x0,0x1ffe00,0x0,0xfe0003,0xfff80000,0x3ffe01ff,0xe00003ff,0xffe01fff,0xff0003ff,0xe01e0007,0x803ffff0,0xfff80,
-      0x3c000fc0,0x7800001f,0x8003f07e,0x1e000f,0xfe0007ff,0xf00003ff,0x8007ffe0,0x1fff8,0x7fffffe,0xf0003c1,0xe000079e,0xf1f,0x1f3e0,
-      0x1f01ff,0xfff8003f,0xf003c000,0x7fe0,0x3f00,0x0,0x3c0000,0x1,0xe0000000,0x0,0x780000,0xf,0xfe000000,0x78000,0x3c00,0xf000,
-      0x7800003,0xffe00000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7,0xfc0000f0,0x3fe00,0x0,0x0,0xfff00,0x0,0x0,0x3fe000,
-      0x0,0x0,0x0,0x1dc0,0x0,0x3fff00,0x0,0x3ffff80,0x1f,0xffff8000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xff1c07ff,0x3c0f001e,0x3c000000,
-      0x0,0x0,0x1e3c0,0xf80007c,0x0,0x780000,0x0,0xfff8000,0x3e00,0x1f00000,0x7ff,0xc001f0f8,0x0,0x3ffc00,0x0,0x0,0x0,0x3f,0xff00003f,
-      0xe0000000,0x3ff8,0xffe0,0x1e00,0x0,0xfffc00,0x0,0x7,0xf800000f,0xf8000000,0x1c00,0xe000,0xe00,0xf000,0x1fc000,0xfe0000,0x7f00000,
-      0x3f800001,0xfc00003f,0xf80000ff,0xffc003ff,0xe007ffff,0xc03ffffe,0x1fffff0,0xfffff80,0x7fffe003,0xffff001f,0xfff800ff,0xffc01ffc,
-      0xfc00,0x3c001ffc,0xffe0,0x7ff00,0x3ff800,0x1ffc000,0x0,0x7ff8f0f0,0x3c0780,0x1e03c00,0xf01e000,0x783e0001,0xf01e0000,0xffe00,
-      0x3c0000,0xf0000,0x7700001,0xfe38001f,0xf800070,0x1c000000,0x0,0x3c00,0xf00,0x77000,0x3e1f000,0x3c00000,0xf00000,0x7700003e,
-      0x1f0000f8,0xc0007f8,0xe0000f00,0x3c0,0x1dc00,0x7f8e00,0x7c3e000,0x0,0x1,0xe0000000,0x7800003b,0x80001f0f,0x800000f0,0x1e0000,
-      0x3e1f00,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x780000,0x3c1e0000,0x1e070000,0x300001f0,0x7ff,0xc00001e0,0x1e0,0x7c000,0x1c000,0x0,0x0,0x0,0x0,0x3c000ff,0xf80007fe,
-      0x3ffff,0x801ffff8,0x1f80,0x3ffff80,0x3fff803,0xfffff801,0xfffc000f,0xffc00000,0x0,0x0,0x0,0x0,0x7fff80,0x0,0xfe0003,0xffff0000,
-      0xffff01ff,0xfc0003ff,0xffe01fff,0xff000fff,0xf01e0007,0x803ffff0,0xfff80,0x3c001f80,0x7800001f,0xc007f07e,0x1e001f,0xff0007ff,
-      0xfc0007ff,0xc007fffc,0x3fffc,0x7fffffe,0xf0003c1,0xf0000f9e,0xf0f,0x8003e1e0,0x1e01ff,0xfff8003f,0xf001e000,0x7fe0,0x3f00,
-      0x0,0x1e0000,0x1,0xe0000000,0x0,0x780000,0x1f,0xfe000000,0x78000,0x3c00,0xf000,0x7800003,0xffe00000,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0xf,0xfc0000f0,0x3ff00,0x0,0x0,0x1fff80,0x0,0x0,0xffe000,0x0,0x0,0x0,0x3de0,0x0,0x7fff80,0x0,0xfffff80,
-      0x1f,0xffff8000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1,0xe7bc07ff,0x3e1f000f,0x78000000,0x0,0x0,0xf780,0x7800078,0x0,0x780000,0x180000,
-      0x1fff8000,0x1e00,0x1e0003c,0xfff,0xc001f0f8,0x0,0x7ffe00,0x0,0x0,0x0,0x3f,0xff00007f,0xf0000000,0x3ffc,0xfff0,0x3c00,0x0,
-      0x7fffc00,0x0,0x7,0xf800003f,0xfe000000,0x1c00,0xe000,0xe00,0xf000,0x1fc000,0xfe0000,0x7f00000,0x3f800001,0xfc00001f,0xe00001ff,
-      0xffc00fff,0xf007ffff,0xc03ffffe,0x1fffff0,0xfffff80,0x7fffe003,0xffff001f,0xfff800ff,0xffc01fff,0xc000fc00,0x3c003ffe,0x1fff0,
-      0xfff80,0x7ffc00,0x3ffe000,0x0,0xfffce0f0,0x3c0780,0x1e03c00,0xf01e000,0x781e0001,0xe01e0000,0x3fff00,0x1e0000,0x1e0000,0xf780003,
-      0xcf78001f,0xf800078,0x3c000000,0x0,0x1e00,0x1e00,0xf7800,0x3e1f000,0x1e00000,0x1e00000,0xf780003e,0x1f0000fc,0x7c000f3d,
-      0xe0000780,0x780,0x3de00,0xf3de00,0x7c3e000,0x0,0x0,0xf0000000,0xf000007b,0xc0001f0f,0x800001e0,0x1e0000,0x3e1f00,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,
-      0x3c1e0000,0x1e0f0000,0x300007fc,0xfff,0xc00001e0,0x1e0,0x3c000,0x1c000,0x0,0x0,0x0,0x0,0x3c001ff,0xfc001ffe,0x3ffff,0xc01ffffc,
-      0x3f80,0x3ffff80,0x7fff803,0xfffff803,0xfffe001f,0xffe00000,0x0,0x0,0x0,0x0,0xffff80,0x7f800,0xfe0003,0xffff8001,0xffff01ff,
-      0xff0003ff,0xffe01fff,0xff001fff,0xf01e0007,0x803ffff0,0xfff80,0x3c003f00,0x7800001f,0xc007f07f,0x1e003f,0xff8007ff,0xff000fff,
-      0xe007ffff,0x7fffc,0x7fffffe,0xf0003c0,0xf0000f1e,0xf07,0x8003c1f0,0x3e01ff,0xfff8003f,0xf001e000,0x7fe0,0x7f80,0x0,0xe0000,
-      0x1,0xe0000000,0x0,0x780000,0x1f,0xfe000000,0x78000,0x3c00,0xf000,0x7800003,0xffe00000,0x0,0x0,0x0,0x0,0x0,0x0,0x3c000,0x0,
-      0x0,0x0,0x0,0x0,0xf,0xfc0000f0,0x3ff00,0x0,0x0,0x3fff80,0x0,0x0,0xffe000,0x0,0x0,0x0,0x78f0,0x0,0xffff80,0x0,0x3fffff80,0x1f,
-      0xffff8000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1,0xc7f80070,0x3e1f0007,0x70000000,0x0,0x0,0x7700,0x7c000f8,0x0,0x780000,0x180000,
-      0x3fff8000,0x1f00,0x3e0003c,0x1f03,0xc001f0f8,0x0,0x703f00,0x0,0x0,0x0,0x3f,0xff0000f0,0xf8000000,0x303e,0xc0f8,0x7800,0x0,
-      0xffffc00,0x0,0x7,0x3800003e,0x3e000000,0x1c00,0xe000,0x3c00,0xf000,0x1fc000,0xfe0000,0x7f00000,0x3f800001,0xfc00000f,0xe00001ff,
-      0xffc01fff,0xf007ffff,0xc03ffffe,0x1fffff0,0xfffff80,0x7fffe003,0xffff001f,0xfff800ff,0xffc01fff,0xf000fe00,0x3c007fff,0x3fff8,
-      0x1fffc0,0xfffe00,0x7fff000,0x1,0xffffc0f0,0x3c0780,0x1e03c00,0xf01e000,0x781f0003,0xe01e0000,0x3fff80,0xe0000,0x3c0000,0x1e3c0003,
-      0x8ff0001f,0xf80003c,0x78000000,0x0,0xe00,0x3c00,0x1e3c00,0x3e1f000,0xe00000,0x3c00001,0xe3c0003e,0x1f00007f,0xf8000e3f,0xc0000380,
-      0xf00,0x78f00,0xe3fc00,0x7c3e000,0x0,0x0,0x70000001,0xe00000f1,0xe0001f0f,0x800003c0,0x1e0000,0x3e1f00,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0x3c1e0000,0x3c0f0000,
-      0x30000ffe,0xf80,0xc00001e0,0x3c0,0x1e000,0x101c040,0x0,0x0,0x0,0x0,0x78003f0,0x7e001ffe,0x3f807,0xe01f00fe,0x3f80,0x3ffff80,
-      0x7e01803,0xfffff007,0xe03f003f,0x3f00000,0x0,0x0,0x0,0x0,0xfc0fc0,0x3ffe00,0xfe0003,0xffffc003,0xf81f01ff,0xff8003ff,0xffe01fff,
-      0xff003f01,0xf01e0007,0x803ffff0,0xfff80,0x3c007e00,0x7800001f,0xc007f07f,0x1e007e,0xfc007ff,0xff801f83,0xf007ffff,0x800fc07c,
-      0x7fffffe,0xf0003c0,0xf0000f0f,0x1e07,0xc007c0f8,0x7c01ff,0xfff8003c,0xf000,0x1e0,0xffc0,0x0,0xf0000,0x1,0xe0000000,0x0,0x780000,
-      0x3e,0x0,0x78000,0x3c00,0xf000,0x7800000,0x1e00000,0x0,0x0,0x0,0x0,0x0,0x0,0x3c000,0x0,0x0,0x0,0x0,0x0,0x1f,0x800000f0,0x1f80,
-      0x0,0x0,0x7e0780,0x0,0x0,0x1f82000,0x0,0x0,0x0,0x7070,0x0,0x1f80f80,0x0,0x7fffff80,0x1f,0xffff8000,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x1,0xc3f80070,0x3f3f0007,0xf0000000,0x0,0x0,0x7f00,0x3e001f0,0x0,0x780000,0x180000,0x7f018000,0xf80,0x7c0003c,0x3e00,
-      0x4001f0f8,0xfe00,0x400f00,0x0,0x0,0x0,0x7f000000,0xe0,0x38000000,0x1e,0x38,0x7800,0x0,0x1ffe1c00,0x0,0x0,0x38000078,0xf000000,
-      0x1c00,0xe000,0x7f800,0xf000,0x1fc000,0xfe0000,0x7f00000,0x3f800001,0xfc00001f,0xf00001ff,0xffc03f81,0xf007ffff,0xc03ffffe,
-      0x1fffff0,0xfffff80,0x7fffe003,0xffff001f,0xfff800ff,0xffc01fff,0xf800fe00,0x3c00fc1f,0x8007e0fc,0x3f07e0,0x1f83f00,0xfc1f800,
-      0x3,0xf07fc0f0,0x3c0780,0x1e03c00,0xf01e000,0x780f8007,0xc01e0000,0x7e0fc0,0xf0000,0x3c0000,0x1c1c0003,0x87f0001f,0xf80003f,
-      0xf8000000,0x0,0xf00,0x3c00,0x1c1c00,0x3e1f000,0xf00000,0x3c00001,0xc1c0003e,0x1f00003f,0xc0000e1f,0xc00003c0,0xf00,0x70700,
-      0xe1fc00,0x7c3e000,0x0,0x0,0x78000001,0xe00000e0,0xe0001f0f,0x800003c0,0x1e0000,0x3e1f00,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0x3c1e0000,0x3c0f0001,0xff801e0f,
-      0x1f00,0x1e0,0x3c0,0x1e000,0x3c1c1e0,0x0,0x0,0x0,0x0,0x78007c0,0x1f001f9e,0x3c001,0xf010003e,0x7780,0x3c00000,0xf800000,0xf007,
-      0xc01f007c,0x1f80000,0x0,0x0,0x0,0x0,0xe003e0,0x7fff00,0x1ef0003,0xc007e007,0xc00301e0,0x1fc003c0,0x1e00,0x7c00,0x301e0007,
-      0x80007800,0x780,0x3c00fc00,0x7800001f,0xe00ff07f,0x1e00f8,0x3e00780,0x1fc03e00,0xf807801f,0xc01f001c,0xf000,0xf0003c0,0xf0000f0f,
-      0x1e03,0xc00f8078,0x780000,0xf0003c,0xf000,0x1e0,0x1f3e0,0x0,0x78000,0x1,0xe0000000,0x0,0x780000,0x3c,0x0,0x78000,0x0,0x0,
-      0x7800000,0x1e00000,0x0,0x0,0x0,0x0,0x0,0x0,0x3c000,0x0,0x0,0x0,0x0,0x0,0x1f,0xf0,0xf80,0x0,0x0,0xf80180,0x0,0x0,0x1e00000,
-      0x0,0x0,0x0,0xe038,0x0,0x3e00380,0x0,0xfe0f0000,0x0,0xf0000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1,0xc0f00070,0x3b370003,0xe0000000,
-      0x0,0x0,0x3e00,0x1e001e0,0x0,0x780000,0x180000,0x7c000000,0x780,0x780003c,0x3c00,0x0,0x7ffc0,0x780,0x0,0x0,0x3,0xffe00000,
-      0x1c0,0x3c000000,0xe,0x38,0xf000,0x0,0x3ffe1c00,0x0,0x0,0x38000078,0xf000000,0x1c00,0xe000,0x7f000,0xf000,0x3de000,0x1ef0000,
-      0xf780000,0x7bc00003,0xde00001e,0xf00003e7,0x80007c00,0x30078000,0x3c0000,0x1e00000,0xf000000,0xf00000,0x7800000,0x3c000001,
-      0xe0001e03,0xfc00fe00,0x3c01f007,0xc00f803e,0x7c01f0,0x3e00f80,0x1f007c00,0x7,0xc01f80f0,0x3c0780,0x1e03c00,0xf01e000,0x78078007,
-      0x801e0000,0x7803c0,0x78000,0x780000,0x380e0003,0x81e00000,0x1f,0xf0000000,0x0,0x780,0x7800,0x380e00,0x0,0x780000,0x7800003,
-      0x80e00000,0x1ff,0x80000e07,0x800001e0,0x1e00,0xe0380,0xe07800,0x0,0x0,0x0,0x3c000003,0xc00001c0,0x70000000,0x780,0x1e0000,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x780000,0x3c1e0000,0x3c0e0007,0xfff01c07,0x1e00,0x1e0,0x780,0xf000,0x3e1c3e0,0x0,0x0,0x0,0x0,0xf0007c0,0x1f00181e,0x20000,
-      0xf000001f,0xf780,0x3c00000,0x1f000000,0x1f00f,0x800f8078,0xf80000,0x0,0x0,0x0,0x0,0x8003e0,0x1fc0f80,0x1ef0003,0xc001e007,
-      0x800101e0,0x7e003c0,0x1e00,0x7800,0x101e0007,0x80007800,0x780,0x3c00f800,0x7800001e,0xe00ef07f,0x801e00f0,0x1e00780,0x7c03c00,
-      0x78078007,0xc01e0004,0xf000,0xf0003c0,0x78001e0f,0x1e03,0xe00f807c,0xf80000,0x1f0003c,0x7800,0x1e0,0x3e1f0,0x0,0x3c000,0x1,
-      0xe0000000,0x0,0x780000,0x3c,0x0,0x78000,0x0,0x0,0x7800000,0x1e00000,0x0,0x0,0x0,0x0,0x0,0x0,0x3c000,0x0,0x0,0x0,0x0,0x0,
-      0x1e,0xf0,0x780,0x0,0x0,0x1f00080,0x0,0x0,0x3c00000,0x0,0x0,0x0,0x1e03c,0x0,0x3c00080,0x0,0xf80f0000,0x0,0x1f0000,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x70,0x3bf70003,0xe0000000,0x0,0x0,0x3e00,0x1f003e0,0x0,0x780000,0x180000,0x78000000,0x7c0,0xf80003c,
-      0x3c00,0x0,0x1f01f0,0x780,0x0,0x0,0xf,0x80f80000,0x1c0,0x1c000000,0xe,0x38,0x1e000,0x0,0x7ffe1c00,0x0,0x0,0x380000f0,0x7800000,
-      0x1c00,0xe000,0x7fc00,0xf000,0x3de000,0x1ef0000,0xf780000,0x7bc00003,0xde00001e,0xf00003c7,0x80007800,0x10078000,0x3c0000,
-      0x1e00000,0xf000000,0xf00000,0x7800000,0x3c000001,0xe0001e00,0x7e00ff00,0x3c01e003,0xc00f001e,0x7800f0,0x3c00780,0x1e003c00,
-      0x7,0x800f00f0,0x3c0780,0x1e03c00,0xf01e000,0x7807c00f,0x801e0000,0xf803c0,0x3c000,0xf00000,0x780f0000,0x0,0x7,0xc0000000,
-      0x0,0x3c0,0xf000,0x780f00,0x0,0x3c0000,0xf000007,0x80f00000,0x7ff,0xc0000000,0xf0,0x3c00,0x1e03c0,0x0,0x0,0x0,0x0,0x1e000007,
-      0x800003c0,0x78000000,0xf00,0x1e0000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0x3c1e0000,0x3c1e001f,0xfff03803,0x80001e00,0x1e0,0x780,0xf000,0xf9cf80,
-      0x0,0x0,0x0,0x0,0xf000780,0xf00001e,0x0,0xf800000f,0xe780,0x3c00000,0x1e000000,0x1e00f,0x78078,0x7c0000,0x0,0x0,0x0,0x0,0x1e0,
-      0x3f003c0,0x1ef0003,0xc000f00f,0x800001e0,0x1f003c0,0x1e00,0xf000,0x1e0007,0x80007800,0x780,0x3c01f000,0x7800001e,0xe00ef07f,
-      0x801e01f0,0x1e00780,0x3c07c00,0x78078003,0xc03e0000,0xf000,0xf0003c0,0x78001e0f,0x1e01,0xf01f003c,0xf00000,0x3e0003c,0x7800,
-      0x1e0,0x7c0f8,0x0,0x0,0x1,0xe0000000,0x0,0x780000,0x3c,0x0,0x78000,0x0,0x0,0x7800000,0x1e00000,0x0,0x0,0x0,0x0,0x0,0x0,0x3c000,
-      0x0,0x0,0x0,0x0,0x0,0x1e,0xf0,0x780,0x0,0x0,0x1e00000,0x0,0x0,0x3c00000,0x0,0x8,0x40,0x0,0x7e0000,0x7c00000,0x1,0xf00f0000,
-      0x0,0x3e0000,0x0,0x3f,0xfc0,0xfc3f0,0xfc3f0,0x0,0x0,0x0,0x70,0x39e70000,0x0,0x0,0x0,0x0,0xf003c0,0x0,0x0,0x180000,0xf8000000,
-      0x3c0,0xf00003c,0x3c00,0x0,0x3c0078,0x7ff80,0x0,0x0,0x1e,0x3c0000,0x1c0,0x1c000000,0xe,0xf0,0x0,0x0,0x7ffe1c00,0x0,0x0,0x380000f0,
-      0x7800000,0x1c00,0xe000,0x3c00,0x0,0x3de000,0x1ef0000,0xf780000,0x7bc00003,0xde00001e,0xf00003c7,0x8000f800,0x78000,0x3c0000,
-      0x1e00000,0xf000000,0xf00000,0x7800000,0x3c000001,0xe0001e00,0x1f00ff00,0x3c03e003,0xc01f001e,0xf800f0,0x7c00780,0x3e003c00,
-      0xf,0x800f80f0,0x3c0780,0x1e03c00,0xf01e000,0x7803c00f,0x1fffc0,0xf001e0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x307,0xe0000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1e0000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0x3c1e0000,0x781e003f,0xfff03803,
-      0x80001e00,0x1e0,0xf80,0xf000,0x3dde00,0x0,0x0,0x0,0x0,0xf000f00,0x780001e,0x0,0x7800000f,0x1e780,0x3c00000,0x3e000000,0x3e00f,
-      0x780f0,0x7c0000,0x0,0x0,0x0,0x0,0x1e0,0x7c001e0,0x3ef8003,0xc000f00f,0x1e0,0xf003c0,0x1e00,0xf000,0x1e0007,0x80007800,0x780,
-      0x3c03e000,0x7800001e,0xf01ef07b,0xc01e01e0,0xf00780,0x3e07800,0x3c078003,0xe03c0000,0xf000,0xf0003c0,0x78001e0f,0x1e00,0xf01e003e,
-      0x1f00000,0x3c0003c,0x7800,0x1e0,0x78078,0x0,0x0,0x1,0xe0000000,0x0,0x780000,0x3c,0x0,0x78000,0x0,0x0,0x7800000,0x1e00000,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x3c000,0x0,0x0,0x0,0x0,0x0,0x1e,0xf0,0x780,0x0,0x0,0x1e00000,0x0,0x0,0x3c00000,0x0,0x18,0xc0,0x0,
-      0xe70000,0x7800000,0x1,0xe00f0000,0x0,0x3c0000,0x0,0x3f,0xfc0,0xfc1f0,0x1f83f0,0x0,0x0,0x0,0x70,0x39e70000,0x0,0x0,0x0,0x0,
-      0xf807c0,0x0,0x0,0x180000,0xf0000000,0x3e0,0x1f00003c,0x3e00,0x0,0x70001c,0x3fff80,0x0,0x0,0x38,0xe0000,0x1c0,0x1c000078,
-      0x1c,0x1fe0,0x0,0x0,0xfffe1c00,0x0,0x0,0x380000f0,0x7800000,0x1c00,0xe000,0xe00,0x0,0x7df000,0x3ef8000,0x1f7c0000,0xfbe00007,
-      0xdf00003c,0x780003c7,0x8000f000,0x78000,0x3c0000,0x1e00000,0xf000000,0xf00000,0x7800000,0x3c000001,0xe0001e00,0xf00f780,
-      0x3c03c001,0xe01e000f,0xf00078,0x78003c0,0x3c001e00,0xf,0xf80f0,0x3c0780,0x1e03c00,0xf01e000,0x7803e01f,0x1ffff8,0xf001e0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3,0xe0000000,0x0,0x0,0x0,0x0,0x0,0x0,0xc000,0x0,0x0,0x0,0x0,0x1e0000,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x780000,0x3c1e0000,0x781e003e,0x30703803,0x80001e00,0x1e0,0xf00,0x7800,0xff800,0x1e0000,0x0,0x0,0x0,0x1e000f00,0x780001e,
-      0x0,0x7800000f,0x3c780,0x3c00000,0x3c000000,0x3c00f,0x780f0,0x3c0000,0x0,0x0,0x2000000,0x800000,0x1e0,0x78000e0,0x3c78003,
-      0xc000f01e,0x1e0,0xf803c0,0x1e00,0x1e000,0x1e0007,0x80007800,0x780,0x3c07c000,0x7800001e,0x701cf07b,0xc01e01e0,0xf00780,0x1e07800,
-      0x3c078001,0xe03c0000,0xf000,0xf0003c0,0x7c003e0f,0x1e00,0xf83e001e,0x1e00000,0x7c0003c,0x3c00,0x1e0,0xf807c,0x0,0x0,0x1fe0001,
-      0xe1fc0000,0x7f00003,0xf8780007,0xf000003c,0x7f0,0x783f0,0x0,0x0,0x7800000,0x1e00000,0x3e0f8000,0xfc00007,0xf8000007,0xf00001fc,
-      0xf,0xc0003fc0,0x3c000,0x0,0x0,0x0,0x0,0x0,0x1e,0xf0,0x780,0x0,0x0,0x3c00000,0x0,0x0,0x3c00000,0x0,0x18,0xc0,0x0,0x1818000,
-      0x7800000,0x1,0xe00f0000,0x0,0x7c0000,0x0,0x1f,0x80001f80,0x7c1f8,0x1f83e0,0x0,0x0,0x0,0x70,0x38c70007,0xf8000000,0x7f03,
-      0xf0000000,0x0,0x780780,0x0,0x0,0xfe0000,0xf0000000,0x1e0,0x1e00003c,0x3f00,0x0,0xe07f0e,0x7fff80,0x0,0x0,0x70,0x70000,0x1c0,
-      0x1c000078,0x3c,0x1fc0,0x0,0x0,0xfffe1c00,0x0,0x0,0x380000f0,0x7800000,0x1c00,0xe000,0xe00,0x0,0x78f000,0x3c78000,0x1e3c0000,
-      0xf1e00007,0x8f00003c,0x78000787,0x8001e000,0x78000,0x3c0000,0x1e00000,0xf000000,0xf00000,0x7800000,0x3c000001,0xe0001e00,
-      0xf80f780,0x3c03c001,0xe01e000f,0xf00078,0x78003c0,0x3c001e00,0xf,0x1f80f0,0x3c0780,0x1e03c00,0xf01e000,0x7801e01e,0x1ffffc,
-      0xf007e0,0x3fc000,0x1fe0000,0xff00000,0x7f800003,0xfc00001f,0xe0000fc0,0xfc00007f,0xfe0,0x7f00,0x3f800,0x1fc000,0x0,0x0,0x0,
-      0x1,0xf000001f,0x80000ff0,0x7f80,0x3fc00,0x1fe000,0xff0000,0x1f80000,0x1fc1e000,0x0,0x0,0x0,0x0,0x1e1fc0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0x3c1e0000,
-      0x781c007c,0x30003803,0x80001f00,0x1e0,0xf00,0x7800,0x7f000,0x1e0000,0x0,0x0,0x0,0x1e000f00,0x780001e,0x0,0x7800000f,0x3c780,
-      0x3c00000,0x3c000000,0x3c00f,0x780f0,0x3c0000,0x0,0x0,0x1e000000,0xf00000,0x3e0,0xf0000e0,0x3c78003,0xc000f01e,0x1e0,0x7803c0,
-      0x1e00,0x1e000,0x1e0007,0x80007800,0x780,0x3c0f8000,0x7800001e,0x701cf079,0xe01e01e0,0xf00780,0x1e07800,0x3c078001,0xe03c0000,
-      0xf000,0xf0003c0,0x3c003c0f,0x3e00,0x787c001f,0x3e00000,0xf80003c,0x3c00,0x1e0,0x1f003e,0x0,0x0,0x1fffc001,0xe7ff0000,0x3ffe000f,
-      0xfe78003f,0xfc001fff,0xfe001ffc,0xf0078ffc,0x1ffc00,0x7ff000,0x7800f80,0x1e0000f,0x7f1fc01e,0x3ff0001f,0xfe00079f,0xfc0007ff,
-      0x3c003c7f,0xf001fff8,0x1fffff0,0x3c003c0,0xf0000f1e,0xf1f,0x7c1f0,0x1f00ff,0xffe0001e,0xf0,0x780,0x0,0x0,0x3c00000,0x100000,
-      0x0,0x7800000,0x0,0x18,0xc0,0x0,0x1818000,0x7800000,0x1,0xe00f0000,0x1000000,0xf80000,0x40000002,0xf,0x80001f00,0x7e0f8,0x1f07c0,
-      0x0,0x0,0x0,0x70,0x38c7003f,0xff000000,0xff8f,0xf8000100,0xffffe,0x7c0f80,0x0,0x0,0x3ffc000,0xf0000020,0x1001f0,0x3c00003c,
-      0x1f80,0x0,0x1c3ffc7,0x7c0780,0x0,0x0,0xe3,0xff038000,0xe0,0x38000078,0x78,0x1ff0,0x0,0x3c003c0,0xfffe1c00,0x0,0x0,0x380000f0,
-      0x7800000,0x1c00,0xe000,0xe00,0xf000,0x78f000,0x3c78000,0x1e3c0000,0xf1e00007,0x8f00003c,0x78000787,0x8001e000,0x78000,0x3c0000,
-      0x1e00000,0xf000000,0xf00000,0x7800000,0x3c000001,0xe0001e00,0x780f3c0,0x3c03c001,0xe01e000f,0xf00078,0x78003c0,0x3c001e00,
-      0x4000200f,0x3f80f0,0x3c0780,0x1e03c00,0xf01e000,0x7801f03e,0x1ffffe,0xf01fe0,0x3fff800,0x1fffc000,0xfffe0007,0xfff0003f,
-      0xff8001ff,0xfc003ff3,0xfe0003ff,0xe0007ff8,0x3ffc0,0x1ffe00,0xfff000,0x3ff80001,0xffc0000f,0xfe00007f,0xf000003f,0xf8003c7f,
-      0xe0003ffc,0x1ffe0,0xfff00,0x7ff800,0x3ffc000,0x1f80000,0xfff1c03c,0x3c01e0,0x1e00f00,0xf007800,0x781f0001,0xf01e7ff0,0x7c0007c,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,
-      0x3c1e003f,0xfffff078,0x30003803,0x80000f00,0x1e0,0x1f00,0x7800,0x7f000,0x1e0000,0x0,0x0,0x0,0x3c000f00,0x780001e,0x0,0x7800000f,
-      0x78780,0x3c00000,0x3c000000,0x7c00f,0x780f0,0x3c0007,0xe000003f,0x0,0xfe000000,0xfe0000,0x3c0,0x1f000070,0x7c7c003,0xc000f01e,
-      0x1e0,0x7803c0,0x1e00,0x1e000,0x1e0007,0x80007800,0x780,0x3c1f0000,0x7800001e,0x783cf079,0xe01e03c0,0xf00780,0x1e0f000,0x3c078001,
-      0xe03c0000,0xf000,0xf0003c0,0x3c003c07,0x81f03c00,0x7c7c000f,0x87c00000,0xf00003c,0x1e00,0x1e0,0x3e001f,0x0,0x0,0x3fffe001,
-      0xefff8000,0x7fff001f,0xff78007f,0xfe001fff,0xfe003ffe,0xf0079ffe,0x1ffc00,0x7ff000,0x7801f00,0x1e0000f,0xffbfe01e,0x7ff8003f,
-      0xff0007bf,0xfe000fff,0xbc003cff,0xf803fffc,0x1fffff0,0x3c003c0,0x78001e1e,0xf0f,0x800f80f0,0x1e00ff,0xffe0001e,0xf0,0x780,
-      0x0,0x0,0x3c00000,0x380000,0x0,0x7800000,0x0,0x18,0xc0,0x0,0x1008000,0x7800000,0x3,0xe00f0000,0x3800000,0xf00000,0xe0000007,
-      0xf,0x80001f00,0x3e0f8,0x1e07c0,0x0,0x0,0x0,0x70,0x3807007f,0xff800000,0x1ffdf,0xfc000380,0xffffe,0x3e1f00,0x0,0x0,0xfffe000,
-      0xf0000030,0x3800f8,0x7c00003c,0xfc0,0x0,0x18780c3,0xf00780,0x80100,0x0,0xc3,0xffc18000,0xf0,0x78000078,0xf0,0xf0,0x0,0x3c003c0,
-      0xfffe1c00,0x0,0x0,0x380000f0,0x7800801,0x1c00,0xe000,0x1e00,0xf000,0xf8f800,0x7c7c000,0x3e3e0001,0xf1f0000f,0x8f80007c,0x7c000787,
-      0x8001e000,0x78000,0x3c0000,0x1e00000,0xf000000,0xf00000,0x7800000,0x3c000001,0xe0001e00,0x780f3c0,0x3c078001,0xe03c000f,
-      0x1e00078,0xf0003c0,0x78001e00,0xe000701f,0x3fc0f0,0x3c0780,0x1e03c00,0xf01e000,0x7800f87c,0x1e007f,0xf07e00,0x7fffc00,0x3fffe001,
-      0xffff000f,0xfff8007f,0xffc003ff,0xfe007ff7,0xff0007ff,0xf000fffc,0x7ffe0,0x3fff00,0x1fff800,0x3ff80001,0xffc0000f,0xfe00007f,
-      0xf00000ff,0xf8003cff,0xf0007ffe,0x3fff0,0x1fff80,0xfffc00,0x7ffe000,0x1f80001,0xfffb803c,0x3c01e0,0x1e00f00,0xf007800,0x780f0001,
-      0xe01efff8,0x3c00078,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x780000,0x3c1e003f,0xfffff078,0x30001c07,0xf80,0x1e0,0x1e00,0x3c00,0xff800,0x1e0000,0x0,0x0,0x0,0x3c001e00,
-      0x3c0001e,0x0,0x7800001e,0x70780,0x3c00000,0x78000000,0x78007,0x800f00f0,0x3e0007,0xe000003f,0x3,0xfe000000,0xff8000,0x7c0,
-      0x1e000070,0x783c003,0xc001f01e,0x1e0,0x7803c0,0x1e00,0x1e000,0x1e0007,0x80007800,0x780,0x3c3e0000,0x7800001e,0x3838f079,
-      0xe01e03c0,0x780780,0x1e0f000,0x1e078001,0xe03c0000,0xf000,0xf0003c0,0x3c007c07,0x81f03c00,0x3ef80007,0x87800000,0x1f00003c,
-      0x1e00,0x1e0,0x7c000f,0x80000000,0x0,0x3ffff001,0xffffc000,0xffff003f,0xff7800ff,0xff001fff,0xfe007ffe,0xf007bffe,0x1ffc00,
-      0x7ff000,0x7803e00,0x1e0000f,0xffffe01e,0xfff8007f,0xff8007ff,0xff001fff,0xbc003dff,0xf807fffc,0x1fffff0,0x3c003c0,0x78001e0f,
-      0x1e07,0xc01f00f0,0x1e00ff,0xffe0001e,0xf0,0x780,0x0,0x0,0x7c00000,0x7c0000,0x0,0x7800000,0x0,0x18,0xc0,0x0,0x1018000,0x7800000,
-      0x3,0xc00f0000,0x7c00000,0x1f00001,0xf000000f,0x80000007,0xc0003e00,0x1e07c,0x3e0780,0x0,0x0,0x0,0x70,0x380700ff,0xff800000,
-      0x3ffff,0xfe0007c0,0xffffe,0x1e1e00,0x0,0x780000,0x1fffe000,0xf0000078,0x7c0078,0x7800003c,0xff0,0x0,0x38e0003,0x80f00780,
-      0x180300,0x0,0x1c3,0x81e1c000,0x7f,0xf0000078,0x1e0,0x38,0x0,0x3c003c0,0xfffe1c00,0x0,0x0,0x380000f0,0x7800c01,0x80001c00,
-      0xe000,0x603e00,0xf000,0xf07800,0x783c000,0x3c1e0001,0xe0f0000f,0x7800078,0x3c000f87,0x8001e000,0x78000,0x3c0000,0x1e00000,
-      0xf000000,0xf00000,0x7800000,0x3c000001,0xe0001e00,0x780f3c0,0x3c078000,0xf03c0007,0x81e0003c,0xf0001e0,0x78000f01,0xf000f81e,
-      0x7bc0f0,0x3c0780,0x1e03c00,0xf01e000,0x78007878,0x1e001f,0xf0f800,0x7fffe00,0x3ffff001,0xffff800f,0xfffc007f,0xffe003ff,
-      0xff007fff,0xff800fff,0xf001fffe,0xffff0,0x7fff80,0x3fffc00,0x3ff80001,0xffc0000f,0xfe00007f,0xf00001ff,0xfc003dff,0xf000ffff,
-      0x7fff8,0x3fffc0,0x1fffe00,0xffff000,0x1f80003,0xffff803c,0x3c01e0,0x1e00f00,0xf007800,0x780f0001,0xe01ffffc,0x3c00078,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,
-      0x3c1e003f,0xfffff078,0x30001e0f,0x300780,0x1e0,0x1e00,0x3c00,0x3dde00,0x1e0000,0x0,0x0,0x0,0x78001e00,0x3c0001e,0x0,0xf800003e,
-      0xf0780,0x3dfc000,0x783f8000,0xf8007,0xc01f00f0,0x3e0007,0xe000003f,0x1f,0xfc000000,0x7ff000,0xf80,0x3e007c70,0x783c003,0xc001e03c,
-      0x1e0,0x3c03c0,0x1e00,0x3c000,0x1e0007,0x80007800,0x780,0x3c7c0000,0x7800001e,0x3878f078,0xf01e03c0,0x780780,0x1e0f000,0x1e078001,
-      0xe03e0000,0xf000,0xf0003c0,0x1e007807,0x83f03c00,0x3ef00007,0xcf800000,0x3e00003c,0xf00,0x1e0,0xf80007,0xc0000000,0x0,0x3e01f801,
-      0xfe07e001,0xf80f007e,0x7f801f8,0x1f801fff,0xfe00fc0f,0xf007f83f,0x1ffc00,0x7ff000,0x7807c00,0x1e0000f,0x87e1e01f,0xe0fc00fc,
-      0xfc007f8,0x1f803f03,0xfc003df0,0x3807e03c,0x1fffff0,0x3c003c0,0x78003e0f,0x1e03,0xe03e00f8,0x3e00ff,0xffe0001e,0xf0,0x780,
-      0x0,0x0,0x7800000,0xfe0000,0x0,0x7800000,0x0,0x18,0xc0,0x0,0x1818000,0x7c00000,0x3,0xc00f0000,0xfe00000,0x3e00003,0xf800001f,
-      0xc0000007,0xc0003e00,0x1e03c,0x3c0f80,0x0,0x0,0x0,0x70,0x380700fc,0x7800000,0x7c1fe,0x3e000fe0,0xffffe,0x1f3e00,0x0,0x780000,
-      0x3f98e000,0xf000003c,0xfcf8007c,0xf800003c,0x3ffc,0x0,0x31c0001,0x80f00f80,0x380700,0x0,0x183,0x80e0c000,0x3f,0xe0000078,
-      0x3c0,0x38,0x0,0x3c003c0,0xfffe1c00,0x0,0x0,0x38000078,0xf000e01,0xc003ffe0,0x1fff00,0x7ffc00,0xf000,0xf07800,0x783c000,0x3c1e0001,
-      0xe0f0000f,0x7800078,0x3c000f07,0x8003c000,0x78000,0x3c0000,0x1e00000,0xf000000,0xf00000,0x7800000,0x3c000001,0xe0001e00,
-      0x3c0f1e0,0x3c078000,0xf03c0007,0x81e0003c,0xf0001e0,0x78000f00,0xf801f01e,0xf3c0f0,0x3c0780,0x1e03c00,0xf01e000,0x78007cf8,
-      0x1e000f,0x80f0f000,0x7c03f00,0x3e01f801,0xf00fc00f,0x807e007c,0x3f003e0,0x1f80707f,0x8f801f80,0xf003f03f,0x1f81f8,0xfc0fc0,
-      0x7e07e00,0x3ff80001,0xffc0000f,0xfe00007f,0xf00003ff,0xfc003fc1,0xf801f81f,0x800fc0fc,0x7e07e0,0x3f03f00,0x1f81f800,0x1f80007,
-      0xe07f003c,0x3c01e0,0x1e00f00,0xf007800,0x780f8003,0xe01fe07e,0x3e000f8,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0x3f,0xfffff078,0x30000ffe,0x1f007c0,0x0,0x1e00,
-      0x3c00,0xf9cf80,0x1e0000,0x0,0x0,0x0,0x78001e00,0x3c0001e,0x0,0xf00000fc,0x1e0780,0x3fff800,0x78ffe000,0xf0003,0xe03e00f0,
-      0x3e0007,0xe000003f,0x7f,0xe01fffff,0xf00ffc00,0x1f80,0x3c01ff70,0x783c003,0xc007e03c,0x1e0,0x3c03c0,0x1e00,0x3c000,0x1e0007,
-      0x80007800,0x780,0x3cfc0000,0x7800001e,0x3c78f078,0xf01e03c0,0x780780,0x3e0f000,0x1e078003,0xc01f0000,0xf000,0xf0003c0,0x1e007807,
-      0x83f83c00,0x1ff00003,0xcf000000,0x3e00003c,0xf00,0x1e0,0x0,0x0,0x0,0x20007801,0xfc03e003,0xe003007c,0x3f803e0,0x7c0003c,
-      0xf807,0xf007e00f,0x3c00,0xf000,0x780f800,0x1e0000f,0x87e1f01f,0x803c00f8,0x7c007f0,0xf803e01,0xfc003f80,0x80f8004,0x3c000,
-      0x3c003c0,0x3c003c0f,0x1e03,0xe03e0078,0x3c0000,0x7c0001e,0xf0,0x780,0x0,0x0,0x3ffff800,0x1ff0000,0x0,0x7800000,0x0,0x18,
-      0xc0,0x0,0x1818000,0x3e00000,0x3,0xc00f0000,0x1ff00000,0x3e00007,0xfc00003f,0xe0000003,0xc0003c00,0xf03c,0x3c0f00,0x0,0x0,
-      0x0,0x70,0x380701f0,0x800000,0x780fc,0x1e001ff0,0x7c,0xf3c00,0x0,0x780000,0x7e182000,0xf000001f,0xfff00ffc,0xffc0003c,0x3cfe,
-      0x0,0x31c0001,0x80f01f80,0x780f00,0x0,0x183,0x80e0c000,0xf,0x80000078,0x780,0x38,0x0,0x3c003c0,0x7ffe1c00,0x0,0x0,0x38000078,
-      0xf000f01,0xe003ffe0,0x1fff00,0x7ff800,0xf000,0xf07800,0x783c000,0x3c1e0001,0xe0f0000f,0x78000f8,0x3e000f07,0x8003c000,0x78000,
-      0x3c0000,0x1e00000,0xf000000,0xf00000,0x7800000,0x3c000001,0xe0001e00,0x3c0f1e0,0x3c078000,0xf03c0007,0x81e0003c,0xf0001e0,
-      0x78000f00,0x7c03e01e,0x1e3c0f0,0x3c0780,0x1e03c00,0xf01e000,0x78003cf0,0x1e0007,0x80f1e000,0x4000f00,0x20007801,0x3c008,
-      0x1e0040,0xf00200,0x780403f,0x7803e00,0x3007c00f,0x803e007c,0x1f003e0,0xf801f00,0x780000,0x3c00000,0x1e000000,0xf00007f0,
-      0x3e003f00,0x7801f00f,0x800f807c,0x7c03e0,0x3e01f00,0x1f00f800,0x1f80007,0xc03e003c,0x3c01e0,0x1e00f00,0xf007800,0x78078003,
-      0xc01fc03e,0x1e000f0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x780000,0x0,0xf078007c,0x300007fc,0x7e00fe0,0x0,0x1e00,0x3c00,0x3e1c3e0,0x1e0000,0x0,0x0,0x0,0xf0001e00,
-      0x3c0001e,0x1,0xf000fff8,0x1e0780,0x3fffe00,0x79fff000,0x1f0001,0xfffc00f0,0x7e0007,0xe000003f,0x3ff,0x801fffff,0xf003ff80,
-      0x3f00,0x3c03fff0,0xf01e003,0xffffc03c,0x1e0,0x3c03ff,0xffc01fff,0xfe03c000,0x1fffff,0x80007800,0x780,0x3df80000,0x7800001e,
-      0x1c70f078,0x781e03c0,0x780780,0x3c0f000,0x1e078007,0xc01f8000,0xf000,0xf0003c0,0x1e007807,0x83f83c00,0xfe00003,0xff000000,
-      0x7c00003c,0x780,0x1e0,0x0,0x0,0x0,0x7c01,0xf801f007,0xc00100f8,0x1f803c0,0x3c0003c,0x1f003,0xf007c00f,0x80003c00,0xf000,
-      0x783f000,0x1e0000f,0x3c0f01f,0x3e01f0,0x3e007e0,0x7c07c00,0xfc003f00,0xf0000,0x3c000,0x3c003c0,0x3c003c0f,0x1e01,0xf07c007c,
-      0x7c0000,0xfc0001e,0xf0,0x780,0x0,0x0,0x3ffff000,0x3838000,0x0,0x7800000,0x0,0x18,0xc0,0x0,0xff0000,0x3f00000,0x3,0xc00fff00,
-      0x38380000,0x7c0000e,0xe000070,0x70000001,0xe0003c00,0xf01e,0x780e00,0x0,0x0,0x0,0x0,0x1e0,0x0,0x780f8,0xf003838,0xfc,0xffc00,
-      0x0,0x780000,0x7c180000,0xf000000f,0xffe00fff,0xffc0003c,0x783f,0x80000000,0x6380000,0xc0f83f80,0xf81f00,0x0,0x303,0x80e06000,
-      0x0,0x78,0xf00,0x78,0x0,0x3c003c0,0x7ffe1c00,0x0,0x0,0x3800003c,0x3e000f81,0xf003ffe0,0x1fff00,0x1fc000,0xf000,0x1e03c00,
-      0xf01e000,0x780f0003,0xc078001e,0x3c000f0,0x1e000f07,0xff83c000,0x7ffff,0x803ffffc,0x1ffffe0,0xfffff00,0xf00000,0x7800000,
-      0x3c000001,0xe0001e00,0x3c0f0f0,0x3c078000,0xf03c0007,0x81e0003c,0xf0001e0,0x78000f00,0x3e07c01e,0x1e3c0f0,0x3c0780,0x1e03c00,
-      0xf01e000,0x78003ff0,0x1e0007,0x80f1e000,0xf80,0x7c00,0x3e000,0x1f0000,0xf80000,0x7c0001e,0x3c07c00,0x10078007,0x803c003c,
-      0x1e001e0,0xf000f00,0x780000,0x3c00000,0x1e000000,0xf00007c0,0x1e003e00,0x7c03e007,0xc01f003e,0xf801f0,0x7c00f80,0x3e007c00,
-      0xf,0x801f003c,0x3c01e0,0x1e00f00,0xf007800,0x7807c007,0xc01f801f,0x1f001f0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0x0,0xe078003c,0x300001f0,0x3f801ff0,0x0,
-      0x3c00,0x1e00,0x3c1c1e0,0x1e0000,0x0,0x0,0x0,0xf0001e0f,0x3c0001e,0x3,0xe000fff0,0x3c0780,0x3ffff00,0x7bfff800,0x1e0000,0x7ff00078,
-      0x7e0007,0xe000003f,0x1ffc,0x1fffff,0xf0007ff0,0x7e00,0x3c07c3f0,0xf01e003,0xffff003c,0x1e0,0x3c03ff,0xffc01fff,0xfe03c000,
-      0x1fffff,0x80007800,0x780,0x3ffc0000,0x7800001e,0x1ef0f078,0x781e03c0,0x780780,0x7c0f000,0x1e07801f,0x800ff000,0xf000,0xf0003c0,
-      0xf00f807,0x83b83c00,0xfc00001,0xfe000000,0xf800003c,0x780,0x1e0,0x0,0x0,0x0,0x3c01,0xf000f007,0xc00000f0,0xf80780,0x3c0003c,
-      0x1e001,0xf007c007,0x80003c00,0xf000,0x787e000,0x1e0000f,0x3c0f01f,0x1e01e0,0x1e007c0,0x3c07800,0x7c003f00,0xf0000,0x3c000,
-      0x3c003c0,0x3e007c07,0x80003c00,0xf8f8003c,0x780000,0xf80001e,0xf0,0x780,0x0,0x0,0x7ffff000,0x601c000,0x3,0xffff0000,0x0,
-      0xfff,0xf8007fff,0xc0000000,0x7e003c,0x1fe0000,0xc0003,0xc00fff00,0x601c0000,0xf800018,0x70000c0,0x38000001,0xe0007800,0x701e,
-      0x701e00,0x0,0x0,0x0,0x0,0x1e0,0x6,0x700f8,0xf00601c,0xf8,0x7f800,0x0,0x780000,0xf8180000,0xf000000f,0x87c00fff,0xffc0003c,
-      0xf01f,0xc0000000,0x6380000,0xc07ff780,0x1f03e03,0xfffffe00,0x303,0x81c06000,0x0,0x1ffff,0xfe001e00,0x180f8,0x0,0x3c003c0,
-      0x3ffe1c00,0x3f00000,0x0,0x3800003f,0xfe0007c0,0xf8000000,0x18000000,0xc0000006,0x1f000,0x1e03c00,0xf01e000,0x780f0003,0xc078001e,
-      0x3c000f0,0x1e001f07,0xff83c000,0x7ffff,0x803ffffc,0x1ffffe0,0xfffff00,0xf00000,0x7800000,0x3c000001,0xe000fff8,0x3c0f0f0,
-      0x3c078000,0xf03c0007,0x81e0003c,0xf0001e0,0x78000f00,0x1f0f801e,0x3c3c0f0,0x3c0780,0x1e03c00,0xf01e000,0x78001fe0,0x1e0007,
-      0x80f1e000,0x780,0x3c00,0x1e000,0xf0000,0x780000,0x3c0001e,0x3c07c00,0xf0007,0x8078003c,0x3c001e0,0x1e000f00,0x780000,0x3c00000,
-      0x1e000000,0xf0000f80,0x1f003e00,0x3c03c003,0xc01e001e,0xf000f0,0x7800780,0x3c003c00,0xf,0x3f003c,0x3c01e0,0x1e00f00,0xf007800,
-      0x7803c007,0x801f000f,0xf001e0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0x1,0xe078003f,0xb0000000,0xfc003cf0,0x0,0x3c00,0x1e00,0x101c040,0x1e0000,0x0,0x0,0x1,
-      0xe0001e1f,0x83c0001e,0x7,0xe000fff0,0x3c0780,0x3c03f80,0x7fc0fc00,0x1e0000,0xfff80078,0xfe0007,0xe000003f,0x7fe0,0x1fffff,
-      0xf0000ffc,0xfc00,0x780f81f0,0xf01e003,0xffff003c,0x1e0,0x3c03ff,0xffc01fff,0xfe03c000,0x1fffff,0x80007800,0x780,0x3ffc0000,
-      0x7800001e,0x1ef0f078,0x3c1e03c0,0x780780,0x1fc0f000,0x1e07ffff,0x7ff00,0xf000,0xf0003c0,0xf00f007,0xc3b87c00,0x7c00001,0xfe000000,
-      0xf800003c,0x3c0,0x1e0,0x0,0x0,0x0,0x3c01,0xf000f007,0x800000f0,0xf80780,0x1e0003c,0x1e001,0xf0078007,0x80003c00,0xf000,0x78fc000,
-      0x1e0000f,0x3c0f01e,0x1e01e0,0x1e007c0,0x3c07800,0x7c003e00,0xf0000,0x3c000,0x3c003c0,0x1e007807,0x80003c00,0x7df0003c,0x780000,
-      0x1f00001e,0xf0,0x780,0x0,0x0,0x7800000,0xe7ce000,0x3,0xffff0000,0x0,0xfff,0xf8007fff,0xc0000000,0x1f0,0xffe000,0x1c0003,
-      0xc00fff00,0xe7ce0000,0xf800039,0xf38001cf,0x9c000000,0xe0007800,0x780e,0x701c00,0x0,0x0,0x0,0x0,0x1e0,0x7,0xf0078,0xf00e7ce,
-      0x1f0,0x7f800,0x0,0x780000,0xf0180000,0xf000000e,0x1c0001f,0xe000003c,0xf007,0xe0000000,0x6380000,0xc03fe780,0x3e07c03,0xfffffe00,
-      0x303,0xffc06000,0x0,0x1ffff,0xfe003ffe,0x1fff0,0x0,0x3c003c0,0x1ffe1c00,0x3f00000,0x7,0xffc0001f,0xfc0003e0,0x7c000001,0xfc00000f,
-      0xe000007f,0x1e000,0x1e03c00,0xf01e000,0x780f0003,0xc078001e,0x3c000f0,0x1e001e07,0xff83c000,0x7ffff,0x803ffffc,0x1ffffe0,
-      0xfffff00,0xf00000,0x7800000,0x3c000001,0xe000fff8,0x3c0f078,0x3c078000,0xf03c0007,0x81e0003c,0xf0001e0,0x78000f00,0xf9f001e,
-      0x783c0f0,0x3c0780,0x1e03c00,0xf01e000,0x78001fe0,0x1e0007,0x80f1e000,0x780,0x3c00,0x1e000,0xf0000,0x780000,0x3c0001e,0x3c07800,
-      0xf0003,0xc078001e,0x3c000f0,0x1e000780,0x780000,0x3c00000,0x1e000000,0xf0000f00,0xf003c00,0x3c03c003,0xc01e001e,0xf000f0,
-      0x7800780,0x3c003c00,0xf,0x7f003c,0x3c01e0,0x1e00f00,0xf007800,0x7803c007,0x801f000f,0xf001e0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0x1,0xe070001f,0xf8000007,
-      0xf0007cf8,0x7800000,0x3c00,0x1e00,0x1c000,0x1e0000,0x0,0x0,0x1,0xe0001e1f,0x83c0001e,0xf,0xc000fff8,0x780780,0x2000f80,0x7f803e00,
-      0x3e0003,0xfffe007c,0x1fe0000,0x0,0x3ff00,0x0,0x1ff,0x8001f000,0x780f00f0,0x1f00f003,0xffffc03c,0x1e0,0x3c03ff,0xffc01fff,
-      0xfe03c00f,0xf81fffff,0x80007800,0x780,0x3ffe0000,0x7800001e,0xee0f078,0x3c1e03c0,0x7807ff,0xff80f000,0x1e07fffe,0x3ffe0,
-      0xf000,0xf0003c0,0xf00f003,0xc7bc7800,0xfc00000,0xfc000001,0xf000003c,0x3c0,0x1e0,0x0,0x0,0x0,0x3c01,0xe000f80f,0x800001e0,
-      0xf80f00,0x1e0003c,0x3c000,0xf0078007,0x80003c00,0xf000,0x79f8000,0x1e0000f,0x3c0f01e,0x1e03c0,0x1f00780,0x3e0f000,0x7c003e00,
-      0xf0000,0x3c000,0x3c003c0,0x1e007807,0x81e03c00,0x7df0003e,0xf80000,0x3e00003e,0xf0,0x7c0,0xfc000,0x80000000,0x7800000,0x1e7cf000,
-      0x3,0xffff0000,0x0,0x18,0xc0,0x0,0xf80,0x7ffc00,0x380003,0xc00fff01,0xe7cf0000,0x1f000079,0xf3c003cf,0x9e000000,0xe0007000,
-      0x380e,0xe01c00,0x0,0x0,0x0,0x0,0x1e0,0x3,0x800f0078,0xf01e7cf,0x3e0,0x3f000,0x0,0x780000,0xf018001f,0xfff8001e,0x1e0000f,
-      0xc000003c,0xf003,0xe0000000,0x6380000,0xc00fc780,0x7c0f803,0xfffffe00,0x303,0xfe006000,0x0,0x1ffff,0xfe003ffe,0x1ffe0,0x0,
-      0x3c003c0,0xffe1c00,0x3f00000,0x7,0xffc00007,0xf00001f0,0x3e00001f,0xfc0000ff,0xe00007ff,0x3e000,0x3e01e00,0x1f00f000,0xf8078007,
-      0xc03c003e,0x1e001e0,0xf001e07,0xff83c000,0x7ffff,0x803ffffc,0x1ffffe0,0xfffff00,0xf00000,0x7800000,0x3c000001,0xe000fff8,
-      0x3c0f078,0x3c078000,0xf03c0007,0x81e0003c,0xf0001e0,0x78000f00,0x7fe001e,0xf03c0f0,0x3c0780,0x1e03c00,0xf01e000,0x78000fc0,
-      0x1e0007,0x80f1f000,0x780,0x3c00,0x1e000,0xf0000,0x780000,0x3c0001e,0x3c0f800,0x1e0003,0xc0f0001e,0x78000f0,0x3c000780,0x780000,
-      0x3c00000,0x1e000000,0xf0000f00,0xf003c00,0x3c078003,0xe03c001f,0x1e000f8,0xf0007c0,0x78003e00,0x1e,0xf7803c,0x3c01e0,0x1e00f00,
-      0xf007800,0x7803e00f,0x801e000f,0x80f803e0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0x1,0xe0f0000f,0xff00001f,0x8000f87c,0x7800000,0x3c00,0x1e00,0x1c000,0x7fffff80,
-      0x0,0x0,0x3,0xc0001e1f,0x83c0001e,0x1f,0x800000fe,0xf00780,0x7c0,0x7f001e00,0x3c0007,0xe03f003f,0x3fe0000,0x0,0x3fc00,0x0,
-      0x7f,0x8001e000,0x781f00f0,0x1e00f003,0xc007e03c,0x1e0,0x3c03c0,0x1e00,0x3c00f,0xf81e0007,0x80007800,0x780,0x3f9f0000,0x7800001e,
-      0xfe0f078,0x3c1e03c0,0x7807ff,0xff00f000,0x1e07fff8,0xfff8,0xf000,0xf0003c0,0xf81f003,0xc7bc7800,0xfe00000,0x78000003,0xe000003c,
-      0x1e0,0x1e0,0x0,0x0,0x0,0x1fffc01,0xe000780f,0x1e0,0x780f00,0x1e0003c,0x3c000,0xf0078007,0x80003c00,0xf000,0x7bf0000,0x1e0000f,
-      0x3c0f01e,0x1e03c0,0xf00780,0x1e0f000,0x3c003c00,0xf8000,0x3c000,0x3c003c0,0x1f00f807,0x81f03c00,0x3fe0001e,0xf00000,0x7c00007c,
-      0xf0,0x3e0,0x3ff801,0x80000000,0x7800000,0x3cfcf800,0x3,0xffff0000,0x0,0x18,0xc0,0x0,0x7c00,0x1fff00,0x700003,0xc00f0003,
-      0xcfcf8000,0x3e0000f3,0xf3e0079f,0x9f000000,0xf000,0x1000,0x0,0x0,0x0,0x0,0x0,0x1f0,0x1,0xc00f0078,0xf03cfcf,0x800007c0,0x1e000,
-      0x0,0x780001,0xe018001f,0xfff8001c,0xe00007,0x8000003c,0xf001,0xf0000000,0x6380000,0xc0000000,0xf81f003,0xfffffe00,0x303,
-      0x87006000,0x0,0x1ffff,0xfe003ffe,0x7f00,0x0,0x3c003c0,0x3fe1c00,0x3f00000,0x7,0xffc00000,0xf8,0x1f0001ff,0xf0000fff,0x80007ffc,
-      0xfc000,0x3c01e00,0x1e00f000,0xf0078007,0x803c003c,0x1e001e0,0xf001e07,0x8003c000,0x78000,0x3c0000,0x1e00000,0xf000000,0xf00000,
-      0x7800000,0x3c000001,0xe000fff8,0x3c0f078,0x3c078000,0xf03c0007,0x81e0003c,0xf0001e0,0x78000f00,0x3fc001e,0x1e03c0f0,0x3c0780,
-      0x1e03c00,0xf01e000,0x78000780,0x1e0007,0x80f0fc00,0x3fff80,0x1fffc00,0xfffe000,0x7fff0003,0xfff8001f,0xffc0001e,0x3c0f000,
-      0x1e0003,0xc0f0001e,0x78000f0,0x3c000780,0x780000,0x3c00000,0x1e000000,0xf0001e00,0xf803c00,0x3c078001,0xe03c000f,0x1e00078,
-      0xf0003c0,0x78001e07,0xfffffe1e,0x1e7803c,0x3c01e0,0x1e00f00,0xf007800,0x7801e00f,0x1e0007,0x807803c0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0x3,0xc0f00007,
-      0xffc0007e,0xf03e,0x7800000,0x3c00,0x1e00,0x1c000,0x7fffff80,0x0,0x0,0x3,0xc0001e1f,0x83c0001e,0x3f,0x3e,0xf00780,0x3c0,0x7e001e00,
-      0x7c000f,0x800f001f,0xffde0000,0x0,0x3e000,0x0,0xf,0x8003e000,0x781e0070,0x1e00f003,0xc001f03c,0x1e0,0x3c03c0,0x1e00,0x3c00f,
-      0xf81e0007,0x80007800,0x780,0x3f1f0000,0x7800001e,0x7c0f078,0x1e1e03c0,0x7807ff,0xfc00f000,0x1e07fffe,0xffc,0xf000,0xf0003c0,
-      0x781e003,0xc71c7800,0x1ff00000,0x78000003,0xe000003c,0x1e0,0x1e0,0x0,0x0,0x0,0xffffc01,0xe000780f,0x1e0,0x780fff,0xffe0003c,
-      0x3c000,0xf0078007,0x80003c00,0xf000,0x7ff0000,0x1e0000f,0x3c0f01e,0x1e03c0,0xf00780,0x1e0f000,0x3c003c00,0x7f000,0x3c000,
-      0x3c003c0,0xf00f007,0xc1f07c00,0x1fc0001f,0x1f00000,0xfc000ff8,0xf0,0x1ff,0xfffe07,0x80000000,0x7800000,0x7ffcfc00,0x0,0xf000000,
-      0x0,0x18,0xc0,0x0,0x3e000,0x1ff80,0xe00003,0xc00f0007,0xffcfc000,0x3e0001ff,0xf3f00fff,0x9f800000,0x6000,0x0,0x0,0x7c000,
-      0x0,0x0,0x0,0xfe,0x0,0xe00f007f,0xff07ffcf,0xc0000fc0,0x1e000,0x0,0x780001,0xe018001f,0xfff8001c,0xe00007,0x80000000,0xf800,
-      0xf0000000,0x6380000,0xc0000000,0x1f03c000,0x1e00,0x303,0x83806000,0x0,0x78,0x0,0x0,0x0,0x3c003c0,0xfe1c00,0x3f00000,0x0,
-      0x0,0x3c,0xf801fff,0xfff8,0x7ffc0,0x1f8000,0x3c01e00,0x1e00f000,0xf0078007,0x803c003c,0x1e001e0,0xf003c07,0x8003c000,0x78000,
-      0x3c0000,0x1e00000,0xf000000,0xf00000,0x7800000,0x3c000001,0xe0001e00,0x3c0f03c,0x3c078000,0xf03c0007,0x81e0003c,0xf0001e0,
-      0x78000f00,0x1f8001e,0x1e03c0f0,0x3c0780,0x1e03c00,0xf01e000,0x78000780,0x1e000f,0x80f0ff00,0x1ffff80,0xffffc00,0x7fffe003,
-      0xffff001f,0xfff800ff,0xffc007ff,0xffc0f000,0x1fffff,0xc0fffffe,0x7fffff0,0x3fffff80,0x780000,0x3c00000,0x1e000000,0xf0001e00,
-      0x7803c00,0x3c078001,0xe03c000f,0x1e00078,0xf0003c0,0x78001e07,0xfffffe1e,0x3c7803c,0x3c01e0,0x1e00f00,0xf007800,0x7801f01f,
-      0x1e0007,0x807c07c0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x780000,0x3,0xc0f00000,0xfff003f0,0x1f00f03e,0x7800000,0x3c00,0x1e00,0x1c000,0x7fffff80,0x0,0x7ff80000,0x3,
-      0xc0001e0f,0x3c0001e,0x7e,0x1f,0x1e00780,0x3e0,0x7e000f00,0x78000f,0x7800f,0xff9e0000,0x0,0x3fc00,0x0,0x7f,0x8003c000,0x781e0070,
-      0x3e00f803,0xc000f03c,0x1e0,0x3c03c0,0x1e00,0x3c00f,0xf81e0007,0x80007800,0x780,0x3e0f8000,0x7800001e,0x7c0f078,0x1e1e03c0,
-      0x7807ff,0xf000f000,0x1e07807f,0xfe,0xf000,0xf0003c0,0x781e003,0xc71c7800,0x3ef00000,0x78000007,0xc000003c,0x1e0,0x1e0,0x0,
-      0x0,0x0,0x1ffffc01,0xe000780f,0x1e0,0x780fff,0xffe0003c,0x3c000,0xf0078007,0x80003c00,0xf000,0x7ff0000,0x1e0000f,0x3c0f01e,
-      0x1e03c0,0xf00780,0x1e0f000,0x3c003c00,0x7ff80,0x3c000,0x3c003c0,0xf00f003,0xc1f07800,0x1fc0000f,0x1e00000,0xf8000ff0,0xf0,
-      0xff,0xffffff,0x80000000,0x3fffc000,0xfff9fe00,0x0,0xf000000,0x0,0x18,0xc0,0x0,0x1f0000,0x1fc0,0x1c00003,0xc00f000f,0xff9fe000,
-      0x7c0003ff,0xe7f81fff,0x3fc00000,0x0,0x0,0x0,0xfe000,0x1ffffc0f,0xfffffc00,0x0,0xff,0xf0000000,0x700f007f,0xff0fff9f,0xe0000f80,
-      0x1e000,0x0,0x780001,0xe018001f,0xfff8001c,0xe00fff,0xffc00000,0xf800,0xf0000000,0x6380000,0xc0ffff80,0x3e078000,0x1e00,0x7ff80303,
-      0x83c06000,0x0,0x78,0x0,0x0,0x0,0x3c003c0,0xe1c00,0x3f00000,0x0,0x7f,0xff00001e,0x7c1fff0,0xfff80,0x7ffc00,0x3f0000,0x7c01f00,
-      0x3e00f801,0xf007c00f,0x803e007c,0x1f003e0,0xf803c07,0x8003c000,0x78000,0x3c0000,0x1e00000,0xf000000,0xf00000,0x7800000,0x3c000001,
-      0xe0001e00,0x3c0f03c,0x3c078000,0xf03c0007,0x81e0003c,0xf0001e0,0x78000f00,0x1f8001e,0x3c03c0f0,0x3c0780,0x1e03c00,0xf01e000,
-      0x78000780,0x1e001f,0xf07f80,0x3ffff80,0x1ffffc00,0xffffe007,0xffff003f,0xfff801ff,0xffc03fff,0xffc0f000,0x1fffff,0xc0fffffe,
-      0x7fffff0,0x3fffff80,0x780000,0x3c00000,0x1e000000,0xf0001e00,0x7803c00,0x3c078001,0xe03c000f,0x1e00078,0xf0003c0,0x78001e07,
-      0xfffffe1e,0x787803c,0x3c01e0,0x1e00f00,0xf007800,0x7800f01e,0x1e0007,0x803c0780,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0x1ff,0xffff8000,0x3ff80fc0,0x7fc1e01f,
-      0x7800000,0x3c00,0x1e00,0x0,0x7fffff80,0x0,0x7ff80000,0x7,0x80001e00,0x3c0001e,0xfc,0xf,0x1e00780,0x1e0,0x7c000f00,0x78000f,
-      0x78007,0xff1e0000,0x0,0x3ff00,0x0,0x1ff,0x8003c000,0x781e0070,0x3c007803,0xc000f03c,0x1e0,0x3c03c0,0x1e00,0x3c000,0x781e0007,
-      0x80007800,0x780,0x3c07c000,0x7800001e,0x7c0f078,0xf1e03c0,0x780780,0xf000,0x1e07801f,0x3e,0xf000,0xf0003c0,0x781e003,0xcf1c7800,
-      0x3cf80000,0x7800000f,0x8000003c,0xf0,0x1e0,0x0,0x0,0x0,0x3ffffc01,0xe000780f,0x1e0,0x780fff,0xffe0003c,0x3c000,0xf0078007,
-      0x80003c00,0xf000,0x7ff8000,0x1e0000f,0x3c0f01e,0x1e03c0,0xf00780,0x1e0f000,0x3c003c00,0x3fff0,0x3c000,0x3c003c0,0xf81f003,
-      0xc3b87800,0xf80000f,0x1e00001,0xf0000ff0,0xf0,0xff,0xf03fff,0x80000000,0x3fff8001,0xfff1ff00,0x0,0xf000000,0x0,0x18,0xc0,
-      0x0,0x380000,0x7c0,0x3c00003,0xc00f001f,0xff1ff000,0xf80007ff,0xc7fc3ffe,0x3fe00000,0x0,0x0,0x0,0x1ff000,0x7ffffe1f,0xffffff00,
-      0x0,0x7f,0xfe000000,0x780f007f,0xff1fff1f,0xf0001f00,0x1e000,0x0,0x780001,0xe0180000,0xf000001c,0xe00fff,0xffc00000,0x7c00,
-      0xf0000000,0x31c0001,0x80ffff80,0x3e078000,0x1e00,0x7ff80183,0x81c0c000,0x0,0x78,0x0,0x0,0x0,0x3c003c0,0xe1c00,0x3f00000,
-      0x0,0x7f,0xff00001e,0x7c7ff03,0xc03ff8fe,0x1ffc0f0,0x7e0000,0x7800f00,0x3c007801,0xe003c00f,0x1e0078,0xf003c0,0x7803c07,0x8003c000,
-      0x78000,0x3c0000,0x1e00000,0xf000000,0xf00000,0x7800000,0x3c000001,0xe0001e00,0x3c0f01e,0x3c078000,0xf03c0007,0x81e0003c,
-      0xf0001e0,0x78000f00,0x3fc001e,0x7803c0f0,0x3c0780,0x1e03c00,0xf01e000,0x78000780,0x1e007f,0xf03fe0,0x7ffff80,0x3ffffc01,
-      0xffffe00f,0xffff007f,0xfff803ff,0xffc07fff,0xffc0f000,0x1fffff,0xc0fffffe,0x7fffff0,0x3fffff80,0x780000,0x3c00000,0x1e000000,
-      0xf0001e00,0x7803c00,0x3c078001,0xe03c000f,0x1e00078,0xf0003c0,0x78001e07,0xfffffe1e,0x707803c,0x3c01e0,0x1e00f00,0xf007800,
-      0x7800f01e,0x1e0007,0x803c0780,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0x1ff,0xffff8000,0x30f81f00,0xffe1e00f,0x87800000,0x3c00,0x1e00,0x0,0x1e0000,0x0,0x7ff80000,
-      0x7,0x80001e00,0x3c0001e,0x1f8,0x7,0x83c00780,0x1e0,0x7c000f00,0xf8001e,0x3c001,0xfc1e0000,0x0,0x7fe0,0x0,0xffc,0x3c000,0x781e0070,
-      0x3ffff803,0xc000783c,0x1e0,0x3c03c0,0x1e00,0x3c000,0x781e0007,0x80007800,0x780,0x3c07c000,0x7800001e,0x380f078,0xf1e03c0,
-      0x780780,0xf000,0x1e07800f,0x8000001e,0xf000,0xf0003c0,0x3c3c003,0xcf1e7800,0x7c780000,0x7800000f,0x8000003c,0xf0,0x1e0,0x0,
-      0x0,0x0,0x7f003c01,0xe000780f,0x1e0,0x780fff,0xffe0003c,0x3c000,0xf0078007,0x80003c00,0xf000,0x7f7c000,0x1e0000f,0x3c0f01e,
-      0x1e03c0,0xf00780,0x1e0f000,0x3c003c00,0xfff8,0x3c000,0x3c003c0,0x781e003,0xc3b87800,0x1fc00007,0x83e00003,0xe0000ff8,0xf0,
-      0x1ff,0xc007fe,0x0,0x7fff8001,0xffe3ff00,0x0,0x1e000000,0x0,0x18,0xc0,0x0,0x0,0x3c0,0x7800003,0xc00f001f,0xfe3ff000,0xf80007ff,
-      0x8ffc3ffc,0x7fe00000,0x0,0x0,0x0,0x1ff000,0x0,0x0,0x0,0x1f,0xff000000,0x3c0f007f,0xff1ffe3f,0xf0003e00,0x1e000,0x0,0x780001,
-      0xe0180000,0xf000001e,0x1e00fff,0xffc00000,0x3f00,0xf0000000,0x31c0001,0x80ffff80,0x1f03c000,0x1e00,0x7ff80183,0x81c0c000,
-      0x0,0x78,0x0,0x0,0x0,0x3c003c0,0xe1c00,0x0,0x0,0x7f,0xff00003c,0xf87f007,0xc03f83ff,0x81fc01f0,0x7c0000,0x7ffff00,0x3ffff801,
-      0xffffc00f,0xfffe007f,0xfff003ff,0xff807fff,0x8003c000,0x78000,0x3c0000,0x1e00000,0xf000000,0xf00000,0x7800000,0x3c000001,
-      0xe0001e00,0x3c0f01e,0x3c078000,0xf03c0007,0x81e0003c,0xf0001e0,0x78000f00,0x7fe001e,0xf003c0f0,0x3c0780,0x1e03c00,0xf01e000,
-      0x78000780,0x1ffffe,0xf00ff0,0xfe00780,0x7f003c03,0xf801e01f,0xc00f00fe,0x7807f0,0x3c0ffff,0xffc0f000,0x1fffff,0xc0fffffe,
-      0x7fffff0,0x3fffff80,0x780000,0x3c00000,0x1e000000,0xf0001e00,0x7803c00,0x3c078001,0xe03c000f,0x1e00078,0xf0003c0,0x78001e00,
-      0x1e,0xf07803c,0x3c01e0,0x1e00f00,0xf007800,0x7800783e,0x1e0007,0x801e0f80,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0x1ff,0xffff8000,0x307c0801,0xe1f1e00f,0x87000000,
-      0x3c00,0x1e00,0x0,0x1e0000,0x0,0x7ff80000,0xf,0x1e00,0x3c0001e,0x3f0,0x7,0x83fffffc,0x1e0,0x7c000f00,0xf0001e,0x3c000,0x3e0000,
-      0x0,0x1ffc,0x1fffff,0xf0007ff0,0x3c000,0x781e0070,0x7ffffc03,0xc000781e,0x1e0,0x7803c0,0x1e00,0x3c000,0x781e0007,0x80007800,
-      0x780,0x3c03e000,0x7800001e,0xf078,0x79e03c0,0x780780,0xf000,0x1e078007,0x8000000f,0xf000,0xf0003c0,0x3c3c001,0xee0ef000,
-      0xf87c0000,0x7800001f,0x3c,0x78,0x1e0,0x0,0x0,0x0,0x7c003c01,0xe000780f,0x1e0,0x780f00,0x3c,0x3c000,0xf0078007,0x80003c00,
-      0xf000,0x7e3e000,0x1e0000f,0x3c0f01e,0x1e03c0,0xf00780,0x1e0f000,0x3c003c00,0x1ffc,0x3c000,0x3c003c0,0x781e003,0xe3b8f800,
-      0x1fc00007,0x83c00007,0xc00000fc,0xf0,0x3e0,0x8001f8,0x0,0x7800000,0xffc7fe00,0x0,0x1e000000,0x0,0x18,0xc0,0x0,0x0,0x1e0,
-      0xf000003,0xc00f000f,0xfc7fe001,0xf00003ff,0x1ff81ff8,0xffc00000,0x0,0x0,0x0,0x1ff000,0x0,0x0,0x0,0x3,0xff800000,0x1e0f0078,
-      0xffc7f,0xe0007c00,0x1e000,0x0,0x780001,0xe0180000,0xf000000e,0x1c00007,0x80000000,0x1f81,0xe0000000,0x38e0003,0x80000000,
-      0xf81f000,0x1e00,0x7ff801c3,0x80e1c000,0x0,0x78,0x0,0x0,0x0,0x3c003c0,0xe1c00,0x0,0x0,0x0,0xf8,0x1f070007,0xc03803ff,0xc1c001f0,
-      0xf80000,0xfffff00,0x7ffff803,0xffffc01f,0xfffe00ff,0xfff007ff,0xffc07fff,0x8001e000,0x78000,0x3c0000,0x1e00000,0xf000000,
-      0xf00000,0x7800000,0x3c000001,0xe0001e00,0x780f00f,0x3c078000,0xf03c0007,0x81e0003c,0xf0001e0,0x78000f00,0xf9f001e,0xf003c0f0,
-      0x3c0780,0x1e03c00,0xf01e000,0x78000780,0x1ffffc,0xf003f8,0xf800780,0x7c003c03,0xe001e01f,0xf00f8,0x7807c0,0x3c0fc1e,0xf000,
-      0x1e0000,0xf00000,0x7800000,0x3c000000,0x780000,0x3c00000,0x1e000000,0xf0001e00,0x7803c00,0x3c078001,0xe03c000f,0x1e00078,
-      0xf0003c0,0x78001e00,0x1e,0x1e07803c,0x3c01e0,0x1e00f00,0xf007800,0x7800783c,0x1e0007,0x801e0f00,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1ff,0xffff8000,0x303c0001,
-      0xc071e007,0xcf000000,0x3c00,0x1e00,0x0,0x1e0000,0x0,0x0,0xf,0xf00,0x780001e,0x7e0,0x7,0x83fffffc,0x1e0,0x7c000f00,0x1f0001e,
-      0x3c000,0x3c0000,0x0,0x3ff,0x801fffff,0xf003ff80,0x3c000,0x781e0070,0x7ffffc03,0xc000781e,0x1e0,0x7803c0,0x1e00,0x1e000,0x781e0007,
-      0x80007800,0x780,0x3c01f000,0x7800001e,0xf078,0x79e03c0,0xf00780,0xf000,0x3e078007,0xc000000f,0xf000,0xf0003c0,0x3c3c001,
-      0xee0ef000,0xf03e0000,0x7800003e,0x3c,0x78,0x1e0,0x0,0x0,0x0,0xf8003c01,0xe000780f,0x1e0,0x780f00,0x3c,0x3c000,0xf0078007,
-      0x80003c00,0xf000,0x7c3e000,0x1e0000f,0x3c0f01e,0x1e03c0,0xf00780,0x1e0f000,0x3c003c00,0xfc,0x3c000,0x3c003c0,0x3c3e001,0xe7b8f000,
-      0x3fe00007,0xc7c0000f,0xc000003e,0xf0,0x7c0,0x0,0x0,0x7c00000,0x7fcffc00,0x0,0x1e000000,0x0,0x18,0xc0,0x0,0x0,0x1e0,0x1e000003,
-      0xc00f0007,0xfcffc003,0xe00001ff,0x3ff00ff9,0xff800000,0x0,0x0,0x0,0x1ff000,0x0,0x0,0x0,0x0,0x1f800000,0xf0f0078,0x7fcff,
-      0xc000fc00,0x1e000,0x0,0x780001,0xe0180000,0xf000000f,0x87c00007,0x80000000,0xfe3,0xe0000000,0x18780c3,0x0,0x7c0f800,0x1e00,
-      0xc3,0x80e18000,0x0,0x78,0x0,0x0,0x0,0x3c003c0,0xe1c00,0x0,0x0,0x0,0x1f0,0x3e00000f,0xc0000303,0xe00003f0,0xf00000,0xfffff80,
-      0x7ffffc03,0xffffe01f,0xffff00ff,0xfff807ff,0xffc07fff,0x8001e000,0x78000,0x3c0000,0x1e00000,0xf000000,0xf00000,0x7800000,
-      0x3c000001,0xe0001e00,0x780f00f,0x3c078001,0xe03c000f,0x1e00078,0xf0003c0,0x78001e00,0x1f0f801f,0xe00780f0,0x3c0780,0x1e03c00,
-      0xf01e000,0x78000780,0x1ffff8,0xf000f8,0x1f000780,0xf8003c07,0xc001e03e,0xf01f0,0x780f80,0x3c1f01e,0xf000,0x1e0000,0xf00000,
-      0x7800000,0x3c000000,0x780000,0x3c00000,0x1e000000,0xf0001e00,0x7803c00,0x3c078001,0xe03c000f,0x1e00078,0xf0003c0,0x78001e00,
-      0x1e,0x3c07803c,0x3c01e0,0x1e00f00,0xf007800,0x78007c7c,0x1e0007,0x801f1f00,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7,0x81c00000,0x303c0003,0x8039e003,0xef000000,
-      0x3c00,0x1e00,0x0,0x1e0000,0x0,0x0,0x1e,0xf00,0x780001e,0xfc0,0x7,0x83fffffc,0x1e0,0x3c000f00,0x1e0001e,0x3c000,0x3c0000,
-      0x0,0x7f,0xe01fffff,0xf00ffc00,0x3c000,0x781f00f0,0x7ffffc03,0xc000781e,0x1e0,0x7803c0,0x1e00,0x1e000,0x781e0007,0x80007800,
-      0x780,0x3c01f000,0x7800001e,0xf078,0x7de01e0,0xf00780,0x7800,0x3c078003,0xc000000f,0xf000,0xf0003c0,0x3e7c001,0xee0ef001,
-      0xf01e0000,0x7800003e,0x3c,0x3c,0x1e0,0x0,0x0,0x0,0xf0003c01,0xe000780f,0x1e0,0x780f00,0x3c,0x3c000,0xf0078007,0x80003c00,
-      0xf000,0x781f000,0x1e0000f,0x3c0f01e,0x1e03c0,0xf00780,0x1e0f000,0x3c003c00,0x3e,0x3c000,0x3c003c0,0x3c3c001,0xe71cf000,0x7df00003,
-      0xc780000f,0x8000003e,0xf0,0x780,0x0,0x0,0x3c00000,0x3fcff800,0x0,0x1e000000,0x0,0x18,0xc0,0x0,0x1f00fc,0x1e0,0x1e000001,
-      0xe00f0003,0xfcff8003,0xe00000ff,0x3fe007f9,0xff000000,0x0,0x0,0x0,0x1ff000,0x0,0x0,0x0,0x0,0x7c00000,0xf0f0078,0x3fcff,0x8000f800,
-      0x1e000,0x0,0x780001,0xe0180000,0xf000001f,0xffe00007,0x8000003c,0x7ff,0xc0000000,0x1c3ffc7,0x0,0x3e07c00,0x1e00,0xe3,0x80738000,
-      0x0,0x78,0x0,0x0,0x0,0x3c003c0,0xe1c00,0x0,0x0,0x0,0x3e0,0x7c00001d,0xc0000001,0xe0000770,0x1f00000,0xfffff80,0x7ffffc03,
-      0xffffe01f,0xffff00ff,0xfff807ff,0xffc07fff,0x8001e000,0x78000,0x3c0000,0x1e00000,0xf000000,0xf00000,0x7800000,0x3c000001,
-      0xe0001e00,0x780f00f,0x3c03c001,0xe01e000f,0xf00078,0x78003c0,0x3c001e00,0x3e07c01f,0xc00780f0,0x3c0780,0x1e03c00,0xf01e000,
-      0x78000780,0x1fffc0,0xf0007c,0x1e000780,0xf0003c07,0x8001e03c,0xf01e0,0x780f00,0x3c1e01e,0xf000,0x1e0000,0xf00000,0x7800000,
-      0x3c000000,0x780000,0x3c00000,0x1e000000,0xf0001e00,0x7803c00,0x3c078001,0xe03c000f,0x1e00078,0xf0003c0,0x78001e00,0x1e,0x7807803c,
-      0x3c01e0,0x1e00f00,0xf007800,0x78003c78,0x1e0007,0x800f1e00,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7,0x83c00000,0x303c0003,0x8039e001,0xee000000,0x1e00,0x3c00,
-      0x0,0x1e0000,0x0,0x0,0x1e,0xf00,0x780001e,0x1f80,0x7,0x83fffffc,0x1e0,0x3c000f00,0x1e0001e,0x3c000,0x3c0000,0x0,0x1f,0xfc1fffff,
-      0xf07ff000,0x0,0x780f00f0,0x78003c03,0xc000781e,0x1e0,0xf803c0,0x1e00,0x1e000,0x781e0007,0x80007800,0x780,0x3c00f800,0x7800001e,
-      0xf078,0x3de01e0,0xf00780,0x7800,0x3c078003,0xe000000f,0xf000,0xf0003c0,0x1e78001,0xfe0ff003,0xe01f0000,0x7800007c,0x3c,0x3c,
-      0x1e0,0x0,0x0,0x0,0xf0007c01,0xe000f80f,0x800001e0,0xf80f00,0x3c,0x1e001,0xf0078007,0x80003c00,0xf000,0x780f800,0x1e0000f,
-      0x3c0f01e,0x1e03c0,0x1f00780,0x3e0f000,0x7c003c00,0x1e,0x3c000,0x3c003c0,0x3c3c001,0xe71cf000,0xf8f80003,0xe780001f,0x1e,
-      0xf0,0x780,0x0,0x0,0x3c00000,0x1ffff000,0x0,0x1e000000,0x0,0x18,0xc0,0x0,0x3bc1de,0x1e0,0xf000001,0xe00f0001,0xffff0007,0xc000007f,
-      0xffc003ff,0xfe000000,0x0,0x0,0x0,0xfe000,0x0,0x0,0x0,0x0,0x3c00000,0x1e0f0078,0x1ffff,0x1f000,0x1e000,0x0,0x780000,0xf0180000,
-      0xf000001f,0xfff00007,0x8000003c,0x1ff,0x80000000,0xe0ff0e,0x0,0x1f03e00,0x1e00,0x70,0x70000,0x0,0x78,0x0,0x0,0x0,0x3c003c0,
-      0xe1c00,0x0,0x0,0x0,0x7c0,0xf8000019,0xc0000000,0xe0000670,0x1e00000,0xf000780,0x78003c03,0xc001e01e,0xf00f0,0x780780,0x3c0f807,
-      0x8001e000,0x78000,0x3c0000,0x1e00000,0xf000000,0xf00000,0x7800000,0x3c000001,0xe0001e00,0xf80f007,0xbc03c001,0xe01e000f,
-      0xf00078,0x78003c0,0x3c001e00,0x7c03e00f,0x800780f0,0x3c0780,0x1e03c00,0xf01e000,0x78000780,0x1e0000,0xf0003c,0x1e000f80,
-      0xf0007c07,0x8003e03c,0x1f01e0,0xf80f00,0x7c1e01e,0xf800,0x1e0000,0xf00000,0x7800000,0x3c000000,0x780000,0x3c00000,0x1e000000,
-      0xf0001e00,0x7803c00,0x3c078003,0xe03c001f,0x1e000f8,0xf0007c0,0x78003e00,0x1f8001f,0xf00f803c,0x3c01e0,0x1e00f00,0xf007800,
-      0x78003e78,0x1e000f,0x800f9e00,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xf,0x3c00000,0x303c0003,0x8039f001,0xfe000000,0x1e00,0x3c00,0x0,0x1e0000,0x0,0x0,0x3c,0xf00,
-      0x780001e,0x3f00,0x7,0x80000780,0x3e0,0x3e000f00,0x3c0001e,0x3c000,0x7c0000,0x0,0x3,0xfe000000,0xff8000,0x0,0x3c0f81f0,0xf0001e03,
-      0xc000780f,0x1e0,0xf003c0,0x1e00,0xf000,0x781e0007,0x80007800,0x780,0x3c007c00,0x7800001e,0xf078,0x3de01e0,0xf00780,0x7800,
-      0x3c078001,0xe000000f,0xf000,0xf0003c0,0x1e78001,0xfc07f003,0xe00f0000,0x78000078,0x3c,0x1e,0x1e0,0x0,0x0,0x0,0xf0007c01,
-      0xf000f007,0x800000f0,0xf80780,0x3c,0x1e001,0xf0078007,0x80003c00,0xf000,0x7807c00,0x1e0000f,0x3c0f01e,0x1e01e0,0x1e007c0,
-      0x3c07800,0x7c003c00,0x1e,0x3c000,0x3c007c0,0x1e78001,0xe71df000,0xf8f80001,0xef80003e,0x1e,0xf0,0x780,0x0,0x0,0x3c00000,
-      0xfffe000,0x0,0x3e000000,0x0,0x18,0x7fff,0xc0000000,0x60c306,0x1e0,0x7800001,0xe00f0000,0xfffe0007,0x8000003f,0xff8001ff,
-      0xfc000000,0x0,0x0,0x0,0x7c000,0x0,0x0,0x0,0x0,0x3c00000,0x3c0f0078,0xfffe,0x3e000,0x1e000,0x0,0x780000,0xf0180000,0xf000003c,
-      0xfcf80007,0x8000003c,0x7f,0x0,0x70001c,0x0,0xf81f00,0x0,0x38,0xe0000,0x0,0x0,0x0,0x0,0x0,0x3c003c0,0xe1c00,0x0,0x0,0x0,0xf81,
-      0xf0000039,0xc0000000,0xe0000e70,0x1e00000,0x1e0003c0,0xf0001e07,0x8000f03c,0x781e0,0x3c0f00,0x1e0f007,0x8000f000,0x78000,
-      0x3c0000,0x1e00000,0xf000000,0xf00000,0x7800000,0x3c000001,0xe0001e00,0xf00f007,0xbc03c001,0xe01e000f,0xf00078,0x78003c0,
-      0x3c001e00,0xf801f00f,0x800780f0,0x3c0780,0x1e03c00,0xf01e000,0x78000780,0x1e0000,0xf0003c,0x1e000f80,0xf0007c07,0x8003e03c,
-      0x1f01e0,0xf80f00,0x7c1e01e,0x7800,0xf0000,0x780000,0x3c00000,0x1e000000,0x780000,0x3c00000,0x1e000000,0xf0000f00,0xf003c00,
-      0x3c03c003,0xc01e001e,0xf000f0,0x7800780,0x3c003c00,0x1f8000f,0xe00f003c,0x7c01e0,0x3e00f00,0x1f007800,0xf8001ef8,0x1f000f,
-      0x7be00,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0xf,0x3c00000,0x307c0003,0x8038f000,0xfc000000,0x1e00,0x3c00,0x0,0x1e0000,0xfc0000,0x0,0x7e00003c,0x780,0xf00001e,
-      0x7e00,0xf,0x80000780,0x3c0,0x3e001e00,0x3c0001f,0x7c000,0x780007,0xe000003f,0x0,0xfe000000,0xfe0000,0x0,0x3c07c3f0,0xf0001e03,
-      0xc000f80f,0x800001e0,0x1f003c0,0x1e00,0xf000,0x781e0007,0x80007800,0x4000f80,0x3c003c00,0x7800001e,0xf078,0x1fe01f0,0x1f00780,
-      0x7c00,0x7c078001,0xf000001f,0xf000,0xf0003c0,0x1e78001,0xfc07f007,0xc00f8000,0x780000f8,0x3c,0x1e,0x1e0,0x0,0x0,0x0,0xf0007c01,
-      0xf000f007,0xc00000f0,0xf80780,0x3c,0x1f003,0xf0078007,0x80003c00,0xf000,0x7807c00,0x1e0000f,0x3c0f01e,0x1e01e0,0x1e007c0,
-      0x3c07800,0x7c003c00,0x1e,0x3c000,0x3c007c0,0x1e78000,0xfe0fe001,0xf07c0001,0xef00007c,0x1e,0xf0,0x780,0x0,0x0,0x1e00000,
-      0x7cfc000,0xfc00000,0x3c00000f,0xc3f00000,0x18,0x7fff,0xc0000000,0x406303,0x3e0,0x3c00001,0xf00f0000,0x7cfc000f,0x8000001f,
-      0x3f0000f9,0xf8000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3c00000,0x780700f8,0x7cfc,0x7c000,0x1e000,0x0,0x780000,0xf8180000,
-      0xf0000070,0x3c0007,0x8000003c,0x3f,0x80000000,0x3c0078,0x0,0x780f00,0x0,0x1e,0x3c0000,0x0,0x0,0x0,0x0,0x0,0x3e007c0,0xe1c00,
-      0x0,0x0,0x0,0xf01,0xe0000071,0xc0000000,0xe0001c70,0x1e00000,0x1e0003c0,0xf0001e07,0x8000f03c,0x781e0,0x3c0f00,0x1e0f007,
-      0x8000f800,0x78000,0x3c0000,0x1e00000,0xf000000,0xf00000,0x7800000,0x3c000001,0xe0001e00,0x1f00f003,0xfc03e003,0xe01f001f,
-      0xf800f8,0x7c007c0,0x3e003e01,0xf000f80f,0xf00f0,0x3c0780,0x1e03c00,0xf01e000,0x78000780,0x1e0000,0xf0003c,0x1e000f80,0xf0007c07,
-      0x8003e03c,0x1f01e0,0xf80f00,0x7c1e01e,0x7c00,0xf0000,0x780000,0x3c00000,0x1e000000,0x780000,0x3c00000,0x1e000000,0xf0000f00,
-      0xf003c00,0x3c03c003,0xc01e001e,0xf000f0,0x7800780,0x3c003c00,0x1f8000f,0xc00f003c,0x7c01e0,0x3e00f00,0x1f007800,0xf8001ef0,
-      0x1f000f,0x7bc00,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x780000,0xf,0x3800040,0x30780003,0x8038f800,0x78000000,0x1e00,0x3c00,0x0,0x1e0000,0xfc0000,0x0,0x7e000078,
-      0x780,0x1f00001e,0xfc00,0x20001f,0x780,0x80007c0,0x1f001e00,0x7c0000f,0x78000,0xf80007,0xe000003f,0x0,0x1e000000,0xf00000,
-      0x3c000,0x3c03fff0,0xf0001e03,0xc001f007,0x800101e0,0x7e003c0,0x1e00,0x7800,0x781e0007,0x80007800,0x6000f00,0x3c003e00,0x7800001e,
-      0xf078,0x1fe00f0,0x1e00780,0x3c00,0x78078000,0xf020001e,0xf000,0x7800780,0xff0001,0xfc07f00f,0x8007c000,0x780001f0,0x3c,0xf,
-      0x1e0,0x0,0x0,0x0,0xf800fc01,0xf801f007,0xc00100f8,0x1f807c0,0x40003c,0xf807,0xf0078007,0x80003c00,0xf000,0x7803e00,0x1f0000f,
-      0x3c0f01e,0x1e01f0,0x3e007e0,0x7c07c00,0xfc003c00,0x1e,0x3e000,0x3e007c0,0x1ff8000,0xfe0fe003,0xe03e0001,0xff0000fc,0x1e,
-      0xf0,0x780,0x0,0x0,0x1f00080,0x3cf8000,0xfc00000,0x3c00001f,0x83f00000,0x18,0xc0,0x0,0xc06203,0x40003c0,0x1c00000,0xf80f0000,
-      0x3cf8001f,0xf,0x3e000079,0xf0000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3c00000,0x700780fc,0x3cf8,0xfc000,0x1e000,0x0,0x780000,
-      0x7c180000,0xf0000020,0x100007,0x8000003c,0xf,0x80000000,0x1f01f0,0x0,0x380700,0x0,0xf,0x80f80000,0x0,0x0,0x0,0x0,0x0,0x3e007c0,
-      0xe1c00,0x0,0x0,0x0,0xe01,0xc0000071,0xc0000001,0xc0001c70,0x1e00040,0x1e0003c0,0xf0001e07,0x8000f03c,0x781e0,0x3c0f00,0x1e0f007,
-      0x80007800,0x10078000,0x3c0000,0x1e00000,0xf000000,0xf00000,0x7800000,0x3c000001,0xe0001e00,0x7e00f003,0xfc01e003,0xc00f001e,
-      0x7800f0,0x3c00780,0x1e003c00,0xe000700f,0x800f0078,0x7803c0,0x3c01e00,0x1e00f000,0xf0000780,0x1e0000,0xf0003c,0x1f001f80,
-      0xf800fc07,0xc007e03e,0x3f01f0,0x1f80f80,0xfc1e01f,0x7c00,0x100f8000,0x807c0004,0x3e00020,0x1f000100,0x780000,0x3c00000,0x1e000000,
-      0xf0000f80,0x1f003c00,0x3c03e007,0xc01f003e,0xf801f0,0x7c00f80,0x3e007c00,0x1f8000f,0x801f003e,0x7c01f0,0x3e00f80,0x1f007c00,
-      0xf8001ff0,0x1f801f,0x7fc00,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0xf,0x7800078,0x31f80001,0xc070fc00,0xfc000000,0x1e00,0x7c00,0x0,0x1e0000,0xfc0000,0x0,0x7e000078,
-      0x7c0,0x1f00001e,0x1f000,0x38003f,0x780,0xe000f80,0x1f803e00,0x780000f,0x800f8000,0x1f00007,0xe000003f,0x0,0x2000000,0x800000,
-      0x3c000,0x3e01ff71,0xf0001f03,0xc007f007,0xc00301e0,0x1fc003c0,0x1e00,0x7c00,0x781e0007,0x80007800,0x7801f00,0x3c001f00,0x7800001e,
-      0xf078,0xfe00f8,0x3e00780,0x3e00,0xf8078000,0xf838003e,0xf000,0x7c00f80,0xff0000,0xfc07e00f,0x8003c000,0x780001e0,0x3c,0xf,
-      0x1e0,0x0,0x0,0x0,0xf801fc01,0xfc03e003,0xe003007c,0x3f803e0,0x1c0003c,0xfc0f,0xf0078007,0x80003c00,0xf000,0x7801f00,0xf8000f,
-      0x3c0f01e,0x1e00f8,0x7c007f0,0xf803e01,0xfc003c00,0x8003e,0x1f000,0x1e00fc0,0xff0000,0xfe0fe007,0xc01f0000,0xfe0000f8,0x1e,
-      0xf0,0x780,0x0,0x0,0xf80180,0x1cf0000,0x1f800000,0x3c00001f,0x83e00000,0x18,0xc0,0x0,0xc06203,0x70007c0,0xe00000,0x7e0f0000,
-      0x1cf0001e,0x7,0x3c000039,0xe0000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x100,0x7c00000,0xe00780fc,0x2001cf0,0xf8000,0x1e000,0x0,
-      0x780000,0x7e182000,0xf0000000,0x7,0x8000003c,0x7,0xc0000000,0x7ffc0,0x0,0x180300,0x0,0x3,0xffe00000,0x0,0x0,0x0,0x0,0x0,
-      0x3f00fc0,0xe1c00,0x0,0x0,0x0,0xc01,0x800000e1,0xc0000003,0xc0003870,0x1f001c0,0x3e0003e1,0xf0001f0f,0x8000f87c,0x7c3e0,0x3e1f00,
-      0x1f1e007,0x80007c00,0x30078000,0x3c0000,0x1e00000,0xf000000,0xf00000,0x7800000,0x3c000001,0xe0001e03,0xfc00f001,0xfc01f007,
-      0xc00f803e,0x7c01f0,0x3e00f80,0x1f007c00,0x4000201f,0xc01f007c,0xf803e0,0x7c01f00,0x3e00f801,0xf0000780,0x1e0000,0xf0007c,
-      0x1f003f80,0xf801fc07,0xc00fe03e,0x7f01f0,0x3f80f80,0x1fc1f03f,0x803e00,0x3007c003,0x803e001c,0x1f000e0,0xf800700,0x780000,
-      0x3c00000,0x1e000000,0xf00007c0,0x3e003c00,0x3c01f00f,0x800f807c,0x7c03e0,0x3e01f00,0x1f00f800,0x1f80007,0xc03e001e,0xfc00f0,
-      0x7e00780,0x3f003c01,0xf8000fe0,0x1fc03e,0x3f800,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0x1e,0x780007f,0xfff00001,0xe0f07f03,0xfe000000,0xf00,0x7800,0x0,
-      0x1e0000,0xfc0000,0x0,0x7e0000f0,0x3f0,0x7e000fff,0xfc03ffff,0xf83f00fe,0x780,0xfc03f80,0xfc0fc00,0xf800007,0xe03f0018,0x7e00007,
-      0xe000003f,0x0,0x0,0x0,0x3c000,0x1e007c71,0xe0000f03,0xffffe003,0xf01f01ff,0xff8003ff,0xffe01e00,0x3f01,0xf81e0007,0x803ffff0,
-      0x7e03f00,0x3c000f00,0x7ffffe1e,0xf078,0xfe007e,0xfc00780,0x1f83,0xf0078000,0x783f00fe,0xf000,0x3f03f00,0xff0000,0xfc07e01f,
-      0x3e000,0x780003ff,0xfffc003c,0x7,0x800001e0,0x0,0x0,0x0,0x7e07fc01,0xfe07e001,0xf80f007e,0x7f801f8,0xfc0003c,0x7ffe,0xf0078007,
-      0x807ffffe,0xf000,0x7801f00,0xfff00f,0x3c0f01e,0x1e00fc,0xfc007f8,0x1f803f03,0xfc003c00,0xf80fc,0x1fff0,0x1f83fc0,0xff0000,
-      0xfc07e007,0xc01f0000,0xfe0001ff,0xffe0001e,0xf0,0x780,0x0,0x0,0xfe0780,0xfe0000,0x1f000000,0x3c00001f,0x7c00e03,0x81c00018,
-      0xc0,0x0,0x406203,0x7e01fc0,0x700000,0x7fffff80,0xfe0003f,0xffffc003,0xf800001f,0xc0000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1f0,
-      0x1f800001,0xc007c1fe,0x6000fe0,0x1ffffe,0x1e000,0x0,0x780000,0x3f98e03f,0xffff8000,0x7,0x8000003c,0x7,0xc0000000,0xfe00,
-      0x0,0x80100,0x0,0x0,0x7f000000,0x0,0x1ffff,0xfe000000,0x0,0x0,0x3f83fe8,0xe1c00,0x0,0x0,0x0,0x801,0xc1,0xc0000007,0x80003070,
-      0xfc0fc0,0x3c0001e1,0xe0000f0f,0x7878,0x3c3c0,0x1e1e00,0xf1e007,0xffc03f01,0xf007ffff,0xc03ffffe,0x1fffff0,0xfffff80,0x7fffe003,
-      0xffff001f,0xfff800ff,0xffc01fff,0xf800f001,0xfc00fc1f,0x8007e0fc,0x3f07e0,0x1f83f00,0xfc1f800,0x1f,0xf07e003f,0x3f001f8,
-      0x1f800fc0,0xfc007e07,0xe0000780,0x1e0000,0xf301f8,0xfc0ff80,0x7e07fc03,0xf03fe01f,0x81ff00fc,0xff807e0,0x7fc0f87f,0x81801f80,
-      0xf003f01f,0x801f80fc,0xfc07e0,0x7e03f00,0xfffffc07,0xffffe03f,0xffff01ff,0xfff807e0,0x7e003c00,0x3c01f81f,0x800fc0fc,0x7e07e0,
-      0x3f03f00,0x1f81f800,0x1f8000f,0xe07e001f,0x83fc00fc,0x1fe007e0,0xff003f07,0xf8000fe0,0x1fe07e,0x3f800,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0x1e,0x780007f,
-      0xffe00000,0xffe03fff,0xdf000000,0xf00,0x7800,0x0,0x0,0xfc0000,0x0,0x7e0000f0,0x1ff,0xfc000fff,0xfc03ffff,0xf83ffffc,0x780,
-      0xfffff00,0x7fff800,0xf000007,0xffff001f,0xffe00007,0xe000003f,0x0,0x0,0x0,0x3c000,0x1e000001,0xe0000f03,0xffffc001,0xffff01ff,
-      0xff0003ff,0xffe01e00,0x1fff,0xf81e0007,0x803ffff0,0x7fffe00,0x3c000f80,0x7ffffe1e,0xf078,0xfe003f,0xff800780,0xfff,0xf0078000,
-      0x7c3ffffc,0xf000,0x3ffff00,0xff0000,0xf803e01e,0x1e000,0x780003ff,0xfffc003c,0x7,0x800001e0,0x0,0x0,0x0,0x7fffbc01,0xffffc000,
-      0xffff003f,0xfff800ff,0xffc0003c,0x3ffe,0xf0078007,0x807ffffe,0xf000,0x7800f80,0x7ff00f,0x3c0f01e,0x1e007f,0xff8007ff,0xff001fff,
-      0xbc003c00,0xffffc,0x1fff0,0x1fffbc0,0xff0000,0x7c07c00f,0x800f8000,0x7e0001ff,0xffe0001e,0xf0,0x780,0x0,0x0,0x7fff80,0x7c0000,
-      0x1f000000,0x3c00001e,0x7c00f07,0xc1e00018,0xc0,0x0,0x60e303,0x7ffff80,0x380000,0x3fffff80,0x7c0003f,0xffffc001,0xf000000f,
-      0x80000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1ff,0xff800003,0x8003ffff,0xfe0007c0,0x1ffffe,0x1e000,0x0,0x780000,0x1fffe03f,0xffff8000,
-      0x7,0x8000003c,0x3,0xc0000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1ffff,0xfe000000,0x0,0x0,0x3fffdf8,0xe1c00,0x0,0x0,0x0,0x0,0x1c1,
-      0xc000000f,0x7070,0x7fffc0,0x3c0001e1,0xe0000f0f,0x7878,0x3c3c0,0x1e1e00,0xf1e007,0xffc01fff,0xf007ffff,0xc03ffffe,0x1fffff0,
-      0xfffff80,0x7fffe003,0xffff001f,0xfff800ff,0xffc01fff,0xf000f001,0xfc007fff,0x3fff8,0x1fffc0,0xfffe00,0x7fff000,0x3b,0xfffc003f,
-      0xfff001ff,0xff800fff,0xfc007fff,0xe0000780,0x1e0000,0xf3fff8,0xffff780,0x7fffbc03,0xfffde01f,0xffef00ff,0xff7807ff,0xfbc0ffff,
-      0xff800fff,0xf001ffff,0x800ffffc,0x7fffe0,0x3ffff00,0xfffffc07,0xffffe03f,0xffff01ff,0xfff803ff,0xfc003c00,0x3c00ffff,0x7fff8,
-      0x3fffc0,0x1fffe00,0xffff000,0x1f,0xfffc001f,0xffbc00ff,0xfde007ff,0xef003fff,0x780007e0,0x1ffffc,0x1f800,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0x1e,0x700003f,
-      0xffc00000,0x7fc01fff,0x9f800000,0xf80,0xf800,0x0,0x0,0xfc0000,0x0,0x7e0000f0,0xff,0xf8000fff,0xfc03ffff,0xf83ffff8,0x780,
-      0xffffe00,0x7fff000,0xf000003,0xfffe001f,0xffc00007,0xe000003f,0x0,0x0,0x0,0x3c000,0xf000003,0xe0000f83,0xffff0000,0xffff01ff,
-      0xfc0003ff,0xffe01e00,0xfff,0xf01e0007,0x803ffff0,0x7fffc00,0x3c0007c0,0x7ffffe1e,0xf078,0x7e003f,0xff000780,0x7ff,0xe0078000,
-      0x3c3ffff8,0xf000,0x1fffe00,0x7e0000,0xf803e03e,0x1f000,0x780003ff,0xfffc003c,0x7,0x800001e0,0x0,0x0,0x0,0x3fff3c01,0xefff8000,
-      0x7ffe001f,0xff78007f,0xff80003c,0x1ffc,0xf0078007,0x807ffffe,0xf000,0x78007c0,0x3ff00f,0x3c0f01e,0x1e003f,0xff0007bf,0xfe000fff,
-      0xbc003c00,0xffff8,0xfff0,0xfff3c0,0x7e0000,0x7c07c01f,0x7c000,0x7c0001ff,0xffe0001e,0xf0,0x780,0x0,0x0,0x3fff80,0x380000,
-      0x3e000000,0x7c00003e,0x7801f07,0xc1e00018,0xc0,0x0,0x39c1ce,0x7ffff00,0x1c0000,0xfffff80,0x380003f,0xffffc000,0xe0000007,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1ff,0xff000007,0x1ffcf,0xfe000380,0x1ffffe,0x1e000,0x0,0x780000,0xfffe03f,0xffff8000,0x7,
-      0x8000003c,0x3,0xc0000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1ffff,0xfe000000,0x0,0x0,0x3dffdf8,0xe1c00,0x0,0x0,0x0,0x0,0x381,
-      0xc000001e,0xe070,0x7fff80,0x7c0001f3,0xe0000f9f,0x7cf8,0x3e7c0,0x1f3e00,0xfbe007,0xffc00fff,0xf007ffff,0xc03ffffe,0x1fffff0,
-      0xfffff80,0x7fffe003,0xffff001f,0xfff800ff,0xffc01fff,0xc000f000,0xfc007ffe,0x3fff0,0x1fff80,0xfffc00,0x7ffe000,0x79,0xfff8001f,
-      0xffe000ff,0xff0007ff,0xf8003fff,0xc0000780,0x1e0000,0xf3fff0,0x7ffe780,0x3fff3c01,0xfff9e00f,0xffcf007f,0xfe7803ff,0xf3c07ff3,
-      0xff8007ff,0xe000ffff,0x7fff8,0x3fffc0,0x1fffe00,0xfffffc07,0xffffe03f,0xffff01ff,0xfff801ff,0xf8003c00,0x3c007ffe,0x3fff0,
-      0x1fff80,0xfffc00,0x7ffe000,0x1d,0xfff8000f,0xff3c007f,0xf9e003ff,0xcf001ffe,0x780007c0,0x1efff8,0x1f000,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780000,0x1e,0xf000003,
-      0xfe000000,0x1f000fff,0xfc00000,0x780,0xf000,0x0,0x0,0xf80000,0x0,0x7e0001e0,0x7f,0xf0000fff,0xfc03ffff,0xf81ffff0,0x780,
-      0x7fff800,0x1ffe000,0x1f000000,0xfff8001f,0xff000007,0xe000003e,0x0,0x0,0x0,0x3c000,0xf800003,0xc0000783,0xfff80000,0x3ffe01ff,
-      0xe00003ff,0xffe01e00,0x7ff,0xc01e0007,0x803ffff0,0x3fff800,0x3c0003c0,0x7ffffe1e,0xf078,0x7e000f,0xfe000780,0x3ff,0xc0078000,
-      0x3e1fffe0,0xf000,0x7ff800,0x7e0000,0xf803e07c,0xf800,0x780003ff,0xfffc003c,0x3,0xc00001e0,0x0,0x0,0x0,0xffe3c01,0xe7ff0000,
-      0x3ffc000f,0xfe78003f,0xfe00003c,0x7f0,0xf0078007,0x807ffffe,0xf000,0x78003e0,0xff00f,0x3c0f01e,0x1e001f,0xfe00079f,0xfc0007ff,
-      0x3c003c00,0x7ffe0,0x1ff0,0x7fe3c0,0x7e0000,0x7c07c03e,0x3e000,0x7c0001ff,0xffe0001e,0xf0,0x780,0x0,0x0,0xfff00,0x100000,
-      0x3e000000,0x7800003c,0xf800f07,0xc1e00018,0xc0,0x0,0x1f80fc,0x3fffc00,0xc0000,0x3ffff80,0x100003f,0xffffc000,0x40000002,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xff,0xfc000006,0xff87,0xfc000100,0x1ffffe,0x1e000,0x0,0x780000,0x3ffc03f,0xffff8000,0x7,
-      0x8000003c,0x3,0xc0000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1ffff,0xfe000000,0x0,0x0,0x3dff9f8,0xe1c00,0x0,0x0,0x0,0x0,0x3ff,
-      0xf800003c,0xfffe,0x1ffe00,0x780000f3,0xc000079e,0x3cf0,0x1e780,0xf3c00,0x7bc007,0xffc003ff,0xe007ffff,0xc03ffffe,0x1fffff0,
-      0xfffff80,0x7fffe003,0xffff001f,0xfff800ff,0xffc01ffc,0xf000,0xfc001ffc,0xffe0,0x7ff00,0x3ff800,0x1ffc000,0x70,0xfff00007,
-      0xff80003f,0xfc0001ff,0xe0000fff,0x780,0x1e0000,0xf3ffe0,0x1ffc780,0xffe3c00,0x7ff1e003,0xff8f001f,0xfc7800ff,0xe3c03fe1,
-      0xff0003ff,0xc0007ffc,0x3ffe0,0x1fff00,0xfff800,0xfffffc07,0xffffe03f,0xffff01ff,0xfff800ff,0xf0003c00,0x3c003ffc,0x1ffe0,
-      0xfff00,0x7ff800,0x3ffc000,0x38,0xfff00007,0xfe3c003f,0xf1e001ff,0x8f000ffc,0x780007c0,0x1e7ff0,0x1f000,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x30000000,
-      0x1fc,0x0,0x780,0xf000,0x0,0x0,0x1f80000,0x0,0x1e0,0x1f,0xc0000000,0x0,0x1ff80,0x0,0xffc000,0x7f8000,0x0,0x3fe00007,0xfc000000,
-      0x7e,0x0,0x0,0x0,0x0,0x7c00000,0x0,0x0,0xff00000,0x0,0x0,0xfe,0x0,0x0,0x3fc000,0x0,0x0,0x0,0x3,0xf8000000,0xff,0xc0000000,
-      0x1ff00,0x0,0x1fe000,0x0,0x0,0x0,0x0,0x3c,0x3,0xc00001e0,0x0,0x0,0x0,0x3f80000,0x1fc0000,0x7f00003,0xf8000007,0xf0000000,
-      0x0,0xf0000000,0x0,0xf000,0x0,0x0,0x0,0x7,0xf8000787,0xf00001fc,0x3c000000,0x7f80,0x0,0x1f8000,0x0,0x0,0x0,0x7c000000,0x1e,
-      0xf0,0x780,0x0,0x0,0x3fc00,0x0,0x3c000000,0x7800003c,0xf000601,0xc00018,0xc0,0x0,0x0,0x3fe000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0xf,0xf0000000,0x7e03,0xf0000000,0x0,0x0,0x0,0x0,0xfe0000,0x0,0x0,0x3c,0x2007,0x80000000,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3c7e0f0,0xe1c00,0x0,0x3800000,0x0,0x0,0x3ff,0xf8000078,0xfffe,0x7f800,0x0,0x0,0x0,0x0,
-      0x0,0x0,0xff,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7f0,0x3f80,0x1fc00,0xfe000,0x7f0000,0x70,0x3fc00001,0xfe00000f,0xf000007f,
-      0x800003fc,0x0,0x0,0xff00,0x7f0000,0x3f80000,0x1fc00000,0xfe000007,0xf000003f,0x80001f80,0xfc00007f,0xfe0,0x7f00,0x3f800,
-      0x1fc000,0x0,0x0,0x0,0x3f,0xc0000000,0xff0,0x7f80,0x3fc00,0x1fe000,0xff0000,0x78,0x3fc00001,0xf800000f,0xc000007e,0x3f0,0x7c0,
-      0x1e1fc0,0x1f000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x30000000,0x0,0x0,0x3c0,0x1e000,0x0,0x0,0x1f00000,0x0,0x3c0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x7c,0x0,0x0,0x0,0x0,0x3e00000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7,0xe0000000,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x3c,0x1,0xe00001e0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xf0000000,0x0,0xf000,0x0,0x0,0x0,0x0,0x780,0x0,0x3c000000,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x78000000,0x1e,0xf0,0x780,0x0,0x0,0x0,0x0,0x3c000000,0x78000078,0xf000000,0x18,0xc0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x180000,0x0,0x0,0x3c,0x3c0f,0x80000000,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3c00000,0xe1c00,0x0,0x1800000,0x0,0x0,0x3ff,0xf80000f0,0xfffe,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0xc,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x20,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0xc,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x30,0x0,0x0,0x0,0x0,0x780,0x1e0000,0x1e000,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x30000000,
-      0x0,0x0,0x3c0,0x1e000,0x0,0x0,0x1f00000,0x0,0x3c0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7c,0x0,0x0,0x0,0x0,0x1f80000,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3,0xf0000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3c,0x1,0xe00001e0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1,0xe0000000,0x0,0xf000,0x0,0x0,0x0,0x0,0x780,0x0,0x3c000000,0x0,0x0,0x0,0x0,0x0,0x0,0xf8000000,
-      0x1f,0xf0,0xf80,0x0,0x0,0x0,0x0,0x78000000,0xf8000078,0x1e000000,0x8,0x40,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x180000,0x0,0x0,0x3c,0x3fff,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x3c00000,0xe1c00,0x0,0x1c00000,0x0,0x0,0x1,0xc00001e0,0x70,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xe,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xe,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xf80,0x1e0000,0x3e000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x30000000,0x0,0x0,0x1e0,0x3c000,0x0,0x0,0x1f00000,
-      0x0,0x780,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7c,0x0,0x0,0x0,0x0,0xfe0100,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0xf8000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3f,0xf0000000,0xf0007fe0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1,0xe0000000,
-      0x0,0xf000,0x0,0x0,0x0,0x0,0x780,0x0,0x3c000000,0x0,0x0,0x0,0x0,0x0,0x0,0xf0000000,0x1f,0x800000f0,0x1f80,0x0,0x0,0x0,0x0,
-      0x78000000,0xf0000070,0x1c000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x180000,0x0,0x0,0x3c,0x3ffe,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3c00000,0xe1c00,0x0,0xe00000,
-      0x0,0x0,0x1,0xc00003ff,0xe0000070,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0xf00,0x1e0000,0x3c000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x30000000,0x0,0x0,0x1e0,0x7c000,0x0,0x0,0x1e00000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x78,0x0,0x0,0x0,0x0,0x7fff80,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x78000000,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3f,0xf0000000,0x7fe0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x4003,0xe0000000,0x0,0x1f000,0x0,0x0,
-      0x0,0x0,0x780,0x0,0x3c000000,0x0,0x0,0x0,0x0,0x0,0x1,0xf0000000,0xf,0xfc0000f0,0x3ff00,0x0,0x0,0x0,0x0,0x70000001,0xf00000e0,
-      0x1c000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x180000,
-      0x0,0x0,0x3c,0xff8,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3c00000,0xe1c00,0x0,0xe00000,0x0,0x0,0x1,0xc00003ff,
-      0xe0000070,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1f00,0x1e0000,
-      0x7c000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x30000000,0x0,0x0,0xf0,0x78000,0x0,0x0,0x3e00000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xf8,0x0,
-      0x0,0x0,0x0,0x1fff80,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x20000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3f,
-      0xf0000000,0x7fe0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x780f,0xc0000000,0x0,0x3e000,0x0,0x0,0x0,0x0,0x780,0x0,0x3c000000,0x0,
-      0x0,0x0,0x0,0x0,0x3,0xe0000000,0xf,0xfc0000f0,0x3ff00,0x0,0x0,0x0,0x0,0xf0000103,0xe0000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x180000,0x0,0x0,0x3c,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3c00000,0x0,0x0,0x21e00000,0x0,0x0,0x1,0xc00003ff,0xe0000070,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x10f,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x10f,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3e00,0x1e0000,0xf8000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x30000000,0x0,0x0,
-      0xf8,0xf8000,0x0,0x0,0x3c00000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xf0,0x0,0x0,0x0,0x0,0x1fe00,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3f,0xf0000000,0x7fe0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x7fff,0xc0000000,0x0,0x3ffe000,0x0,0x0,0x0,0x0,0x780,0x0,0x3c000000,0x0,0x0,0x0,0x0,0x0,0x7f,0xe0000000,0x7,0xfc0000f0,
-      0x3fe00,0x0,0x0,0x0,0x0,0x600001ff,0xe0000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x180000,0x0,0x0,0x3c,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3c00000,0x0,0x0,
-      0x3fe00000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1ff,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1ff,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x7fe00,0x1e0000,0x1ff8000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x1fffffe0,0x0,0x0,0x0,0x0,0x0,0x0,0x7fff,0x80000000,0x0,0x3ffc000,0x0,0x0,0x0,0x0,0x780,0x0,0x3c000000,0x0,
-      0x0,0x0,0x0,0x0,0x7f,0xc0000000,0x0,0xfc0000f0,0x3f000,0x0,0x0,0x0,0x0,0x1ff,0xc0000000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3c,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x3c00000,0x0,0x0,0x3fc00000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1fe,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1fe,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7fc00,0x1e0000,0x1ff0000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1fffffe0,0x0,0x0,0x0,0x0,0x0,0x0,0x3ffe,0x0,0x0,0x3ff8000,0x0,0x0,0x0,
-      0x0,0x780,0x0,0x3c000000,0x0,0x0,0x0,0x0,0x0,0x7f,0x80000000,0x0,0xf0,0x0,0x0,0x0,0x0,0x0,0x1ff,0x80000000,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3c00000,0x0,0x0,0x3f800000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1fc,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1fc,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7f800,0x1e0000,0x1fe0000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1fffffe0,0x0,0x0,0x0,0x0,0x0,0x0,0x7f8,0x0,0x0,0x3fe0000,
-      0x0,0x0,0x0,0x0,0x780,0x0,0x3c000000,0x0,0x0,0x0,0x0,0x0,0x7e,0x0,0x0,0xf0,0x0,0x0,0x0,0x0,0x0,0xfe,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x3c00000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x7e000,0x1e0000,0x1f80000,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1fffffe0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xf0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xf0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
-      0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0 };
+    // Define a 90x103 font (huge size).
+    const char *const _data_font90x103[] = {  // Defined as an array to avoid MS compiler limit about constant string (65Kb).
+      // Start of first string.
+"                                                                                                                                                      "
+"                                                                                                                                                      "
+"                                                                        HX     4V         >X       IX           *W             FW                     "
+"                                                                                                                                                      "
+"                                                                                                                                                      "
+"                                                                                                                     HX  W 4Z 3VCT   <Z     >X  W 4Z  "
+" HX  W 4Z     'VCT ;X  W 3Y 2UCT       KX  W 3Y   0W                                                                                                  "
+"                                                                                                                                                      "
+"                                                                                                                                                      "
+"                                    @W !W 4\\ 5YET ?XHX 8]     >W !W 4\\ 7XGX KW !W 4\\ 7XHX   +YET :W !W 3[ 5ZFT ?XGX     EW !W 3[ 7XGX 5W              "
+"                                                                                                                                                      "
+"                                                                                                                                                      "
+"                                                                                                                        >W \"V 3\\ 7]HU ?XHX 9`     ?W \""
+"V 3\\ 7XGX JW \"V 3\\ 7XHX   -]HU 9W \"V 3] 7]HT ?XGX     DW \"V 3] 8XGX 5V                                                                                "
+"                                                                                                                                                      "
+"                                                                                                                                                      "
+"                                                      <W $V 3VNV 8_KV ?XHX 9`     >W $V 3VNV 8XGX IW $V 3VNV 8XHX   -_KV 8W $V 2] 7_KU ?XGX     CW $V "
+"2] 8XGX 6V                                                                                                                                            "
+"                                                                                                                                                      "
+"                                                                                                                                                :W &W "
+"4VLV :j >XHX :VJV     >W &W 4VLV 9XGX HW &W 4VLV 9XHX   .j 6W &W 3VMV 9i >XGX     BW &W 3VMV 9XGX 7W               MW                                 "
+"                                                                                                                                                      "
+"                                                                                                                                                      "
+"                                                                                      CV 'W 4VJV ;j >XHX ;UGV     >V 'W 4VJV :XGX GV 'W 4VJV :XHX   .j"
+" 5V 'W 3VKV :i >XGX     AV 'W 3VKV :XGX 8W               N[                                                                                           "
+"                                                                                                                                                      "
+"                                                                                                                                                      "
+"                            DV )W 4VHU <VK_ =XHX ;TEU     =V )W 4VHU :XGX FV )W 4VHU :XHX   /VK_ 3V )W 3VIV <UK_ =XGX     @V )W 3VIV ;XGX 9W          "
+"     N]                                                                                                                                               "
+"                                                                                                                                                      "
+"                                                                                                                              DV *V 3UFU =UH\\ <XHX <UD"
+"T     <V *V 3UFU ;XGX EV *V 3UFU ;XHX   /UH\\ 1V *V 2UGU <TH] =XGX     ?V *V 2UGU ;XGX 9V               a                                              "
+"                                                                                                                                                      "
+"                                                                                                                                                      "
+"                                                                         EV ,V 3UDU >TEY ;XHX <TBT     <V ,V 3UDU <XGX DV ,V 3UDU <XHX   /TEY /V ,V 2U"
+"EU =TFZ <XGX     >V ,V 2UEU <XGX :V               Na                                                                                                  "
+"                                                                                                                                                      "
+"                                                                                                                                                      "
+"                     DU -V 3VDV ?TCV :XHX <TBT     ;U -V 3VDV =XGX CU -V 3VDV =XHX   /TCV -U -V 2UCU >TCU :XGX     =U -V 2UCU =XGX ;V               NV"
+"IV                                                                          \"W                                                                        "
+"                                                                                                                                                      "
+"                                                                                                                          JU /V 3VBV     ETBT     :U /"
+"V 3VBV   FU /V 3VBV       (U /V 2UAU         DU /V 2UAU   @V               NVGV                                                                       "
+"   $X                                                                                                                                                 "
+"              *X                                                                                                                                      "
+"                           JX                                GTBT                                                   MX  GX 7V     :UEU     DX  GX 7V  "
+" JX  GX 7W       4X  GX 6V         GX  GX 5V   (X                            &X                                                                       "
+"                                                                                        )X                                                     8V     "
+"                                                                                                      ;X                                FTBT          "
+"                                         LX  IX 7X     <UCU     DX  IX 7X   JX  IX 6W       3X  IX 6X         GX  IX 5X   *X                          "
+"  &Y                                                                                                                                                  "
+"             (X                                                     9V                                                                                "
+"                           <X                                ETBT                                                   KX  KX 6X 1TBT   BTAT     CX  KX 6"
+"Y   JX  KX 6Y     (TBT BX  KX 5X 1TBT       LX  KX 4X   +X                            %T                                                    #W 9W     "
+"                                                                                          3a   :a     <W   2W    >W   E\\   AW ,W ,W ,W ,W             "
+"                HY GV +Y         4Z           NX                 @X                                                                  %W               "
+"                 DUDU                                                 =Y 7W  KW 6Z 4XDT   BTAT     BW  KW 6Z   IW  KW 6[   ,Y )XDT AW  KW 5Z 4XDT     "
+"  KW  KW 4Z   ,W BW                 8V         (S                                             <S       9V 7V                                          "
+"                                                     3a   :a     ;W   3W    >W   H_   AW ,W ,W ,W ,W                             L] GV +]         ;a  "
+"        #[                 F^                                           8XGX                      +W                                BTEU              "
+"                      *R            9a :W  MW 6\\ 6ZET ?XHX <TAT     AW  MW 6\\ 7XGX LW  MW 5[ 7XGX .Y +ZET @W  MW 5\\ 6ZET ?XHX     DW  MW 4\\ 7XHX 0W AW"
+" &XHX               MZ         +T                                   $Y         BS 1W,V MY   8W 7W  T           9X   5Z /[     0Z   8Z /Y           GY "
+"      .\\       <\\               [   4[   :\\              -a   :a     :W   4W    >W   Ja   AW ,W ,W ,W ,W                             N_ GV +_         "
+"?e   8]       J]                 Jb       8[       <[                  $Y       FY 7XGX   =Z         Di 5W   8Z .Y !W         FW *Y   4W)V*W)V-Y(V    "
+"        <UFU   3\\                    +[ 0[ 0[ 0[ 0[   4[=T            <e ;W  W 5\\ 7\\FT ?XHX <TAT     @W  W 6^ 8XGX KW  W 5] 8XGX .Z@R ?\\FT ?W  W 4\\ 7\\"
+"FT ?XHX     CW  W 3\\ 7XHX 1W @W &XHX               N\\         ,T     :U :U5U                            `   EX 2VFV   .S 4]0W\"b DV  V 5V  T         7W"
+" .` 3[ 7c 8d )Z Dq 8b Hy Bb 7`           Na   /Z @k .d Kj ?x Mt 7f MX/X'X -X -X2Z&X -]0]0[3X Dc Ii -c Ij 4f N~W$X/X.X&X.X4Y4XDY/Y/Y,Y'~S%a >W $a  MY  "
+" EW   5W    >W   Kb   AW ,W ,W ,W ,W                            !a GV +a         Ch   =f       ^                 Mf 2Z @x Mx <c 3X C~Q)X?X?X Kc   2T  "
+" .V   .T   CX   $a  !W.W   N` ;XGX ![ Lb       &Z Mi 7[   >a 5a &W   0g    #\\ -_   <\\*V.\\*V0a-V\"X )Z /Z /Z /Z /Z 4WJV 1~U+d Kx Mx Mx Mx MX -X -X -X ,j"
+" @[3X Dc 8c 8c 8c 8c   <cBV.X/X'X/X'X/X'X/X/Y,Y$X &h ;W \"W 5VNV 8]HU ?XHX <TAT     ?W \"W 5VNV 8XGX JW \"W 5VMV 9XGX -ZDV @]HU >W \"W 4VNV 8]HU ?XHX     "
+"BW \"W 3VNV 8XHX 2W ?W &XHX               ^ K~\\       >S   3Q +[ @[;[ ;Q                          ;e   HX 2VFV #VBV FS 6`1V#g GV !V 3V !T         7W 0d"
+" :` ;j ?k -[ Dq :g Ky Df ;d          $f   1Z @o 5j Np Ex Mt :m\"X/X'X -X -X3Z%X -]0]0\\4X Gi Lm 4i Ln ;m#~W$X/X-X(X-X4Y4XCY1Y-Y.Y&~S%a >W $a  N[   EV   "
+"5W    >W   Lc   AW ,W ,W ,W ,W                            \"b GV +a         Dk   Aj      \"_                 h 3Z @x Mx ?i 6X C~Q)X?X?X Ni   6V   /V   /"
+"V   DX   &f  #W0W   e >XGX %c#e       +b\"i 9_   Be 9d 'V   3k    %^ /c   @^*V0^*V2d.V\"X )Z /Z /Z /Z /Z 3b 1~U.j Nx Mx Mx Mx MX -X -X -X ,p F\\4X Gi >i "
+">i >i >i   BiEV.X/X'X/X'X/X'X/X.Y.Y#X 'j ;V \"V 5VLV :_IT >XHX <TAT     >V \"V 5VLV 9XGX IV \"V 4VMV 9XGX ,ZHY A_IT <V \"V 4VLV :_IT >XHX     AV \"V 3VLV 9"
+"XHX 2V >W &XHX              !_ K~[       >T   4R -_ D_?_ >S         =t                Fh   IX 2VFV #VBV FS 7c4V#i HV \"W 3V !T         7V 0f @e >o Co 0"
+"\\ Dq <j Ly Fj ?h          (i  \\ ?Z @r :o\"s Hx Mt <q$X/X'X -X -X4Z$X -]0]0\\4X Im Np 9m Np ?q%~W$X/X-X(X,W5[6XAX1X+X.X%~S%a =V $a  ]   EV   6W    >W   M"
+"d   AW ,W ,W ,W ,W               HW             1b GV +b         Fm   Dm      #`                \"j 4Z @x Mx Am 8X C~Q)X?X?X!m   9X   0V   0X   EX   'h"
+"  $W0W  \"h ?XGX 'g%g       0h%i :a   Cf :f *V   4m    %^ 0e   A^+V/^+V1f1V!X )Z /Z /Z /Z /Z 2` 1~V0o\"x Mx Mx Mx MX -X -X -X ,t J\\4X Im Bm Bm Bm Bm   F"
+"mHV-X/X'X/X'X/X'X/X-X.X\"X (l ;V $V 4UJU :ULXLU >XHX <UCU     =V $V 5VJV :XGX HV $V 4VKV :XGX +ZL\\ AULXLU ;V $V 3UJU :ULXLU >XHX     @V $V 2UJU 9XHX 3V"
+" =W &XHX              !` K~Z       >T   4S /a FaAa @T         @w                Hl   KX 2VFV $WCV ES 8e5V$j HV \"V 1V \"T         7V 2j Eh ?q Dp 1\\ Dq >"
+"l Ly Hn Bj          +l %e E\\ At >s$v Kx Mt >u&X/X'X -X -X5Z#X -^2^0]5X Jo q ;o r Br%~W$X/X-X(X,X6[6XAY3Y+Y0Y%~S%W 3V  IW !_   FW   7W    >W   Md   AW "
+",W ,W ,W ,W               HW             2[ ?V #[         Hn   En      #`                #l 6\\ Ax Mx Cp 9X C~Q)X?X?X\"o   ;Z   1V   1Z   FX  KS 0i  #W2"
+"W LV ,i ?XGX *l'h       3l'i ;c   Dg ;g ,W   6o    %^ 1g   B^,V.^,V0g3V X *\\ 1\\ 1\\ 1\\ 1\\ 2^ 0~V2s$x Mx Mx Mx MX -X -X -X ,v L]5X Jo Do Do Do Do   HpKW"
+"-X/X'X/X'X/X'X/X-Y0Y\"X )n <W &W 5VJV ;TI_ >XHX ;UEU     <W &W 5VIV ;XGX HW &W 5VIV ;XGX *g ?TI_ ;W &W 4VJV ;TI_ >XHX     @W &W 3VJV :XHX 4W =W &XHX   "
+"  1\\ 1\\ 1\\ 1\\ 1\\ =XMV K~Y       =S   4U 1c IdCc AU         Dz                In   LX 2VFV $VBV ES 9g7V$k HV #W 1W #T         8W 3l Fh ?r Eq 3] Dq ?m L"
+"y Ip Em          -n )k H\\ Au Av%x Mx Mt ?x(X/X'X -X -X6Z\"X -^2^0]5X Ls\"s ?s\"s Et%~W$X/X,X*X+X6[6X@Y5Y)Y2Y$~S%W 3W  JW \"a   FW   8W    >W   NZ   6W ,W "
+",W ,W ,W               HW             2X <V  X         H[G[   Go       KZ                %[H[ 7\\ Ax Mx Ds ;X C~Q)X?X?X$s   >\\   2V   2\\   GX  KS 1j  #"
+"W2W LV -j ?XGX +ZEZ)VGY       5ZDZ)i <e   EUFY <UFX -W   7q    %VMU 2YIY   CVMU,V.VMU,V0UFX3V X *\\ 1\\ 1\\ 1\\ 1\\ 1\\ 0~W4v%x Mx Mx Mx MX -X -X -X ,x N]5X"
+" Ls Hs Hs Hs Hs   LsMW,X/X'X/X'X/X'X/X,Y2Y!X *\\G[ <W (W 4UHU <UH] =XHX ;VGV     ;W (W 5VHV ;XGX GW (W 4UGU ;XGX )c =UH] 9W (W 3UHU <UH] =XHX     ?W (W"
+" 2UHU :XHX 5W <W &XHX     5c 8c 8c 8c 8c @WKU J~X       >T   5V 2e KfEe CW         G|                Jp   MX 2VFV $VBV ES 9XIX8V$l HV #V /V #T        "
+" 8V 3n Gh ?s Fr 5^ Dq @n Lx Ir Go          .o -q L^ Bv Cx&z x Mt A{)X/X'X -X -X7Z!X -^2^0^6X Mu#t Au#t Gu%~W$X/X,X*X+X6[6X?X5X'X2X#~S%W 2V  JW #c   FW"
+"   9W    >W   NX   4W ,W ,W ,W ,W               HW             2W ;V  NW         IZCY   Hp       JY                &ZDZ 9^ Bx Mx Eu <X C~Q)X?X?X%u   @"
+"^   3V   3^   HX  KS 2k  \"W4W KV -ZGW ?XGX -X=X+R@W       8X<X  .XIX   FQ@W <Q@W /W   7dGU    %QHU 3XEX   DQHU-V-QHU-V/Q@W5V NX +^ 3^ 3^ 3^ 3^ 2\\ 0~W5"
+"x&x Mx Mx Mx MX -X -X -X ,z!^6X Mu Ju Ju Ju Ju   N}+X/X'X/X'X/X'X/X+X2X X +ZBY ;W *W 4UFU =TF\\ =XHX :VIV     9W *W 5VFV <XGX FW *W 4VGV <XGX (_ :TF\\ 8"
+"W *W 3UFU =TF\\ =XHX     >W *W 2UFU ;XHX 6W ;W &XHX     7h =h =h =h =h DWJV K~X       >T   5W 4g MgFg EY         J~                K]FZ   MX 2VFV $VBV "
+"ES :XGX9V%\\GX HV $W /W 3PATAP         GV 3[H[ Gh ?]F] GZE^ 6^ Dq A]FX Lx I\\F\\ G\\G[          /[H] 0u N^ Bw E_D^&{!x Mt B`C_)X/X'X -X -X8Z X -_4_0_7X N^"
+"E^$u C^E^$u H^E\\%~W$X/X,Y,Y*W7]8X>Y7Y'Y4Y#~S%W 2V  JW $e   FV   9W    >W   NW   3W ,W ,W ,W ,W               HW             2W ;V  NW         IY@X >X "
+"4[AV       IX                &X@X 9^ Bx Mx F^E^ =X C~Q)X?X?X&^E^   B`   4V   4`   IX  KS 3\\GW  \"W4W KV .YBT ?XGX .V7V,P=W       :W8W  /VEV   3V +V /V "
+"  7eGU     KU 3WCW   ;U-V$U-V LV5V NX +^ 3^ 3^ 3^ 3^ 3^ 1~W6_D^&x Mx Mx Mx MX -X -X -X ,{\"_7X N^E^ L^E^ L^E^ L^E^ L^E^  !^Ed*X/X'X/X'X/X'X/X+Y4Y X +Y?"
+"X ;V *V 4UDU >TEZ <XHX 9a     7V *V 4UDV =XGX EV *V 4VEV =XGX )] 7TEZ 6V *V 3UDU >TEZ <XHX     =V *V 2UDU <XHX 6V :W &XHX     9k @k @k @k @k EWJV K~W "
+"      >T   5Y 5g MhHi G[         M~Q                L\\AW   MX 2VFV $VCV DS :WEW:V%ZAU HV $V -V 3RCTCR         HW 4ZDZ H\\LX ?Y?[ HV>\\ 8_ DX )[?T -Y J[B"
+"[ I[CZ          0WAZ 2x ^ BX>^ G]=Z&X=b#X -X '];[)X/X'X -X -X:[ NX -_4_0_7X \\?\\%X@^ E\\?\\%X?] J[=X =X <X/X+X,X)X8]8X=Y9Y%Y6Y )Y$W 2W  KW %ZMZ   FV   :W"
+"    >W   X   3W     4W ,W               HW             3X ;V  NX         KY?X Ca 9Y:R       HX                (X>X :VNV BZ /X '\\?\\ A^ FX0X)X?X?X'\\?\\  "
+" Db   5V   5b   JX  KS 3ZBT  !W6W JV .X?R   4V4U HV       ;V4V  1VCV   4V *U 0V   7fGU     KU 4WAW   <U.V#U.V JU6V MX +^ 3^ 3^ 3^ 3^ 3^ 2XIX F]=Z&X -X"
+" -X -X -X -X -X -X ,X=b$_7X \\?\\ N\\?\\ N\\?\\ N\\?\\ N\\?\\  #\\?`)X/X'X/X'X/X'X/X*Y6Y NX ,Y=W :V ,V 3UDU >TDX   ;a     6V ,V 4UBU   GV ,V 3UCU   0` 6TDX 4V ,V"
+" 2UDU >TDX       >V ,V 1UDU   :V 9W       (o Do Do Do Do GWIU J~V       >T   6Z 6i jIj I\\         N~R                M[=U   MX 2VFV %VBV H] AWCW;V%Y=R"
+" HV %W -V 4UETEU         IV 4ZBZ IWGX ?V;[ IS9Z 9VNX DX *Z;R -X JZ>Y JZ?Y          1U>Z 5`C_#` CX;[ H[7W&X9_$X -X (\\6X)X/X'X -X -X;[ MX -_4_0`8X![;[&X"
+"=[ F[;[&X<[ LZ8U =X <X/X+X,X)X8]8X<X9X#X6X )Z$W 1V  KW &ZKZ   FV   ;W    >W   W   2W     4W ,W               HW             3W :V  MW         KX=W Cc "
+";X7P       HX                (W<W ;WNW BY /X ([;[ Gg JX0X)X?X?X([;[   Fd   6V   6d   KX  KS 4Y>R  !X8X JV /X<P   6V1U IV       <U0U  2UAU   3U *U 1V  "
+" 6fGU     KU 4V?V   <U/V\"U/V IU7V LX ,` 5` 5` 5` 5` 5` 3XIX G[7W&X -X -X -X -X -X -X -X ,X9_%`8X![;[![;[![;[![;[![;[  %[;](X/X'X/X'X/X'X/X)X6X MX ,X;W"
+" :V .V 3UBU ?TBT   7]     3V .V 4VAU   GV .V 3UAU   4d 7TBT 1V .V 2UBU ?TBT       ;V .V 1UBU   <V 8W       )r Gr Gr Gr Gr IVHR GX+W       =S   5[ 7i!k"
+"Jk I]        !^                )Y:T   MX 2VFV %VBV Le EVAV<V$X:P HV %W -W 6WFTFV         IV 4X?Y IRBX ?T7Y IP5Z :VNX DX +Z8P .Y JY<Y KY=X          1S;"
+"Y 6];\\$WNW CX9Z J[4U&X6]%X -X )[2V)X/X'X -X -X<[ LX -XNV6VNX0`8X\"Z7Z'X;Z HZ7Z'X;Z LY4R =X <X/X*X.X(X8]8X<Y;Y#Y8Y *Z#W 1V  KW 'ZIZ   FV   <W    >W   W "
+"  2W     4W ,W               HW             3W :V  MW         KW<X Dd <W       -W                )W;X <WNW AY 0X )Z7Z Jl MX0X)X?X?X)Z7Z   Hf   7V   7f"
+"   LX  KS 4X;P   W8W IV /W   \"V.U JV       >U.U  4VAV &V 5U *U 2V   6gGU     KU 5W?W   =U/V\"U/V IU7V LX ,WNW 5WNW 5WNW 5WNW 5WNW 5WNW 4XHX H[4U&X -X -"
+"X -X -X -X -X -X ,X6]&`8X\"Z7Z#Z7Z#Z7Z#Z7Z#Z7Z  'Z8['X/X'X/X'X/X'X/X)Y8Y MX ,W:W 9V 0V 3U@U     ?[     1V 0V 3U@V   GV 0V 3U?U   8h   1V 0V 2U@U       "
+"  CV 0V 1U@U   >V 7W       *`L` I`L` I`L` I`L` I`L` JV =X,X       >T   6] 9k\"lKl K_        #\\                'Y8S   MX 2VFV %VBV Nk IVAV=V$X 1V %V +V "
+"6YHTHY -V       EW 5Y>Y :X ?R5Z .Y ;VMX DX +Y  DX IY<Y LY;X          2Q8Y 8[5[&WNW CX8Y KZ1T&X4\\&X -X *Z.T)X/X'X -X -X=[ KX -XNV6VNX0a9X#Z5Z(X:Y IZ5Z("
+"X:Z NY1P =X <X/X*X.X'W9WNV:X:Y=Y!Y:Y *Z\"W 1W  LW (ZGZ      -W    >W   W   2W     4W ,W               HW             3W :V  MW         KW;W De =W      "
+" -X                *W:W <VLV @Y 1X *Z5Z Mp X0X)X?X?X*Z5Z   Jh   8V   8h   MX  KS 5Y   :X:X IV /W   #U+T JV       ?U+T  5U?U &V 5U +V     AgGU     KU 5"
+"V=V   =U0V!U0V IV8V KX ,WNW 5WNW 5WNW 5WNW 5WNW 5WNW 4XHX IZ1T&X -X -X -X -X -X -X -X ,X4\\'a9X#Z5Z%Z5Z%Z5Z%Z5Z%Z5Z  )Z5Z(X/X'X/X'X/X'X/X(Y:Y LX -X:W  "
+"        !W                    2\\LZ                          EW       +[@[ K[@[ K[@[ K[@[ K[@[ KV <X-X     /P 0T   7^ 9k\"lLm La        %Z              "
+"  %Z6Q   MX 2VFV %VCV n KWAW>V$X 1V &W +W 5XITIX +V       EV 4X<X :X ?P2Y -X <WMX DX ,Y  CX JY:Y MX9W          2P7Y :Z0Z(WLW DX7X KY.R&X2Z&X -X *Y+R)X"
+"/X'X -X -X>[ JX -XNW8WNX0a9X#Y3Y(X9Y JY3Y(X9Y NX  LX <X/X*X.X'X:VMV:X9X=X NX:X *Z!W 0V  LW )ZEZ      .W    >W   W   2W     4W ,W               HW     "
+"        3W :V  MW         LX;W Df >W       ,W                +W8W >WLW @Y 2X +Z3Z!t\"X0X)X?X?X*Y3Y   Kj   9V   9j     AS 5X   8W:W HV /W   #T)T KV     "
+"  @T(T  6U?U &V 5T +V     AhGU     KU 5V=V   =U0V!U0V JV7V   WLW 7WLW 7WLW 7WLW 7WLW 7XNX 6XGX IY.R&X -X -X -X -X -X -X -X ,X2Z'a9X#Y3Y%Y3Y%Y3Y%Y3Y%Y3"
+"Y  )Y3Z)X/X'X/X'X/X'X/X'X:X Ki >W8V                               *XHZ                          FW       ,Z<Z MZ<Z MZ<Z MZ<Z MZ<Z LV <X.X     .R 2S   "
+"7` :k#nMm Mb        &Z                $Y4P   MX 2VFV &VBV!o KV?V?V#W 0V &V )V 3XKTKX )V       EV 5X:X ;X  X -Y =VLX DX -Y  CY JY:Y NY9X           HX ;"
+"Z-Y)WLW DX7Y MY,Q&X1Z'X -X +Y)Q)X/X'X -X -X?[ IX -XMV8VMX0XNX:X$Y1Y)X9Y KY1Y)X8X NX  LX <X/X)X0X&X:VMV:X9Y?Y NY<Y *Y W 0V  LW *ZCZ      /W    >W   W  "
+" 2W     4W ,W               HW             3W :V  MW         LW:W Dg ?W       ,X                ,W8W >WLW ?Y 3X +Y1Y\"v#X0X)X?X?X+Y1Y   MYNVNY   :V   :"
+"YNVNY     BS 5X   8X<X HV /W   $T?ZBT*c       AT&T  7U?U &V 6U -W     @hGU     KU 6V;V   >U1V U1V KW7V   NWLW 7WLW 7WLW 7WLW 7WLW 7WLW 6XGX JY,Q&X -X "
+"-X -X -X -X -X -X ,X1Z(XNX:X$Y1Y'Y1Y'Y1Y'Y1Y'Y1Y P)P$Y3[)X/X'X/X'X/X'X/X'Y<Y Km BW8W                               +UDZ               7P          1W  "
+"     -Y8Y Y8Y Y8Y Y8Y Y8Y MV ;W.X     /T 4T   7a ;k#nMn Nc 6P :W4W ?Z ?X6X KY                #Y   0X 2VFV &VBV\"p KV?V?V#W 0V 'W )W 2XMTMX 'V       FW "
+"5X:X ;X  Y -X >VKX DX -X  BX IX8X NX7W      KP  1P  =X <Y)X+XLX EX6X NY*P&X0Z(X -X ,Y'P)X/X'X -X -X@Z GX -XMV8VMX0XNX:X%Y/Y*X8X LY/Y*X8Y!X  KX <X/X)X0"
+"X&X:VMV:X8YAY LY>Y *Z W 0W  MW +ZAZ      0W    >W   W   2W     4W ,W               HW             3W :V  MW         LW:W DSF[ @X       -X             "
+"   -X8W ?WJW ?Y 4X ,Y/Y%z%X0X)X?X?X,Y/Y   YMVMY   ;V   ;YMVMY     CS 5X 5P*Q JW<W GV /W   %TBbET/g       BTGb?T  8U?U &V 7U 5_     ?hGU     KU 6V;V   "
+">U2V NU2V$_7V   NXLX 9XLX 9XLX 9XLX 9XLX 8WLW 6XGX KY*P&X -X -X -X -X -X -X -X ,X0Z)XNX:X%Y/Y)Y/Y)Y/Y)Y/Y)Y/Y\"R+R&Y3]*X/X'X/X'X/X'X/X&Y>Y Jp EW:Y     "
+"                          +R@Y               7Q          2W       .XEVFY\"X5Y\"X5Y\"X5Y\"X5Y NV ;X/X     0V 5T   8c <k#nNo e >^ AW4W ?Z >W6W KY           "
+"     \"Y   0X 2VFV &VCW#[LSKZ KV?V@V\"W 0V 'W )W 1XNTNX &V       FW 6Y:Y <X  NX -X ?WKX DX .Y  CY IX8X NX7W      NS  1S  @X =X&X,WJW EX6X NY /X/Y(X -X ,"
+"Y /X/X'X -X -XAZ FX -XMW:WMX0XMX;X%Y/Y*X8Y MY/Y*X8Y!X  KX <X/X)Y1X%W;WMW;W6XAX JX>X *Z NW 0W  MW ,Z?Z      1W    >W   W   2W     4W ,W               H"
+"W             3W :V  MW         LW:W DPAY ?Y       .W                -W6W @WJW >Y 5X ,X-X&_MXM_&X0X)X?X?X,Y/Y  !YLVLY   <V   <YLVLY     DS 6Y 6R,R JX>"
+"W FV /X   'TCfFT2i       CUGfBT  9U?U &V 7U 5]     >iGU     KU 6V;V   >U2V NU2V$]5V   NWJW 9WJW 9WJW 9WJW 9WJW 9WJW 8XFX KY /X -X -X -X -X -X -X -X ,X"
+"/Y)XMX;X%Y/Y)Y/Y)Y/Y)Y/Y)Y/Y#T-T'Y3]*X/X'X/X'X/X'X/X%X>X Ir GW=\\                                GY               9S          3W       /XDVDX$X2X$X2X$X"
+"2X$X2X V ;X0X     0X 7T   8d <k#~`!g Bd DW4W ?[ ?X7W LY                !X   /X 2VFV &VCV#ZJSGV KV?VAV!W 0V 'V 'V /d $V       FV 5X8X <X  NX -X ?VJX DX"
+" .X  BX HX8X Y7X     #V  1V  CX >X$X-WJW EX6X Y .X.Y)X -X -Y .X/X'X -X -XBZ EX -XLV:VLX0XMX;X&Y-Y+X7X NY-Y+X7X!X  KX <X/X(X2X$X<VKV<X6YCY JY@Y +Z MW /"
+"V  MW -Y;Y    \"Z ;WDX 0Z 2XDW >Z <W !X :WDY     IW ,W  HX8X MY 3Z *X 3X &X 7] <W             3W :V  MW       ;X :W:W 4Y @[ )\\ (Y   6X     8QEV     :[ "
+"    JW6W @VIW =Y 6X -Y-Y(]JXJ]'X0X)X?X?X-Y-Y  #YKVKY   =V   =YKVKY     IZ 9X 6T.T JW>W FV .X   (TDgFT3j       CTFhDT  9U?U &V 8U 4\\     =iGU     KU 6V"
+";V   >U3V MU3V#\\5V   MWJW 9WJW 9WJW 9WJW 9WJW 9WJW 8XFX LY .X -X -X -X -X -X -X -X ,X.Y*XMX;X&Y-Y+Y-Y+Y-Y+Y-Y+Y-Y%V/V)Y3_+X/X'X/X'X/X'X/X%Y@Y Is HW?^ "
+"?Z /Z /Z /Z /Z /Z /Z6Y NZ 0Z /Z /Z /Z         8Y 1Y 3Z /Z /Z /Z /Z   3ZCV          5WDX       DXCVCW%X0W%X0W%X0W%X0W V :X1X     0X 7T   9f =k#~`\"h Cf "
+"EW4W @\\ ?X8X LX                !Y   /X 2VFV 'VBV#XHSET KV?VAV!W 0V (W 'W .` \"V       GW 5X8X <X  NX -X @VIX DX .X  BX HX8X X5W     &Y  1Y  FX >W\"W.XJX"
+" FX6X X -X.Y)X -X -X -X/X'X -X -XCZ DX -XLV:VLX0XLX<X&X+X+X7X NX+X+X7X!X  KX <X/X(X2X$X<VKV<X5YEY HYBY +Z LW /W  NW .Y9Y    'b ?WG^ 7b 9^GW A` Gl 2_GW"
+" MWG_ DW ,W ,W8Y MW ,WG^>^4WG_ 9` @WG^ 9^GW MWG\\ ;f Gm <W6W#X2X#W;X;W5Y7Y#W1X\"u 6W :V  MW       >^BV\"W:W 3X ?^ 0e AWG_ KV.X ?X <W6W   HTG[ K}!WCWCW Ca"
+" 7p&{ NW6W AWHW >Z 7X -X+X)\\HXH\\(X0X)X?X?X-X+X  $YJVJY   >V   >YJVJY     Ma =X 7V0V JW@W EV .Y   *TEiET5k       DTEiDT  :VAV &V 9U 3_   ;W6W NiGU     "
+"KU 6V;V   >U3V MU3V#_8V   NXJX ;XJX ;XJX ;XJX ;XJX ;XJX :XEX LX -X -X -X -X -X -X -X -X ,X.Y*XLX<X&X+X+X+X+X+X+X+X+X+X&X1X*X3`+X/X'X/X'X/X'X/X$YBY Ht "
+"IW@_ Cb 7b 7b 7b 7b 7b 7b>a'b 7` 5` 5` 5` AW ,W ,W ,W  DY EWG_ 9` 5` 5` 5` 5` (Z <`GV W6W MW6W MW6W MW6W#W1X NWG^ HW1X     NWBVBW&W.W&WJP:PJW&W4PJW&W."
+"W!V :X2X     0X 6S   8g >k#~`#j Fj GW4W @\\ >W8W LX                 X   .X 2VFV 'VBV$XGSCR KV?VBV X 1V (W 'W ,\\  V       GW 5X8X <X  NX -X AWIX DX /X  "
+"BY HX8X X5W     ([  1[  HX ?W W/WHW FX6X!Y -X-Y*X -X .Y -X/X'X -X -XDZ CX -XLW<WLX0XKW<X'Y+X+X7X Y+X+X7X!X  KX <X/X'X4X#X<VKV<X4XFY FXBX *Y KW /W  NW "
+"/Y7Y    +g AWIb ;f =bIW De Il 3bIW MWIc FW ,W ,W9Y LW ,WIbBb6WIc >f CWIb =bIW MWI^ =j Im <W6W\"W2W\"W<Z<W4X7X!W2W!u 6W :V  MW       @bEW\"W:W 2X @c 8j CW"
+"Ic MX0W =W <W6W IW/W\"VI^ L}!WCWCW Ee =t&{ W4W BWHW =Y 7X .X*Y*ZFXFZ(X0X)X?X?X.Y+X  #WIVIW   =V   =WIVIW     f ?X 8X2X KW@W EV .Z   +SE[GVDS6ZDV       "
+"DSDVDXDS  9UAU %V :U 2`   <W6W NiGU     KU 6V;V   >U4V LU4V\"`:V GX /WHW ;WHW ;WHW ;WHW ;WHW ;WHW :XEX MY -X -X -X -X -X -X -X -X ,X-Y+XKW<X'Y+X,Y+X,Y+"
+"X,Y+X,Y+X'Z3Z,Y4WNY,X/X'X/X'X/X'X/X#XBX Gu JWB\\ Ag <g <g <g <g <g <gBe+f <e :e :e :e CW ,W ,W ,W  Mc FWIc >f ;f ;f ;f ;f +Z >eJU NW6W MW6W MW6W MW6W\"W"
+"2W MWIb IW2W     NWAVAW(W,W(WJR<RJW(W4RJW(W,W\"V 9W2X     1X 6T   9i ?k#~`#k Hl HW4W @] ?X9W LW                 NX   .X 2VFV 'VCW$WFSAP KV?VBV NW 1V (V"
+" &W *X  MV       GV 5X6X =X  NX -X AVHX DX /X  BX GX8X X5X     ,^  1^  LX ?W MW0WHW FX6X!X ,X-Y*X -X .X ,X/X'X -X -XEZ BX -XKV<VKX0XKX=X'Y+Y,X7X Y+Y,X"
+"7X!X  KX <X/X'X4X\"W=WKV<W3YGY FYDY +Z KW .V  NW 0Y5Y    /l CWJe ?j AeJW Eh Kl 5eJW MWJe GW ,W ,W:Y KW ,WJdDd7WJe @h DWJe AeJW MWJ_ ?l Im <W6W\"W2W!W=Z="
+"W2X9X W2W!u 6W :V  MW       BeFV!W;X 1W ?f =k CWJe NY2X =X =W6W JW-W$WI` N}!WCWCW Gi Av&{ W4W BVGW <Y 8X .X)X+ZEXEZ)X0X)X?X?X.Y+Y  #UHVHU   <V   <UHVH"
+"U    !j AX 9Z4Z KWBW DV -Z   -TFY@RDT8XAV       ETDVBWET  :VCV %V ;V )X   =W6W NiGU     KU 6V;V   >U5V KU5V GX<V FX /WHW ;WHW ;WHW ;WHW ;WHW ;WHW :WDX"
+" MX ,X -X -X -X -X -X -X -X ,X-Y+XKX=X'Y+Y-Y+Y-Y+Y-Y+Y-Y+Y'Z5Z+Y5WMY,X/X'X/X'X/X'X/X#YDY GX@^ KWCZ Al Al Al Al Al Al AlFh.j ?h =h =h =h EW ,W ,W ,W !g"
+" GWJe @h =h =h =h =h ,Z @hLV NW6W MW6W MW6W MW6W\"W2W MWJe KW2W     W@VAW)W+W)WJT>TKW)W4TKW)W+W\"V 9X3X     2X 5T   :k ?i\"~`$m Jn IW4W A^ ?X:X MW       "
+"          NY   .X 2VFV 7~X2XFS <V?VCV MX 2V )W %W +X  MV       GV 5X6X =X  NX -X BVGX DX /X  BX GX8X X5X LX -X  7a  1a  X @W KW2XHX GX6X!X ,X,X*X -X ."
+"X ,X/X'X -X -XFZ AX -XKV<VKX0XJW=X'X)X,X7X X)X,X7X!X  KX <X/X'X4X\"X>VIV>X2YIY DYFY +Z JW .V  NW 1Y3Y    1n DWLh Bm ChLW Gk Ll 6hLW MWKg HW ,W ,W;Y JW "
+",WKfGg8WKg Cl FWLh ChLW MWK` @m Im <W6W\"X4X!W=Z=W1X;X NW3X!u 6W :V  MW       CgGV!W;W 0X ?g Am CWKg [4X >Y =W6W JW-W&YJb }!WCWCW Hk Dx&{ W4W CWFW <Y 9"
+"X /Y)X,ZDXDZ*X0X)X?X?X.X)X P #SGVGS %P 7V 9P0P CSGVGS    !l BX 8ZGWFZ JWCX DV ,Z   .SEW<PCS8V?V .P>P     JSCVAVDS  :WEV $V <V &W   >W6W NiGU     KU 6V"
+";V BP>P /U5V KU5V EW=V FX 0XHX =XHX =XHX =XHX =XHX =XHX <XDX MX ,X -X -X -X -X -X -X -X ,X,X+XJW=X'X)X-X)X-X)X-X)X-X)X&Z7Z*X5WKX,X/X'X/X'X/X'X/X\"YFY F"
+"X=[ KWDY @n Cn Cn Cn Cn Cn CnHj1m Bk @k @k @k FW ,W ,W ,W $j GWKg Cl Al Al Al Al .Z Bs MW6W MW6W MW6W MW6W\"W3X MWLh LW3X     V?V@W*V)W*VJV@VKW*V4VKW*V"
+")W#V 9X4X     2X 4S   :l ?i\"~`%o Lp JW4W A^ >W:X MW                 NX   -X 2VFV 7~X2WES <V?VDV LX 2V )W %W -\\  V       HW 5X6X =X  NX .X BWGX DX 0X  "
+"BY FX:X NX5X LX -X  :d  1d $Y @V IV2WFW GX6X\"Y ,X,Y+X -X /Y ,X/X'X -X -XH[ @X -XKW>WKX0XJX>X(Y)X,X7X!Y)X,X7X!Y  LX <X/X&X6X!X>VIV>X1YKY BXFX +Z IW .W "
+" W 2Y1Y    2o EWMj Dn DjMW Hn Nl 7jMW MWLi IW ,W ,W<Y IW ,WLhIi9WLi En GWMj EjMW MWLa An Im <W6W!W4W W=Z=W1Y=Y MW4W u 6W :V  MW       DiIV W;W /W =g C"
+"m CWLi![4W =Y =W6W KW+W(ZKd!}!WCWCW Im Fy&{ W4W CWFW ;Y :X /X'X-YCXCY*X0X)X?X?X/Y)X!R #QFVFQ $R 9V :R1R DQFVFQ    \"n BX 7ZJ\\JZ HWDW CV +[   1TFW.T:W?V"
+" /Q?Q     KTCVAWET  :XIX $V =V #U   >W6W NiGU     KU 6V;V BQ?Q 0U6V JU6V BU>V EX 0WFW =WFW =WFW =WFW =WFW =WFW <XDX NY ,X -X -X -X -X -X -X -X ,X,Y,XJ"
+"X>X(Y)X.Y)X.Y)X.Y)X.Y)X%Z9Z*Y6WJX,X/X'X/X'X/X'X/X!XFX EX;Z LWDX ?o Do Do Do Do Do DoKn4n Cn Cn Cn Cn HW ,W ,W ,W %l HWLi En Cn Cn Cn Cn /Z Cs LW6W MW6"
+"W MW6W MW6W!W4W LWMj LW4W     W?V?V+W(V+WKXBXKV+W5XKV+W(V$W 8W4X     2X 5T   ;n ?g!~_%p LZDZ JW4W A^ >W:W MW                 MX   -X 2VFV 7~X2WES <WAW"
+"DV KX 3V )W %W /` \"V       HV 4X6X =X  Y .X BVFX DX 0X  BX EX:X NX5X LX -X  <e  /e 'Y @V GV4XFX HX7X!X +X+X+X -X /X +X/X'X -X -XI[ ?X -XJV>VJX0XIW>X(X"
+"'X-X7X!X'X-X7X!Y  LX <X/X&X6X!X>VIV>X1YKY AXHX +Z HW -V  W 3Y/Y    3p FWMk Fo EkMW Io Nl 8kMW MWMk JW ,W ,W=Y HW ,WMjJj:WMk Gp HWMk GkMW MWMb Bo Im <W"
+"6W!W4W W>\\>W0X=X LW5X u 6W :V  MW       EkJV W<X /W >j Fn CWMk\"\\6X =Z >W6W KW+W)[Ke\"}!WCWCW Jo Hz&{ W4W DWDW ;Y ;X /X'X.YBXBY+X0X)X?X?X/X'X#T  HV  IT "
+":V ;T3T :V   CV +o BX 6ZM`MZ GXFX CV *\\   3SFW,S:V>V 0R@R     KSBV@VDS  9e #V ?W \"V   ?W6W NiGU     KU 6V;V BR@R 1U6V JU6V BV?V EX 1XFX ?XFX ?XFX ?XFX"
+" ?XFX ?XFW =XCX NX +X -X -X -X -X -X -X -X ,X+X,XIW>X(X'X/X'X/X'X/X'X/X'X%Z;Z)X5VHX-X/X'X/X'X/X'X/X XHX DX:Y LWEX >p Ep Ep Ep Ep Ep EpMp6o Do Do Do Do"
+" HW ,W ,W ,W 'o IWMk Gp Ep Ep Ep Ep 0Z Ds KW6W MW6W MW6W MW6W!W5X LWMk MW5X     V>V?W,V'W,VKZDYKW,V5YKW,V'W%W 8X5W     2X 4T   ;o @g ~^%q NY@Y KW4W B`"
+" ?X<X MV                 LX   -X 2VFV 7~X2WES ;VAVDV JY 4V )V $W 1d $V       HV 4X6X =X  X .Y CWFX DXLY =XEX 'Y EY<X MX5X LX -X  ?e  )e +Y ?V:X6V4WDW "
+"HX7X!X +X+X+X -X /X +X/X'X -X -XJ[ >X -XJW@WJX0XIX?X(X'X-X7X!X'X-X8Y Y  MX <X/X%W6X W?WIV>W/YMY @YJY +Y GW -V  W 4X+X    4YE\\ FWNXG\\ H]EX F\\GXNW J\\F[ "
+"GW ,\\GXNW MWNXG[ JW ,W ,W?Z GW ,WNXH[KXH[:WNXG[ H]H] IWNXG\\ I\\GXNW MWNXFQ C\\CW CW ,W6W!X6X NW?\\?W.X?X JW6W 1X 6W :V  MW     9X=X\"[IZKW W=Y /W @m H]DV "
+"CWNXG[\"\\6W =[ >W6W LW)W*ZJWKY\"}!WCWCW K\\H] J{&{ V3W DWDW :Y <X /X'X.XAXAX+X0X)X?X?X/X'X$V  IV  JV ;V <V5V ;V   CV ,^MSKW BX 5x EWFW BV ,_   5TFW,S:V?W"
+" 1SAS     LTBV@VDS  9d \"V @W  U   ?W6W NiGU     KU 5V=V ASAS 2U7V IU7V @U@V DX 1WDW ?WDW ?WDW ?WDW ?WDW ?XFX >XCX NX +X -X -X -X -X -X -X -X ,X+X,XIX?"
+"X(X'X/X'X/X'X/X'X/X'X$Z=Z(X6WHX-X/X'X/X'X/X'X/X YJY DX9Y MWEW =YE\\ EYE\\ EYE\\ EYE\\ EYE\\ EYE\\ EYE]N\\G[7]EX E\\F[ F\\F[ F\\F[ F\\F[ IW ,W ,W ,W (p IWNXG[ H]H"
+"] G]H] G]H] G]H] G]H] 1Z E]H^ JW6W MW6W MW6W MW6W W6W KWNXG\\ MW6W     NV>V>V,V&V,VJZFYIV,V6YIV,V&V%W 7W6X     3X LR:T   ;q @e N~^&s!Y>Y LW4W B` >W<X N"
+"W                $x   FX 2VFV 7~X2WES ;VAVEW IY 5V *W #W 4XNTNX &V       IW 5X5X =X  X .X CWEX Di AXH_ +X CX<X MX5X LX -X  Be  #e /Z @V<^IUDV5WDW HX8Y"
+"!X +X+X+X -X /X +X/X'X -X -XK[ =X -XIV@VIX0XHW?X(X'X-X7X!X'X-X8X NZ  NX <X/X%X8X NX@VGV@X.c >XJX +Z GW -W !W 5X)X    5U>Z G_CZ I[>T FZC_ KZAZ HW -ZB_ "
+"M^BZ KW ,W ,W@Z FW ,^CZMVCZ;^BZ IZBZ I_CZ IZC_ M^ 5Y<S CW ,W6W W6W MW?\\?W.YAY JW6W 2Y 6W :V  MW     ;\\A\\%YDYLV NW>Y .W AXJa IZ<Q C^BZ MX8X =\\ ?W6W LW)"
+"W+YIXJY LW=W JWCWCW LZBZ K]F] ;W >W2W EWDW 9Y =X /X'X/YAXAY,X0X)X?X?X/X'X%X  JV  KX <V =X7X <V   CV -\\JSHT BX 4v DXHX BV -b   7SEV*S;V?W 2TBT     LSAV"
+"@VCS  9b !V AV  MU   ?W6W MhGU     KU 5V=V ATBT 3U8V HU8V ?UAV CX 1WDW ?WDW ?WDW ?WDW ?WDW ?WDW ?XBX NX +X -X -X -X -X -X -X -X ,X+X,XHW?X(X'X/X'X/X'X"
+"/X'X/X'X#Z?Z'X7WGX-X/X'X/X'X/X'X/X NXJX CX9Y MWFW <U>Z FU>Z FU>Z FU>Z FU>Z FU>Z FU>eBZ9[>T FZAZ HZAZ HZAZ HZAZ JW ,W ,W ,W )r J^BZ IZBZ GZBZ GZBZ GZBZ"
+" GZBZ 1Z EZB[ JW6W MW6W MW6W MW6W W6W K_CZ MW6W     V=V>V-V%V-VHZHYHV-V6YHV-V%V%W 7X7X     4X NU:T   <s Ae N~^'u\"X<X LW4W BWNW >W<W MW                "
+"$w   EX   2~X2WES ;WCWEV GY   9W #W 5XMTMX 'V       IV 4X4X >X !Y 0Y BVDX Dk CXJc -X BX>X LX5Y MX -X  Ee   Le 3Z ?U=bKUCU6XDX IX9Y X +X+X+X -X /X +X/X"
+"'X -X -XL[ <X -XIV@VIX0XHX@X(X'X-X8Y!X'X-X8X N[  X <X/X%X8X NX@VGV@X.c =XLX +Z FW ,V !W       AR9Y H]?Y KZ:R GY?] LY=Y IW -Y?] M]@Y KW ,W ,WAY DW ,]@X"
+"NV@X;]@Y JY>Y J]?Y KY?] M] 4X8P CW ,W6W X8X MW?\\?W-XAX IW7X 3Y 5W :V  MW     =_C_(YBXLV NW?Z -W CXC\\ KY ,]@Y LW8X >] ?W6W LW)W,YHWHY MW=W JWCWCW MY>Y "
+"L[B[ ;W >W2W FWBW 9Y >X 0X%X0X@X@X,X0X)X?X?X/X'X&Y  JV  KY =V >Y7Y =V   CV .[HSFR BX 3t BWHW AV .WN\\   9SFV)S;V?W 3UCU     LSAV@VCS  7_  V BV  LU   ?W"
+"6W MhGU     KU 5W?W AUCU 4U8V HU8V ?UAV CX 2XDX AXDX AXDX AXDX AXDX AXDX @XBX NX +X -X -X -X -X -X -X -X ,X+X,XHX@X(X'X/X'X/X'X/X'X/X'X\"ZAZ&X8WFX-X/X'"
+"X/X'X/X'X/X MXLX BX8X MWFW <R9Y GR9Y GR9Y GR9Y GR9Y GR9Y GR9a>Y;Z:R GY=Y JY=Y JY=Y JY=Y KW ,W ,W ,W *]E[ J]@Y JY>Y IY>Y IY>Y IY>Y IY>Y 2Z FY>Y JW6W MW"
+"6W MW6W MW6W W7X K]?Y NW7X     V=V=U-V$U-VGZJYFU-V7YFU-V$U%W 7X8X    &~X/X:T   =t @c L~\\'v\"W:W LW4W CXNX ?X>X MV                $x   EX   2~X2WES :VDW"
+"EV FZ   :W #W 7XKTKX )V       IV 4X4X >X !X 0Y BWDX Dm FXKf /Y AYBY KX5Y MX -X  Gd ~X d 5Y ?V>dLUCU6WBW IX;Z Y +X+Y,X -X 0Y +X/X'X -X -XM[ ;X -XIWBWIX"
+"0XGW@X)Y'Y.X8X!Y'Y.X9Y M] #X <X/X$X:X MX@VGV@X-a <YNY ,Z EW ,V !W       AP6X H\\=Y LY7P HY=\\ LX;X IW .Y=\\ M[=X KW ,W ,WBY CW ,[=]=W;[=X KY<Y K\\=Y MY=\\ "
+"M\\ 4X *W ,W6W NW8X MW@VNV@W,XCX GW8W 3Y 4W :V  MW     >aEa)X@XNW NWA[ ,W DW?[ LX +[=X KW:X =] ?W6W MW'W-XGWGX MW=W JWCWCW MX<Y NZ>Z <W >W2W FWBW 9Z ?X"
+" 0X%X0X@X@X,X0X(X@X@X/Y'Y(Y  IV  JY >V ?Y5Y >V   CV .YFSDP BX 2q @XJX AV /WK[   :SFV)S;V@X 4VDV     LSAV@VCS  6\\  MV CV  KU   ?W6W MhGU     KU 4V?V @V"
+"DV 5U9V GU9V >UBV BX 2WBW AWBW AWBW AWBW AWBW AXDX @XBX Y +X -X -X -X -X -X -X -X ,X+Y-XGW@X)Y'Y1Y'Y1Y'Y1Y'Y1Y'Y\"ZCZ&Y9WEY.X/X'X/X'X/X'X/X MYNY BX8Y N"
+"WFW <P6X GP6X GP6X GP6X GP6X GP6X GP6_<X;Y7P GX;X JX;X JX;X JX;X KW ,W ,W ,W *Z?Y K[=X KY<Y KY<Y KY<Y KY<Y KY<Y 3Z GY<Y KW6W MW6W MW6W MW6W NW8W J\\=Y "
+"NW8W     NV=V=V.V$V.VFZLYEV.V8YEV.V$V&W 6W8X    &~X2\\<T   =v Ab K~\\(x$W8W MW4W CXNX ?X>X NW                $w   DX   $VBV#XFS :WFXEV H]   ;W #W 9XITIX"
+" +V       JW 4X4X >X \"Y 3[ BWCX Dn GXLi 1X ?ZFZ JY7Z MX -X  Je M~X Me 9Y >U?gMUCV7WBW IX>\\ NX *X*X,X -X 0X *X/X'X -X -XNZ 9X -XHVBVHX0XGXAX)X%X.X9Y!X%"
+"X.X:Y La 'X <X/X$X:X LWAWGV@W+_ :XNX ,Z DW ,W \"W       &W H[;X MY .X;[ MX9X JW .X;[ M[<X LW ,W ,WCY BW ,Z<\\<X<[<X LX:X K[;X MX;[ M[ 3W )W ,W6W NW8W KW"
+"AVNVAW*XEX FW9X 4Y 3W :V  MW     ?cGc+Y?WNV MWD] +W DV=Z LX +Z;X LW:X >_ @W6W MW'W.YGWFX NW=W JWCWCW NX:X NY<Y <W >W2W FWBW 8Z @X 0X%X0X@X@X,X0X(X@X@X"
+"/X%X)Y  HV  IY ?V @Y3Y ?V   CV /YES 6X 1\\H[ JcJc LV 0WI\\   =TFV)S;WAX 5WEW     MTAVAWCS  3W 4~W.W  KV   ?W6W LgGU     KU 4WAW @WEW 6U9V GU9V ?VBV BX 2"
+"WBW AWBW AWBW AWBW AWBW AWBW AXAX X *X -X -X -X -X -X -X -X ,X*X-XGXAX)X%X1X%X1X%X1X%X1X%X!ZEZ%X9WCX.X/X'X/X'X/X'X/X LXNX AX7X NWFW !W ,W ,W ,W ,W ,W "
+",]:X=Y .X9X LX9X LX9X LX9X LW ,W ,W ,W +Z=X K[<X LX:X KX:X KX:X KX:X KX:X 3Z GX<Z KW6W MW6W MW6W MW6W NW9X J[;X NW9X     NU<V=V.U#V.UDZNYDV.U8YDV.U#V&"
+"V 5X9W    %~X3]<T   >x A` J~\\(y%W8W MW4W CXMW >W>W MV                $x   DX   $VCV\"XFS 9XIXEV H_   <W #W ;YHTHY -V       JV 3X4X >X #Y ?g AVBX Do HXM"
+"k 3Y >l HX7Z MX -X  Me J~X Je =Y >V?hNUBU8XBX Ju MX *X*X,w Lq IX *~R'X -X -c 8X -XHVBVHX0XFWAX)X%X.X9Y!X%X.X;Z Ke ,X <X/X$X:X LXBVEVBX+_ 9` +Y CW +V \""
+"W       %W IZ9X NX .X9Z MW7W JW /X9Z MZ;X LW ,W ,WDY AW ,Z;[;W<Z;X MY:Y LZ9X X9Z MZ 2W )W ,W6W NX:X KWAVNVAW*YGY EW:W 4Z 3W :V  MW     ?XMYIe,X>WNV MW"
+"Ib +W EW;Y MW *Z;X KV:W =_ @W6W NW%W/XFWFX NW=W JWCWCW NW8X!Y:Y =W >| GW@W 8Y @X 0X%X1Y@X@Y-X0X(X@X@X/XImIX*Y  GV  HY @V AY1Y @V   CV /XDS 6X 0YDY JdL"
+"d LV 1WF[   >SFV'S<WBY 6XFX     MS@VAVAS    @~W/W  JU   >W6W LgGU     KU 3WCW ?XFX 7U:V FU:V >UBV AX 3XBX CXBX CXBX CXBX CXBX CXBX BXAw?X *w Lw Lw Lw "
+"LX -X -X -X ,X*X-XFWAX)X%X1X%X1X%X1X%X1X%X ZGZ$X:WBX.X/X'X/X'X/X'X/X K` @X7X NWFW  W ,W ,W ,W ,W ,W ,[8W=X -W7W LW7W LW7W LW7W LW ,W ,W ,W ,Y:X LZ;X M"
+"Y:Y MY:Y MY:Y MY:Y MY:Y  \"Y=\\ LW6W MW6W MW6W MW6W MW:W IZ9X NW:W     NV<V=V/V#V/VCcCV/V9YCV/V=X>V&V 4W:X    %~X2TNV<S   =y KWM^LW$~Z({&W7V MW4W CWLX ?"
+"X?W MV                 KX   ,X   %VBV!XGS 9gFV Ha   >W \"W ;WFTFW -V       JV 3X4X >X #Y ?f AWBX Dp IXNm 4X <j GX7Z MX -X !e G~X Ge AY =U?ZH^BU8W@W Jt "
+"LX *X*X,w Lq IX *~R'X -X -b 7X -XHWDWHX0XFXBX)X%X.X:Y X%X.X<Z Ih 0X <X/X#X<X KXBVEVBX*] 8` ,Z CW +V \"W       %W IZ9X X -X9Z NX7X KW /X9Z MY9W LW ,W ,W"
+"EY @W ,Y:Z:W<Y9W MX8X LZ9X X9Z MY 1W )W ,W6W MW:W JWAVNVAW)XGX DW:W 4Y 3X :V  MW     @VHXKWGV,W<^ MWIa *W FW9Y NW *Y9W KW<X >` @W6W NW%W/WEWEW NW=W JW"
+"CWCW X8X!X8X =W >| GW@W 7Y AX 0X%X1X?X?X-X0X(X@X@X/XImIX+Y  FV  GY AV BY/Y AV   DX 1XCS 6X 0W@X KdLd LV 1VCZ   ?SFV'S;WE[ 7XFX G~X  .S@VBWAS    @~W0W "
+".P>W   >W6W KfGU     KU 3XEX >XFX 8U;V:W3U;VCZ9P>WCV:W/Y 3W@W CW@W CW@W CW@W CW@W CXBX CX@w?X *w Lw Lw Lw LX -X -X -X 5p9X-XFXBX)X%X1X%X1X%X1X%X1X%X N"
+"ZIZ#X:VAX.X/X'X/X'X/X'X/X K` @X7X NWFW  W ,W ,W ,W ,W ,W ,[8X?X -X7X NX7X NX7X NX7X MW ,W ,W ,W ,X9X LY9W MX8X MX8X MX8X MX8X MX8X  \"X=] LW6W MW6W MW6"
+"W MW6W MW:W IZ9X NW:W     NVLuKU/VLuKU/VBaAU/V:YAU/V=X=U&V 4X;X    %~X2RLW>T   >{!z'~Z)}(W6W NW4W DXLX ?X@X MV                 KX   ,X   %VBV!YHS 8eEV"
+" Ic   ?W !W ;UETEU ,V       KW 3X4X >X $Y >c ?WAX DWD^ JbG] 5X 9d DY9[ MX -X #d D~X Dd DY <U@YD\\BU9X@X Kq IX *X*X,w Lq IX *~R'X -X -a 6X -XGVDVGX0XEWB"
+"X)X%X.X;Z X%X.X?\\ Gk 4X <X/X#X<X KXBVEVBX)[ 6^ ,Z BW +W #W       %W IY7W X -W7Y NW5W KW 0X7Y MY9W LW ,W ,WFY ?W ,Y:Z:W<Y9W MW6W LY7W W7Y MY 1W )W ,W6W"
+" MW:W JWBVLVBW(XIX CW;X 5Y 2X :V  MX     BUDVKVDU.X<] LWI_ :WEW FV7X NW *Y9W JV<X >a AW6W NW%W0XEWEX W=W JWCWCW W6W!X8X =W >| HX@X 7Y BX 0X%X1X?X?X-X0"
+"X(X@X@X/XImIX,Y  EV  FY BV CY-Y BV   DX 1XCS 6X 1W>W KeNe LV 1VB[   ASFV'S;YI] 9YGY F~X  .S@VDX@S    @~W1V ,TEZ   >W6W JeGU IX   +U 2YIY <YGY :U;V:W3U"
+";VGa<TEZCV:W/X 3X@X EX@X EX@X EX@X EX@X EX@X DX@w?X *w Lw Lw Lw LX -X -X -X 5p9X-XEWBX)X%X1X%X1X%X1X%X1X%X MZKZ\"X;WAX.X/X'X/X'X/X'X/X J^ ?X7X NWFX !W "
+",W ,W ,W ,W ,W ,Z6W?X -W5W NW5W NW5W NW5W MW ,W ,W ,W -X7W LY9W MW6W MW6W MW6W MW6W MW6W  \"W=^ LW6W MW6W MW6W MW6W MW;X IY7W NW;X     NVLuKU/VLuKU/VA_"
+"@U/V;Y@U/V=X=U&V 4X<X    $~X,W>T   ?|\"}(~X)~(W6W NW4W DXKW >W@X MV                 KX   ,X   %VBV!ZIS 7cEV IYNZ8W  0W !W :RCTCR +V       KW 3X4X >X %Y"
+" =b >V@X DS=\\ K`C[ 6Y 8b BX9[     Nd A~X Ad HY <VAX@ZBV:X?W Kq IX *X*X,w Lq IX *~R'X -X -a 6X -XGVDVGX0XEXCX)X%X.X=[ NX%X.u Fl 6X <X/X\"W<W IWCWEVBW([ "
+"5\\ ,Z AW +W #W       $V IY7X\"X -X7Y NW5W KW 0X7Y MX8X MW ,W ,WHZ >W ,X8X8W=X8X X6X MY7X\"X7Y MX 0W )W ,W6W MX<X IWCVLVCW&XKX AW<W 5Y 1W 9V  LW  4P  /TB"
+"VMVBT.X;\\ LWI` =\\HW GW7X NW *X8X KV=X >XMW AW6W NW%W0XEWDW W=W JWCWCW!X6X#X6X >W >| HW>W 6Y CX 0X%X1X?X?X-X0X'XAXAX.XImIX-Y  DV  EY CV DY+Y CV   DX 2X"
+"BS 6X 1V<V KeNe LV 2V?Y   ASFV'S:dNV :XFY E~X  .S@i?S    @~W2i >h   =W6W JeGU IX   4g :g :YFX DgEV:X<gEVHe>hCV:X/X 3X?W EX?W EX?W EX?W EX?W EX@X EX?w?"
+"X *w Lw Lw Lw LX -X -X -X 5p9X-XEXCX)X%X1X%X1X%X1X%X1X%X LZMZ!X<W@X.X/X'X/X'X/X'X/X I\\ >X7X NWFY !V +V +V +V +V +V +Y6W@X ,W5W NW5W NW5W NW5W MW ,W ,W"
+" ,W -X7X MX8X X6X X6X X6X X6X X6X  $X=_ MW6W MW6W MW6W MW6W LW<W HY7X NW<W     MVLuKU/VLuKU/V@]?U/V<Y?U/V=X=U&V 3W<X    $~X+V>S   >}%~R)~V(~P)W6W NW4W"
+" DWJX ?XAW L~^               $X   ,X   %VCV N\\LS 6aDVAW0XLZ9W  0W !W :PATAP +V       KV 2X4X >X &Z =e BW@X DP8[ L^?Z 7X :h EY;\\    \"d >~X ?e LY ;U@W>Y"
+"AU:W>W Ks KX *X*X,w Lq IX6f+~R'X -X -b 7X -XGWFWGX0XDWCX)X%X.X@^ NX%X.s Bl 8X <X/X\"X>X IXDVCVDX)[ 4\\ -Z @W *V #W       $W JX5W\"X -W5X W4W KW 0W5X MX7W"
+" MW ,W ,WIZ =W ,X8X8W=X7W W4W MX5W\"W5X MX 0X *W ,W6W LW<W HWCVLVCW&YMY AW=X 6Y 1X 9V  LX 1X.Q  /TA]AU/W:\\ LWIb A`JW GV5X NW +X7W KW>X >XMX BW6W W#W1WD"
+"WDW W=W JWCWCW!W4W#X6X >W >| HW>W 7Y BX 0X%X1X?X?X-X0X'XAXAX.XImIX.Y  CV  DY DV EY)Y DV   DX 2XBS 6X 2W<W =^ =V 2V>Y   BSFV'S9bMV ;XFY D~X  .S@h>S    "
+"@~W2i >g   <W6W HcGU IX   4g 9e 8YFX EgEV;Y<gEVHf?gBV;Y0Y 3W>W EW>W EW>W EW>W EW>W EW>W EX?w?X *w Lw Lw Lw LX -X -X -X 5p9X-XDWCX)X%X1X%X1X%X1X%X1X%X "
+"Ke X=W?X.X/X'X/X'X/X'X/X I\\ >X7X NWEY \"W ,W ,W ,W ,W ,W ,X5W@X -W4W W4W W4W W4W MW ,W ,W ,W -W6X MX7W W4W W4W W4W W4W W4W  $W=VMW MW6W MW6W MW6W MW6W "
+"LW=X HX5W NW=X     MVLuKU/VLuKU/V?[>U/V=Y>U/V=X=U&V 3X=W     7X FW@T   ?~&~T*~V)~R*W5V NW4W EXJX ?XBX L~^               $X   ,X   &VBV Mb 4]CVC]4XJZ:W"
+"  0W !W +T  KV       KV 2X4X >X 'Z <g EW?X +Z L]=Z 9Y <l GZ=]    %e    e!Y :UAW<XAU;X>X Lu MX *X*X,w Lq IX6f+~R'X -X -c 8X -XFVFVFX0XDXDX)X%X.u MX%X.r"
+" ?l :X <X/X\"X>X IXDVCVDX)\\ 4Z ,Y ?W *V #W       $W JX5W\"W ,W5X W3W LW 0W5X MX7W MW ,W ,WJY ;W ,X8X8W=X7W W4W MX5W\"W5X MX 0X *W ,W6W LW<W HWCVKUCW%XMX "
+"?W>W 6Y 0X 9V  LX 5`3R  0T?[?T/W:[ KWId DbKW HW5X NW +X7W JV>W =WLX BW6W W#W1WDWDW W=W JWCWCW!W4W#W4W >W >| IX>X 9Y AX 0X%X1X?X?X-X0X'XAXAX.XImIX/Y  B"
+"V  CY EV FY'Y EV   DX 2WAS ?r CV:V =^ =V 2V=Y   CSFV'S8`LV <XFX B~X  .S@e;S    @~W2i >e   :W6W GbGU IX   4g 8c 5XFX FgFV:Y<gFVGg@eAV:Y1Y 3X>X GX>X GX>"
+"X GX>X GX>X GX>X FX?w?X *w Lw Lw Lw LX -X -X -X 5p9X-XDXDX)X%X1X%X1X%X1X%X1X%X Jc NX>W>X.X/X'X/X'X/X'X/X HZ =X7X NWEZ #W ,W ,W ,W ,W ,W ,X4WAW ,W3W!W3"
+"W!W3W!W3W NW ,W ,W ,W .X5W MX7W W4W W4W W4W W4W W4W  $W>VLW MW6W MW6W MW6W MW6W KW>W GX5W MW>W     LVLuKU/VLuKU/V>Z>U/V>Y=U/V=X=U&V 2W>X     8Y FW@T  "
+" ?~P(~V*~T(~Q)V4V NW4W EXJX >WBX L~^               $X   ,X   &VBV Ld 4WAVD`6XHZ;W  0W !W +T  KV       LW 2X4X >X 'Y ;i GV>X *Z M\\;Y 9X =p HZ?^    'd  "
+"  Id$Y 9UAW<XAU;W<W Lw X *X*X,w Lq IX6f+~R'X -X -d 9X -XFVFVFX0XCWDX)X%X.t LX%X.p ;k ;X <X/X!X@X HXDVCVDX*^ 4X ,Z ?W *W $W       $W JX5W\"W ,W5X W3W LW"
+" 0W5X MW6W MW ,W ,WKY :W ,W7W7W=W6W W4W MX5W\"W5X MX /Y ,W ,W6W LX>X GWEVJVEW#a >W>W 7Y 1Y 8V  KY 9e8T  0T?Z>T0X:[ KWIf GdLW HW4W MW ,W6W JV?X >XKW BW6"
+"W W#W2XDWDX!W=W JWCWCW!W4W#W4W >W >| IW<W :Y @X 0X%X1X?X?X-X0X&XBXBX-XImIX0Y  AV  BY FV GY%Y FV   DX 2WAS ?r DW:W =\\ <V 2V;W   CSFV'S7]JV =XFX A~X  .S"
+"@d:S    (V Ii <a   8W6W FaGU IX   4g 6_ 2XFX GgGV:Z<gGVFUFY?a@V:Z2Y 2W<W GW<W GW<W GW<W GW<W GX>X GX>w?X *w Lw Lw Lw LX -X -X -X 5p9X-XCWDX)X%X1X%X1X%",
+// Start of second string.
+"X1X%X1X%X Ia MX?W=X.X/X'X/X'X/X'X/X GX <X7X NWDZ $W ,W ,W ,W ,W ,W ,X4WAW ,W3W!W3W!W3W!W3W NW ,W ,W ,W .W4W MW6W W4W W4W W4W W4W W4W  $W?VKW MW6W MW6W"
+" MW6W MW6W KW>W GX5W MW>W     LVLuKU/VLuKU/V?\\?U/V?Y<U/V=X=U&V 2W>X     8X DWBT   ?~Q)~W)~R&~(V4V NW4W EWHW >WBW K~^               $X   ,X   &VBV Kg \""
+"VEc8WFZ=W  /W !W +T 4~W      5V 1X4X >X (Y -] IW>X )Y M[9X 9X >\\F\\ H[C`    'a    Ca$Y 9UAV:WAU;W<W LX<\\!X *X*X,X -X 0X6f+X/X'X -X -XN[ :X -XEVHVEX0XCX"
+"EX)X%X.s KX%X.o 6h <X <X/X!X@X GWDVCVDW*_ 4X -Z >W )V $W       6i JX5X$X -X5X V2W LW 1W3W MW6W MW ,W ,WLY 9W ,W7W7W=W6W!X4X NX5X$X5X MW .[ .W ,W6W KW>"
+"W FWEVJVEW#a >W?X 8Z 4\\ 8V  K[ =i<V  0S=Y=S0X:[ KW@^ IfMW HW4W MY .W6W JW@W =XKX CW6W W#W2WCWCW!W=W JWCWCW\"X4X%X4X ?W >W2W IW<W :Y @X 0X%X1X?X?X-X0X&X"
+"BXBX-X%X1~` GV H~` GV H~` GV   DX 3XAS ?r DV8V =\\ <V 2V;X   DSFV'S4W /XFX @~X  .S@VIX;S    (V Ii 8Z   5W6W D_GU IX   4g 3Y .XFX HgGV;TNU<gGVFQ@W;Z=V;T"
+"NU3Y 1W<W GW<W GW<W GW<W GW<W GW<W GX>X X *X -X -X -X -X -X -X -X ,X*X-XCXEX)X%X1X%X1X%X1X%X1X%X H_ LX@W<X.X/X'X/X'X/X'X/X GX <X7X NWD\\ 8i >i >i >i >i"
+" >i >i3WBX ,V2W!V2W!V2W!V2W NW ,W ,W ,W .W4W MW6W!X4X\"X4X\"X4X\"X4X\"X4X M~Y2X@VIW NW6W MW6W MW6W MW6W KW?X GX5X NW?X     LVLuKU/VLuKU/V@^@U/V@Y;U/V=X=U&"
+"V 2X?W     8X CWBT   ?~R*~X)~Q%}(V4W W4W FXHX ?XDX K~^               $X   ,X   'WCV Ii &VEe:XEZ>W  /W !W +T 4~W      5V 1X4X >X )Y )[ KW=X (Y N[9Y ;Y "
+"?Z@Z I]Gb    '^    =^$X 9U@V:WAU<X<X MX9Z\"X *X*X,X -X 0X6f+X/X'X -X -XM[ ;X -XEVHVEX0XBWEX)X%X.r JX%X.q 4e =X <X/X!X@X GXFVAVFX*` 5X .Z =W )V $W      "
+" :m JW3W$W ,W3W!W2W LW 1W3W MW6W MW ,W ,WMY 8W ,W7W7W=W6W!W2W NW3W$W3W MW -^ 2W ,W6W KX@X FWEVJVEW\"_ <W@W 7Y :b 7V  Jb FmAX  0S<W<S0W8Y JW<[ KYHVMV GV"
+"3X MZ 0W6W IVAX >XIW CW6W!W!W3WCWCW!W=W JWCWCW\"W2W%W3X ?W >W2W JW;X <Y ?X 0X&Y1X?X?X-X0X&YCXCY-X%X2~a GV H~a HV I~b HV   DX 3W@S ?r DV8V <Z ;V 2W;W   "
+"DSFV'S  <XFX  =V  .S@VGW<S    (V      \"W6W A\\GU IX       2XFX *V;TMU LV2V V;TMU4Z 2X<X IX<X IX<X IX<X IX<X IX<X IX=X X *X -X -X -X -X -X -X -X ,X*X-XB"
+"WEX)X%X1X%X1X%X1X%X1X%X G] KX@V;X.X/X'X/X'X/X'X/X GX <X8Y NWC\\ =m Bm Bm Bm Bm Bm Bm3WBW ,W2W\"W2W\"W2W\"W2W NW ,W ,W ,W /X4X NW6W!W2W\"W2W\"W2W\"W2W\"W2W M~Y"
+"2W@VHW NW6W MW6W MW6W MW6W JW@W FW3W MW@W     KVLuKU/VLuKU/VA`AU/VAY:U/V=X=U&V 1W@X     9X BWBS   >~R+~Z*~P#{'V4W W4W FXHX ?XDX K~^               $X  "
+" ,X   'VBV Gi (VFg;WCZ?W  /W !W +T 4~W      6W 1X4X >X *Y &Z LW=X (Y NZ7X ;X ?Z>Z ImNX    '[    8\\%Y 9UAW:WAU<W:W MX7Y#X *X*X,X -X 0X6f+X/X'X -X -XL[ "
+"<X -XEWJWEX0XBXFX)X%X.p HX%X.r 0a >X <X/X XBX FXFVAVFX+b 6X /Z <W )W %W       =p JW3W$W ,W3W!| LW 1W3W MW6W MW ,W ,WNY 7W ,W7W7W=W6W!W2W NW3W$W3W MW -"
+"b 6W ,W6W JW@W EWFVHVFW!] ;WAX 8Y 9` 5V  H` HrG[  0S<W<S0W8Y JW:Y KXF^ HW2W Kc ;W6W IVAX >XIW CW6W!W!W3WCWCW!W=W JWCWCW\"W2W%W2W ?W >W2W JW:W =Y >X 0Y'"
+"X0X?X?X-X0X%XCXCX,X%X2~a GV H~a HV I~b HV   DX 3W@S ?r DV8V <Z   FW;W   DSFV'S  =XFX  <V  .S@VFW=S    (V      \"W6W <WGU IX       1XFX +V;SLU LV2V V;SL"
+"U5Z 1W:W IW:W IW:W IW:W IW:W IX<X IX=X X *X -X -X -X -X -X -X -X ,X*X-XBXFX)X%X1X%X1X%X1X%X1X%X F[ JXAW;X.X/X'X/X'X/X'X/X GX <X8X MWB] Bp Ep Ep Ep Ep "
+"Ep E~eBW ,|\"|\"|\"| NW ,W ,W ,W /W2W NW6W!W2W\"W2W\"W2W\"W2W\"W2W M~Y2WAWHW NW6W MW6W MW6W MW6W JWAX FW3W MWAX     KV<V=V/V#V/VBbCV/VBY:V/V=X>V&V 1XAW     9"
+"X @WDT   ?~S+~Z)}!y'W4W W4W FWFW >WDW J~^               *r   ?V   &VBV Eh *VEXIX<XBZ@W  /W !W +T 4~W  5f   8V 0X4X >X +Y $Z NW<X 'X NZ7X ;X ?X:X HkMX "
+"   '[    7[%X 8UAV8VAU=X:X NX6X#X *X*X,X -X 0X6f+X/X'X -X -XK[ =X -XDVJVDX0XAWFX)X%X.m EX%X.XA\\ -^ ?X <X/X XBX FXFVAVFX,c 6X /Y ;W (V %W       ?r JW3W"
+"$W ,W3W!| LW 1W3W MW6W MW ,W ,a 6W ,W7W7W=W6W!W2W NW3W$W3W MW ,e :W ,W6W JW@W DWGVHVGW N[ 9WBW 8Y 8^ 3V  F^ I~X  0S;U;T1W8Y JW8X MXC\\ HW2W Ia ;W6W IWB"
+"W >XHX DW6W!W<W<W3WCWCW!W=W JWCWCW\"W2W%W2W ?W >W2W KX:X ?Y =X /X'X0Y@X@Y-X0X%YDXDY,X%X2~a GV H~a HV I~b HV   DX 3W@S ?r DV8V ;X   DW;V   DSFV'S  >XFX "
+" ;V  .S@VFW=S    (V      \"W6W :UGU IX       0XFX -V;TLU MV0U!V;TLU6Y 0X:X KX:X KX:X KX:X KX:X KX:X JW<X X *X -X -X -X -X -X -X -X ,X*X-XAWFX)X%X1X%X1X"
+"%X1X%X1X%X F[ JXBW:X.X/X'X/X'X/X'X/X GX <X9Y MWA] Er Gr Gr Gr Gr Gr G~gBW ,|\"|\"|\"| NW ,W ,W ,W /W2W NW6W!W2W\"W2W\"W2W\"W2W\"W2W M~Y2WBWGW NW6W MW6W MW6W "
+"MW6W IWBW EW3W LWBW     IU<V=V.U#V.UCdDV.UCY9V.U=X>V&V 1XBX     :X ?WDT   ?~S,~[({ x&W4W W4W FWFX ?XFX JV                \"q   >V   &VBV Af -VEXGX=W@ZB"
+"W  .W !W +T 4~W  5f   8V 0X4X >X ,Y \"Y W;X 'X NZ7X <Y @Y:Y HiLX    '^    =^%X 8UAV8VAU=X:X NX5X$X *X*X,X -X 0X(X+X/X'X -X -XJ[ >X -XDVJVDX0XAXGX)X%X.i"
+" AX%X.X>Z ,\\ ?X <X/X NWBW DWFVAVFW+XMY 7X 0Z ;W (V %W       @s JW3W$W ,W3W!| LW 1W3W MW6W MW ,W ,` 5W ,W7W7W=W6W!W2W NW3W$W3W MW +g =W ,W6W JXBX DWGVH"
+"VGW N[ 9WBW 9Y 7^ 3V  F^ I[Gr  /S;U;T1W8X IW7X NWA[ HW2W F^ ;W6W HVCX >XGW DW6W!W<W<W3WCWCW!W=W JWCWCW\"W2W%W2W ?W >W2W KW9X ?Y =X /X'X/X@X@X,X0X$YEXEY"
+"+X%X2~a GV H~a HV I~b HV   DX 3W@S 6X 3V8V ;X   DX<V   DTFV)T  >WEW  :V  .TAVEW?T    (V      \"W6W :UGU IX       /WEW .V;TKU NV/U\"V;TKU7Y /X:X KX:X KX:"
+"X KX:X KX:X KX:X KX<X X *X -X -X -X -X -X -X -X ,X*X-XAXGX)X%X1X%X1X%X1X%X1X%X G] KXCW9X.X/X'X/X'X/X'X/X GX <X9Y MW?] Hs Hs Hs Hs Hs Hs H~hBW ,|\"|\"|\"|"
+" NW ,W ,W ,W /W2W NW6W!W2W\"W2W\"W2W\"W2W\"W2W M~Y2WBVFW NW6W MW6W MW6W MW6W IWBW EW3W LWBW     IU<V=V.U#V.UDYMZEV.UDY8V.U#V&V 0WBX     ;X >WDS   >~T-~\\(y"
+" Mw&W4W W4W GXFX ?XFX JV                #r   >V   'WCV <c .VEWEW=W?ZCW  .W !W   :~W  5f   9W 0X4X >X -Y  Y!W;X 'Y Y5X =X @Y8Y HgKX    'a    Ca%X 8UAV8"
+"VAU=W8W NX4X%X *X+Y,X -X 0X(X+X/X'X -X -XI[ ?X -XDWLWDX0X@WGX)X&Y.X 0X&Y.X=Y *[ @X <X/X NXDX DXHW@VHX,YMZ 8X 1Z :W (W &W       At JW3W$W ,W3W!| LW 1W3"
+"W MW6W MW ,W ,` 5W ,W7W7W=W6W!W2W NW3W$W3W MW )g ?W ,W6W IWBW CWGVHVGW MY 8WCX :Y 6` 5V  H` IW@m  -S;V<T1W8X IW7X W@[ HW2W Ia ;W6W HVCW >XFX EW6W!W<W<"
+"W3WCWCW!W=W JWCWCW\"W2W%W2W ?W >W2W KW8W @Y <X /X'X/X@X@X,X0X#YFXFY*X&Y2~a GV H~a HV I~b HV   DX 3W@S 6X 3V8V ;X   CX=V   CSFV)S  =WEW  :V  -SAVDW@S   "
+" 'V      \"W6W :UGU IX       /WEW .V<TJU NV/U\"V<TJU8Z /W8W KW8W KW8W KW8W KW8W KX:X KX<X X *X -X -X -X -X -X -X -X ,X+Y-X@WGX)X&Y1X&Y1X&Y1X&Y1X&Y H_ LX"
+"DW9Y.X/X'X/X'X/X'X/X GX <X:Y LW>] Jt It It It It It I~iBW ,|\"|\"|\"| NW ,W ,W ,W /W2W NW6W!W2W\"W2W\"W2W\"W2W\"W2W M~Y2WCVEW NW6W MW6W MW6W MW6W IWCX EW3W L"
+"WCX     IV=V=V.V$V.VFYKZFV.VFY7V.V$V&V 0XCW     ;Y =WFT   >~T-~\\'w Ku%W4W W4W GXEW >WFW IV                #q   =V   6~X JSN^ /VEWCW?W=ZDW  .W !W   :~W"
+"  5f   9V /X4X >X .Y  MX\"W:X &X Y5X >Y @X6X FcJX    &d    Id%X 8UAV8VAU>X8X X4X$X +X+X+X -X /X)X+X/X'X -X -XH[ @X -XCVLVCX0X@XHX(X'X-X /X'X-X<Y *Z @X "
+"<X/X NXDX DXHV?VHX-YKY 8X 2Z 9W 'V &W       B]?W JW3W$W ,W3W!| LW 1W3W MW6W MW ,W ,a 6W ,W7W7W=W6W!W2W NW3W$W3W MW 'g AW ,W6W IWBW CWHVFVHW NZ 7WDW :Z"
+" 6a 6V  Jb IU;i  ,S;V<S0W7W IW6W W?Z HW2W Kc ;W6W HWEX >XFX EW6W!W<W<W3WCWCW!W=W JWCWCW\"W2W%W2W ?W =V2V KX8X BY ;X /Y)Y/X@X@X,X0X#YFXGZ)X'X0~` GV H~` "
+"GV H~` GV   DX 3W@S 6X 3V8V M|  &Z?V   CSFV)S:m AXFX  ;V  -SAVDW@S    'V      \"W6W :UGU      *m 5XFX /V;SIU V.T\"V;SIU9Z /X8X MX8X MX8X MX8X MX8X MX8X "
+"MX;X NX +X -X -X -X -X -X -X -X ,X+X,X@XHX(X'X/X'X/X'X/X'X/X'X Ha LXFW8X-X/X'X/X'X/X'X/X GX <X;Z LW<\\ L]?W J]?W J]?W J]?W J]?W J]?W J]?{BW ,|\"|\"|\"| NW"
+" ,W ,W ,W /W2W NW6W!W2W\"W2W\"W2W\"W2W\"W2W M~Y2WDVDW NW6W MW6W MW6W MW6W HWDW DW3W KWDW     HV=V>V-V%V-VGYIZHV-VGY7V-V%V%V /WDX     ;X <WFT   >~T-~\\'v Is"
+"$W4W W4W GWDX ?XGW HV                %r   =V   6~X JSJ[ 0VEVAV?W<ZFW  -W !W   \"V   Lf   9V /X5X =X /Z  MX\"V9X &X NX5X >X ?X6X D`IX    $d    Ne#X 8UAV8"
+"VBU=x X4X$X +X+X+X -X /X)X+X/X'X -X -XG[ AX -XCVLVCX0X?WHX(X'X-X /X'X-X;Y *Y @X <X/X MXFX CXHV?VHX-XIY 9X 3Z 8W 'V &W       CZ;W JW3W$W ,W3W!| LW 1W3W"
+" MW6W MW ,W ,b 7W ,W7W7W=W6W!W2W NW3W$W3W MW %f BW ,W6W IXDX BWIVFVIW N\\ 8WEX :Y .[ 7V  K\\ BT8e  *S<X=S0W7V HW6X\"W=X GW2W Me ;W6W GVEX >WDW EW6W!W<W<W"
+"3WCWCW!W=W JWCWCW\"W2W%W2W ?W =W4W KW6W CY :X .X)X.YAXAY,X0X\"ZHXHZ(X'X/Y  AV  BY FV GY%Y FV   DX 3W@S 6X 2V:V L|  %ZAV   BSEV*S:m @XFX  <V  -SAVCWAS   "
+" 'V      \"W6W :UGU      *m 6XFX .V<TIU V/U\"V<TIU9Y .x Mx Mx Mx Mx Mx Mu NX +X -X -X -X -X -X -X -X ,X+X,X?WHX(X'X/X'X/X'X/X'X/X'X Ic MXGW7X-X/X'X/X'X/"
+"X'X/X GX <X=[ KW:[ NZ;W KZ;W KZ;W KZ;W KZ;W KZ;W KZ;{BW ,|\"|\"|\"| NW ,W ,W ,W /W2W NW6W!W2W\"W2W\"W2W\"W2W\"W2W  &WEVCW NW6W MW6W MW6W MW6W HWEX DW3W KWEX "
+"    GV>V>V,V&V,VIYGZIV,VIY6V,V&V&W /XEW     N~X'VGT   =~T-~\\&u Ir#W4W NV4W HXDX ?XHX HV                 KX   ,V   6~X JSHZ 2VDVAV?W;ZGW  -W !W   \"V   "
+"Lf   :W .X6X =X 0Z  LY#~ /X NX5X >X @X5Y AYFX    !d >~X >d X 8UAV8VBU>z!X3X%X +X+X+X -X /X)X+X/X'X -X -XF[ BX -XCWNWCX0X?XIX(X'X-X /X'X-X:X )Y AX <X/X"
+" MXFX BWHV?VHW-YIY 9X 3Y 7W 'W 'W       CX9W JW3W$W ,W3W!W 'W 1W3W MW6W MW ,W ,WNZ 8W ,W7W7W=W6W!W2W NW3W$W3W MW !c CW ,W6W HWDW AWIVFVIW N] 8WFW :Y *"
+"Y 8V  KY ?R3`  (S<X=S0W7V HW5W\"W=X GW2W N[ 0W6W GWFW >XDX FW6W!W<W<W3WCWCW!W=W JWCWCW\"W2W%W2W ?W =W4W LX6X DY :X .X)X-XAXAX+X0X!ZIXIZ'X'X.Y  BV  CY EV"
+" FY'Y EV   DX 3W@S 6X 2V:V L|  $[CV   BTFW,T:m ?XFX  =V  -TBVBVBT    'V      \"W6W :UGU      *m 7XFX .V<THU!V/U\"V<THU:Y .z z z z z Nx Nv NX +X -X -X -X"
+" -X -X -X -X ,X+X,X?XIX(X'X/X'X/X'X/X'X/X'X Je NXGV6X-X/X'X/X'X/X'X/X GX <X@^ KW9[ X9W KX9W KX9W KX9W KX9W KX9W KX9W MW ,W ,W ,W ,W )W ,W ,W ,W /W2W N"
+"W6W!W2W\"W2W\"W2W\"W2W\"W2W  &WFVBW NW6W MW6W MW6W MW6W GWFW CW3W JWFW     FV>V?W,V'W,VJYEZKW,VJY6W,V'W&W /XFX     N~X'WHT   =~T-~\\%s Gp\"W4W NV4V GXCW >WH"
+"X HW                 LX   ,V   6~X JSGY 3VDWAW@W:ZIW  ,W !W   \"V   Lf   :W .X6X =X 1Z  JX#~ /X NX5X ?Y @X4X .X     Md A~X Ad LX 8UAV8VBU>z!X3X%X +X+X+"
+"X -X /X)X+X/X'X -X -XE[ CX -XBVNVBX0X>WIX(X'X-X /X'X-X9X *Y AX <X/X MXFX BXJW?WJX.YGY :X 4Z 7W 'W 'W       DX8W JW3W$W ,W3W!W 'W 1W3W MW6W MW ,W ,WLY "
+"9W ,W7W7W=W6W!W2W NW3W$W3W MW  K_ DW ,W6W HXFX AWIVFVIW ^ 8WFW ;Y (Y 9V  LY >Q.X  $T>Z?T0W8W HW5W\"W<W GW2W Y -W6W GWGX >WCX FW6W!W<W<W3WCWCW!W=W JWCWC"
+"W\"W2W%W2W ?W =W4W LX6X EY 9X .Y+Y-YBXBY+X0X ZJXJZ&X'X-Y  CV  DY DV EY)Y DV   DX 3W@S 6X 2W<W L|  #\\FW   ASFW,S9m >XFX  >V  ,SBVBWCS    &V      \"W6W :U"
+"GU      *m 8XFX .V<TGU\"V.U#V<TGU;Y -z z z z z z v NX +X -X -X -X -X -X -X -X ,X+X,X>WIX(X'X/X'X/X'X/X'X/X'X KZMZ XHW6X-X/X'X/X'X/X'X/X GX <u JW7Y!X8W "
+"LX8W LX8W LX8W LX8W LX8W LX8W MW ,W ,W ,W ,W )W ,W ,W ,W /W2W NW6W!W2W\"W2W\"W2W\"W2W\"W2W  &WGWBW NW6W MW6W MW6W MW6W GWFW CW3W JWFW     FW?V?V+W(V+WKXCY"
+"KV+WKX5V+W(V%W .WFX     N~X'WHT   =~T-~\\$q Eo\"W4W NV4V GWBW >XIW GW                 LX       ;~X JSFX 3VDV?V@W9ZJW  +V \"W   !V       V -X6X =X 2Z  IX#"
+"~ /X NX5X ?X ?X4X .X     Jd D~X Dd IX 8UAV8VCV>z!X3X%Y ,X,Y+X -X /Y*X+X/X'X -X -XD[ DX -XBVNVBX0X>XJX(Y)X,X /Y)X,X9Y *X AX <X/X LXHX AXJV=VJX.XEY ;X 5"
+"Z 6W &V 'W       DW7W JW3W$W ,W3W!W 'W 1W3W MW6W MW ,W ,WKY :W ,W7W7W=W6W!W2W NW3W$W3W MW  H\\ DW ,W6W GWFW @WJVDVJW!` 9WGX <Y &X 9V  LX =P   (T?\\@T0W8"
+"X IW5W\"W<W GW2W X ,W6W FVGW >XBW FW6W!W<W<W3WCWCW!W=W JWCWCW\"W2W%W2W ?W =W4W LW4W FY 8X -X+X+YCXCY*X0X N\\MXM\\%Y)X+Y  DV  EY NQFVFQ Y+Y CV   DX 3W@S 6X"
+" 1V<V K|  ![HW   @TFW.T9m =XFX  ?V  ,TCVAVDT    &V      \"W6W :UGU      *m 9XFX -V<SFU\"V/U\"V<SFU;X ,z z z z z z v NY ,X -X -X -X -X -X -X -X ,X,Y,X>XJX"
+"(Y)X.Y)X.Y)X.Y)X.Y)X KZKZ!YJW6X,X/X'X/X'X/X'X/X GX <t IW6Y\"W7W LW7W LW7W LW7W LW7W LW7W LW7W MW ,W ,W ,W ,W )W ,W ,W ,W /W2W NW6W!W2W\"W2W\"W2W\"W2W\"W2W "
+" &WHWAW NW6W MW6W MW6W MW6W GWGX CW3W JWGX     EV?V@W*V)W*VJVAWKW*VJV5W*V)W%W .XGW     M~X&WJT   <~S,kNn#o Cm!W4W NV4V HXBX ?XJX FW                 MY"
+"       <~X JSEX 5VCV?V@W8ZLW  *W #W   !V       V -X6X =X 3Z  HX#~ /X NX5X @Y ?X4X /X     Ge G~X Ge GX 8UAV9WCU>|\"X3X$X ,X,X*X -X .X*X+X/X'X -X -XC[ EX"
+" -XA\\AX0X=WJX'X)X,X .X)X,X8X *X AX <X/X LXHX AXJV=VJX/YEY ;X 6Z 5W &V 'W       DW7W JW3W$W ,W3W!W 'W 1W3W MW6W MW ,W ,WJY ;W ,W7W7W=W6W!W2W NW3W$W3W M"
+"W  EZ EW ,W6W GWFW ?WKVDVKW!b 9WHW <Y $W 9V  LW     BTAVNUAT/W8X IW5W#W;V FW2W!X +W6W FWIX >XBX GW6W!W<W<W3WCWCW!W=W JWCWCW\"W2W%W2W ?W =W4W MX4X HY 7X"
+" -Y-Y+ZDXDZ*X0X Mt#X)X*Y  EV  FY NSGVGS Y-Y MQFVFQ   X 3W@S 6X 1W>W 9X   =\\KW   >SEW<PCS  6XFX  @V  +SCVAWES    %V      \"W6W :UGU        &XFX -V<TFU#V"
+"/U\"V<TFU<X ,|\"|\"|\"|\"|\"|\"w MX ,X -X -X -X -X -X -X -X ,X,X+X=WJX'X)X-X)X-X)X-X)X-X)X LZIZ!XKW5X,X/X'X/X'X/X'X/X GX <s HW5X\"W7W LW7W LW7W LW7W LW7W LW7W"
+" LW7W MW ,W ,W ,W ,W )W ,W ,W ,W /W2W NW6W!W2W\"W2W\"W2W\"W2W\"W2W  &WIW@W NW6W MW6W MW6W MW6W FWHW BW3W IWHW     DW@VAW)W+W)WJT?UKW)WJT5W)W+W$W -WHX     "
+"M~X&WJT   ;eMQMe+jNQNj!m Bl W4W NW6W HXBX >WJX FW                 LX       <~X JSEX 6WCV?V@W7ZMW  *W #W   !V      !W -X6X =X 4Z  GX#~ /X NX5X @X >X4X "
+"/X     De J~X Je DX 8U@V:WDV>|\"X3X$X ,X-Y*X -X .X*X+X/X'X -X -XB[ FX -XA\\AX0X=XKX'X*Y,X .X*Y,X8Y +X AX <Y1Y KWHW ?WJV=VJW/YCY <X 7Z 4W &W (W       EW6"
+"W JX5X$X -X5X!X (W 0W5X MW6W MW ,W ,WIY <W ,W7W7W=W6W!X4X NX5X$X5X MW  CX EW ,W6W GXHX ?WKVDVKW!XNY :WIX =Y #X :V  MX     BUCVMVBT/W9Y IW5W#W<W FW3X!W"
+" *W6W EVIX ?X@W GW6W!W=Y=W3XDWDX!W=W JWCWCW\"X4X%X4W >W <W6W LX4X HY 7X ,X-X)ZEXEZ)X0X Lr\"X)X)Y  FV  GY NUHVHU Y/Y MSGVGS  !X 3XAS 6X 0W@W 8X   ;\\NW   "
+"=TEX@RDT  5XFY  BV  +TDV@WGT    %V      \"W6W :UGU        (YFX ,V=TEU#V0U!V=TEU<X ,|\"|\"|\"|\"|\"|\"w MX ,X -X -X -X -X -X -X -X ,X-Y+X=XKX'X*Y-X*Y-X*Y-X*Y-"
+"X*Y MZGZ\"XLW5Y,Y1Y'Y1Y'Y1Y'Y1Y GX <r GW4X$W6W MW6W MW6W MW6W MW6W MW6W MW6X NX -X -X -X -X *W ,W ,W ,W /W2W NW6W!X4X\"X4X\"X4X\"X4X\"X4X  &WIV@X NW6W MW6W"
+" MW6W MW6W FWIX BX5X IWIX     CWAVAW(W,W(WJR=SJW(WJR4W(W,W$W -XIX     M~X&WJS   :dLQLd+iMQNj!l @j NW4W NW6W HW@W >WJW DW                 MX       .VCV"
+" :SDW 6VBV?V@W6b  )W #W   !V      !V +X8X <X 5Z  FX#~ /X MW5X @X >X4X /X     Ad L~X Ld AX 8VAV:WDU=|\"X3X$Y -X-Y*X -X .Y+X+X/X'X -X -XA[ GX -XA\\AX0X<WK"
+"X'Y+X+X .Y+Y,X7X +X AX ;X1X JXJX ?XLW=WLX/XAY =X 7Y 3W %V (W       EW7X JX5W\"W ,W5X W (W 0W5X MW6W MW ,W ,WHY =W ,W7W7W=W6W W4W MX5W\"W5X MW  BX FW ,W6"
+"W FWHW >WKVDVKW\"XLX 9WJW =Z #X :V  MX     AUEVKVDU/X:Y IW5W#W<W EW4W!X *W6W EVJX >X@W GW6W!W=Y=W2WDWDW W=W JWCWCW\"X4W#W4W >W <W6W LW2W IY 6X ,Y/Y(ZFXF"
+"Z(X0X Kp!Y+X'Y  GV  HY NWIVIW Y1Y MUHVHU  \"X 2WAS 6X 0YDY 8X   :c   <TE[FUDS  3XFY  CV  *SDV@WGS    $V      \"W6W :UGU        )YFX ,V=TDU$V0V\"V=TDU=X +"
+"|\"|\"|\"|\"|\"|#x MY -X -X -X -X -X -X -X -X ,X-Y+X<WKX'Y+X,Y+X,Y+X,Y+X,Y+X MZEZ#YNW4X*X1X%X1X%X1X%X1X FX <p EW4X$W7X MW7X MW7X MW7X MW7X MW7X MW7Y MW ,W "
+",W ,W ,W *W ,W ,W ,W .W4W MW6W W4W W4W W4W W4W W4W  $WKV?W MW6W MW6W MW6W MW6W EWJW AX5W GWJW     BXBVBW'X.W'XJP;QJW'XJP4W'X.W#V ,XIW     L~X%WLT   :d"
+"LQLc*iMQMi k ?i NW4W NW6W IX@X ?XLX DW                 MY       0VBV :SDW 7VAV?V@X6a  )W #W   !V      !V +X8X <X 6Z  EX#~ 0Y MW5X AY >X4X 0X     =d ~X"
+" d   LUAW<XEV>X2X#X3X#X -X.Y)X -X -X+X+X/X'X -X -X@[ HX -X@Z@X0X<XLX&X+X+X -X+X+X7Y ,X AX ;X1X JXJX ?XLV;VLX0YAY =X 8Z 3W %V (W       EW7X JX5W\"W ,W5X"
+" W (W 0W5X MW6W MW ,W ,WGY >W ,W7W7W=W6W W4W MX5W\"W5X MW  BX FW ,W7X FWHW >WLVBVLW#YKX :WJW =Y !W :V  MW     @VHXJWHV-W:Y IW5W#W<W EW4W!W )W6W EWKX ?X"
+"?X HW6W!X>Y>W1WDWDW W=W JWCWCW\"X4W#W4W >W <W6W MX2X KY 5X +Y1Y'[GXH\\(X0X Jn NX+X&Y  HV  IY NYJVJY Y3Y MWIVIW  #X 2WAS 6X 0[H[ 8X :V %`   :TEiET  2YGY "
+" DV  *TEV?WIT    $V      \"W6W :UGU        *YGY ,V<SCU%V0V\"V<SCU=X ,X2X$X2X$X2X$X2X$X2X$X2X$X8X LX -X -X -X -X -X -X -X -X ,X.Y*X<XLX&X+X+X+X+X+X+X+X+X"
+"+X NZCZ#`3X*X1X%X1X%X1X%X1X FX <m BW3W$W7X MW7X MW7X MW7X MW7X MW7X MW7Y MW ,W ,W ,W ,W *W ,W ,W ,W .W4W MW6W W4W W4W W4W W4W W4W 5Z IWLV>W MW7X MW7X "
+"MW7X MW7X EWJW AX5W GWJW     AXCVCW%X0W%X0W%X0W%X0W\"V +WJX     ?X 2WLT   9bKQKb)gLQMh Mi =g MW4W MV6W IX@X ?XLX CW                 MX       0VBV :SDW "
+"7VAV?V@X5_  (W #W   !V      \"W +X8X <X 7Z  DX 5X 'X LX7X @X =X4X 0X     ;e   Le   JUAW<XFV=X1W#X3X#Y .X.Y)X -X -Y,X+X/X'X -X -X?[ IX -X@Z@X0X;XMX&Y-Y+"
+"X -Y-Y+X6X ,X AX ;X1X IXLX >XLV;VLX1Y?Y >X 9Z 2W %W )W       EW7X JX5W\"X -W5X X )W 0X7Y MW6W MW ,W ,WFY ?W ,W7W7W=W6W W4W MX5W\"W5X MW  AW FW ,W7X FXJX"
+" =WMVBVMW#YJY ;WKX >Y  W :V  MW     ?dId,W;Z IW5W#W=W DW4W!W )W6W DVKW >X>W HW6W W>Y>W1WDWDW W=W JWCWDX\"X4W#W4W >W ;V7W LX2X LY 4X *X1X%]JXJ]'X0X Hj L"
+"Y-Y%Y  IV  JY LYKVKY MY5Y MYJVJY  $X 2XBS 6X 2q 9X :V #\\   7TDgFT  /XFX  EV  )TFV>VJT    #V      \"W6W :UGU        +XFX *V=TCU%V1V!V=TCU=X ,X1W$X1W$X1W"
+"$X1W$X1W$X2X%X7X LY .X -X -X -X -X -X -X -X ,X.Y*X;XMX&Y-Y+Y-Y+Y-Y+Y-Y+Y-Y ZAZ$_3Y*X1X%X1X%X1X%X1X FX <i >W3W$W7X MW7X MW7X MW7X MW7X MW7X MW7Z NX -X "
+"-X -X -X +W ,W ,W ,W .W4W MW6W W4W W4W W4W W4W W4W 5Z IWMV=W MW7X MW7X MW7X MW7X EWKX AX5W GWKX     @XDVDX$X2X$X2X$X2X$X2X\"V +XKW     ?X 1WMT   7`JQKa"
+"'fLQLf Kg <f LW4W MW8W HW>W >WLW BX                 NY       1VBV :SDW 8V@V?V?W4]  &V $W    V      \"V *Y:Y <X 8Z  DY 5X 'X KW7X @X =X5Y 1Y     8e  #e "
+"  GU@W>YGW>X0X$X4Y\"Y /X/Y(X -X ,Y-X+X/X'X -X -X>[ JX -X@Z@X0X;XMX%Y/Y*X ,Y/Y*X6Y -X AX ;Y3Y IXLX =WLV;VLW0X=Y ?X :Z 1W $V )W       EW8Y JY7X\"X -X7Y X "
+")W 0X7Y MW6W MW ,W ,WEY @W ,W7W7W=W6W X6X MY7X\"X7Y MW  AW FW ,X8X EWJW <WMVBVMW#XHX :WLW >Y  NW :V  MW     >bGc,W;[ JW6X#W=W DX6X!W )W6W DVLX >W=X IW7"
+"X W>Y>W1XEWEX W=W IWDWDW!Y6X#X6X >W ;W8W MX0X MY 4X *Y3Y$^LXL^&X0X Ff IY/Y#Y  JV  KY JYLVLY KY7Y KYKVKY  #X 2XBS 6X 3t ;X :V ![   8TCfFT  .XFX  FV  )U"
+"GV>WKT            MW7X :UGU        ,XFX *V=TBU&V2W!V=TBU=X -X0X&X0X&X0X&X0X&X0X&X0W%X7X KY /X -X -X -X -X -X -X -X ,X/Y)X;XMX%Y/Y)Y/Y)Y/Y)Y/Y)Y/Y Z?Z$"
+"^4Y)Y3Y%Y3Y%Y3Y%Y3Y FX <X -W3W$W8Y MW8Y MW8Y MW8Y MW8Y MW8Y MW8[ NX -X -X -X -X +W ,W ,W ,W .X6X MW6W X6X X6X X6X X6X X6X 5Z I_=X MX8X MX8X MX8X MX8X "
+"DWLW @Y7X FWLW     >XEVFY\"X5Y\"X5Y\"X5Y\"X5Y!V *WLX     @X /WNT   7`JQJ_&eKQKe Je :d KW4W MW8W HW>X ?XNX AX                 Y       1VCV 9SDW 9V?V?V?X4\\ "
+" &W %W    V      \"V )X:X ;X 9Z  CX 4X (Y KW7X AX <Y6Y 1X     4e  )e   DVAX@ZHW=X0X$X4Y\"Y*P&X0Z(X -X ,Y-X+X/X'X -X -X=[ KX -X?X?X0X:XNX%Y/Y*X ,Y/Y*X5X "
+".Y AX :X3X HXLX =XNW;WNX1Y=Y ?X ;Z 0W $V )W       EW8Y JY7W W ,W7Y NX *W /W8Z MW6W MW ,W ,WDY AW ,W7W7W=W6W NW6W LY7W W7Y MW  AW FW ,X9Y EWJW <WMVBVMW"
+"$XFX ;WMX ?Y  MW :V  MW     =`Ea+X<[ JW6W\"W>W BW6W W )W6W DWMX ?X=X IX8X W?[?W0WEWEW NW=W IWDWDW!Y6W!W6W =W ;W8W MX0X NY 3X )Y5Y\"z%X0X C` FY/Y\"X  JV  "
+"KX HYMVMY IX7X IYLVLY  \"X 1XCS 6X 4v <X :V  [   8TBbET  ,WEW  FV  (T$T            LX8X :UGU        ,WEW )V=m,V3W V=mCX -X0X&X0X&X0X&X0X&X0X&X0X&X7X KY"
+"*P&X -X -X -X -X -X -X -X ,X0Z)X:XNX%Y/Y)Y/Y)Y/Y)Y/Y)Y/Y!Z=Z%]3Y(X3X#X3X#X3X#X3X EX <X -W3W$W8Y MW8Y MW8Y MW8Y MW8Y MW8Y MW8[ MW ,X -X -X -X ,W ,W ,W "
+",W -W6W LW6W NW6W MW6W MW6W MW6W MW6W 4Z H^=W LX9Y MX9Y MX9Y MX9Y DWMX @Y7W EWMX     =Y8Y Y8Y Y8Y Y8Y Y8Y V *WLX     AX .WNT   6^IQI]$cKRJc Id 8c KW4W"
+" MX:X IX>X ?XNX AY                 Y4P       VBV 9SDW 9V?V?V?Y4Z  %W %W    V      #W )X:X ;X :Z  CY 4X (Y KX9Y AX ;X6X 1Y     1e  /e   @U@XB[JX<X/W$X4"
+"X Y,Q&X1Z'X -X +Y.X+X/X'X -X -X<[ LX -X?X?X0X:XNX$Y1Y)X +Y1Y)X5Y /X @X :X4Y GXNX <XNV9VNX2Y;Y @X ;Y /W $W *W       EW9Z JZ9X X -X9Z NX *W /X9Z MW6W MW"
+" ,W ,WCY BW ,W7W7W=W6W NX8X LZ9X X9Z MW  AW FW +W9Y EXLX <WNV@VNW%YEX ;WNW ?Y  LW :V  MW     <^C_)W=\\ JX7W\"W>W BX8X W )W6W CVNX >W;W IX8X X@[@X0XFWEW "
+"NW=W IWDWEX!Z8X!X8X =W :W:W LX0X Y 2X (Y7Y Nv#X0X ?X AY1Y V  IV  JV FYNVNY GV5V GYMVMY  !X 1XCS 6X 5x =X :V  MZ   8T?ZBT  *VDV  FV  'T&T            KX"
+"8X :UGU        ,VDV )V<m-V3V NV<mCX -X/W&X/W&X/W&X/W&X/W&X0X'X6X JY,Q&X -X -X -X -X -X -X -X ,X1Z(X:XNX$Y1Y'Y1Y'Y1Y'Y1Y'Y1Y!Z;Z%[3Y'X4Y#X4Y#X4Y#X4Y EX"
+" <X -W3W$W9Z MW9Z MW9Z MW9Z MW9Z MW9Z MW9] NX -X -X -X -X ,W ,W ,W ,W -X8X LW6W NX8X MX8X MX8X MX8X MX8X 4Z H]=X KW9Y LW9Y LW9Y LW9Y CWNW ?Z9X DWNW   "
+"  ;Y;Z MY;Z MY;Z MY;Z MY;Z NV *XMW     AY -[   3ZHRH[\"aJRI` Fb 6a JW4W LW:W HX=W >WNX @Y                !Z6Q       VBV KP>SEW 9V>WAW>X3Z  &W %W    V  "
+"    #V 'X<X :X ;Z  BY 4X )Y IW9X AY ;Y8Y 2Y     .d  1d   >U?ZH^MZ<X.X%X5Y NY.R&X2Z&X -X *Y/X+X/X'X -X -X;[ MX -X&X0X9a$Z3Y(X *Y3Y(X4X$P-Y @X :Y5Y GXNX"
+" <XNV9VNX2X9Y AX <Z /W #V *W       EX:Z JZ9X NX .X9Z MX +W .X;[ MW6W MW ,W ,WBY CW ,W7W7W=W6W NX9Y LZ9X X9Z MW  AW FW +W:Z DWLW :^@^$XDY <WNW @Z  LW :"
+"V  MW     ;\\@['X>\\ JX8X\"W?W AX9Y X *W6W CVNX ?X;X JX9Y NW@[@W/XFWFX NW=W IXEWEX!Z8X!X8W ;W ;W;X MX.X\"Y 1X 'Y9Y Lt\"X0X ?X @Y3Y MT  HV  IT Dj ET3T EYNVN"
+"Y   X 0XDS 6X 6ZM`LY >X :V  LY   7T)T  (UCU     ET(T            JX9Y :UGU        ,UCU )V;m.V3V NV;mCY7P HX.X(X.X(X.X(X.X(X.X(X.X(X6X IY.R&X -X -X -X -"
+"X -X -X -X ,X2Z'X9a$Z3Y&Z3Y&Z3Y&Z3Y&Z3Y!Z9Z&Z3Y&Y5Y#Y5Y#Y5Y#Y5Y EX <X -W3W$X:Z MX:Z MX:Z MX:Z MX:Z MX:Z MX:^ NX -X -X -X -X -W ,W ,W ,W -X8X LW6W NX9Y"
+" MX9Y MX9Y MX9Y MX9Y 4Z H\\=Y KW:Z LW:Z LW:Z LW:Z CWNW ?Z9X DWNW     :[@[ K[@[ K[@[ K[@[ K[@[ MV )WNX     AX ,[   1WGRFW N_IRH^ Da 5_ IW4W LX<X HW<W >`"
+" >Y                !Y8S   MX   +VBV KQ?SFX 9V=VAV=Y6]  &V &W    NV BX   1X 1V 'Y>Y :X <Z  BY 3X GP3Z IX;Y AX :Y9Z 2X GX -X  7a  1a .X 6V@iNa;X.X%X6Z N"
+"Z1T&X4\\&X -X *Z0X+X/X'X -X -X:[ NX -X&X0X9a#Z5Z(X *Z5Z(X4Y%R/Y @X 9Y7Y EWNW :WNV9VNW2Y9Y AX =Z .W #V *W       EX;[ J[;X MY .X;[ MY2P JW .Y=\\ MW6W MW ,"
+"W ,WAY DW ,W7W7W=W6W MX:X K[;X MX;[ MW /P4X FX ,X<[ DXNX :^@^%XBX <` @Y  KW :V  MW     8V;W%X?^ KY9X!V@X @X:X NX *W6W C_ >X:W JY;Z NXB]BX.XGWGX MW=W H"
+"XFWFX [:X NX:X ;W :W<W LX.X\"Y 1X &Y;Y Ip X0X ?X @Z5Z LR  GV  HR Bh CR1R Cj   NX 0YES 6X 7ZJ\\IY ?X :V  KY   8U+U  'TBT     DU+T            IY;Z :UGU   "
+"     ,TBT (V;m.V4V MV;mCY8Q HX.X(X.X(X.X(X.X(X.X(X.X)X5X IZ1T&X -X -X -X -X -X -X -X ,X4\\'X9a#Z5Z%Z5Z%Z5Z%Z5Z%Z5Z\"Z7Z&Z5Z%Y7Y!Y7Y!Y7Y!Y7Y DX <X -W4X$X"
+";[ MX;[ MX;[ MX;[ MX;[ MX;[ MX;`3P=Y .Y2P LY2P LY2P LY2P LW ,W ,W ,W ,X:X KW6W MX:X KX:X KX:X KX:X KX:X 3Z GZ<X JX<[ LX<[ LX<[ LX<[ C` ?[;X C`     9_J"
+"_ I_J_ I_J_ I_J_ I_J_ LV )`     AX +Z    S <[GRFZ A_ 4^ HW4W KX>X HX<X ?` =Z                \"Y:T   MX   +VCV JSASFX :V<VAV<Y8_  'W 'W    NV BX   1X 2W"
+" &X>X 9X =Z 1P2Z 3X GQ5Z GX=Y @X 9Y:Y KP8Z GX -X  4^  1^ +X 5U?gM_9W,W%X7Z L[4U&X6]%X -X )[2X+X/X'X -X -X9[ X -X&X0X8`\"Z7Z'X )Z7Z'X3X%T2Y ?X 9Z9Z E` :"
+"_9_3Y7Y BX >Z -W #W +W       DX=\\ J\\=Y LY7P HY=\\ LY5R JW -Y?] MW6W MW ,W ,W@Y EW ,W7W7W=W6W MY<Y K\\=Y MY=\\ MW /R6W DW ,Y=[ CWNW 9^@^&X@X <^ @Y  JW :V "
+" MW       HXA` LZ;X V@W ?Y<Y MX +W6W B^ ?X9W JZ<Z NXB]BX.YHWHY MW=W HYGWGY \\<Y NY<X :W :X>X LX.X#Y 0X %Y=Z Gl MX0X ?X ?Z7Z JP  FV  GP @f AP/P Ah   MX "
+"/YFSDP BX 8ZFVEY @X :V  JX   7V.U  %SAS     CU.U            HZ<Z :UGU        ,SAS (V:m/V5W MV:mBY;S HW,W(W,W(W,W(W,W(W,W(X.X)X5X H[4U&X -X -X -X -X -X"
+" -X -X ,X6]&X8`\"Z7Z#Z7Z#Z7Z#Z7Z#Z7Z\"Z5Z&[8Z$Z9Z!Z9Z!Z9Z!Z9Z DX <X -W4W\"X=\\ LX=\\ LX=\\ LX=\\ LX=\\ LX=\\ LX=b6R<Y7P GY5R KY5R KY5R KY5R LW ,W ,W ,W ,Y<Y KW"
+"6W MY<Y KY<Y KY<Y KY<Y KY<Y 3Z GY<Y JY=[ LY=[ LY=[ LY=[ B^ >\\=Y B^     7r Gr Gr Gr Gr KV (_     BX )Y    S 8RBSCR <] 2\\ GW4W KZBZ HX;W >_ <[          "
+"      $[=U   MX   ,VBV JUCSHY :V;WCW<[<b  (W 'W    NV BX   1X 2W &Y@Y 9X >Z 0R5Z 2X GT9[ GY?Z AY 9[>[ KR;Z FX -X  1[  1[ (X 5V>dL^9X,X&X9[ J[7W&X9_$X "
+"-X (\\6Z+X/X'X -X -X8[!X -X&X0X8`![;[&X ([;[&X3Y&W7[ ?X 8Z;Z D` :^7^3X5Y CX ?Z ,W #W +W       DY?] J]?Y KZ:R GY?] LZ8T JW -ZA^ MW6W MW ,W ,W?Y FW ,W7W7"
+"W=W6W LY>Y J]?Y KY?] MW /T9X DX ,Y@] CWNW 9]>]'Y@Y =^ AY  IW :V  MW       HYCXNW L\\>Y VAX >Y>Y LY ,W6W B] >X9X K[>[ MXDVMVDX,YIWIY LW=W GYHWHY N]>Y LY"
+">Y :X :X@X LX,X%Y /X $ZAZ Ch KX0X ?X >[;[   ?V   6d   >f   LX /[HSFR BX 9Z3Y AX :V  IX   7V1V  #R@R     BU0U            G[>[ :UGU        ,R@R 'V(U)V6W"
+" LV(U<Z>U IX,X*X,X*X,X*X,X*X,X*X,X*W4X G[7W&X -X -X -X -X -X -X -X ,X9_%X8`![;[![;[![;[![;[![;[\"Z3Z(];[\"Z;Z NZ;Z NZ;Z NZ;Z CX <X -WJP;X\"Y?] LY?] LY?] "
+"LY?] LY?] LY?] LY?XNZ9T<Z:R GZ8T KZ8T KZ8T KZ8T LW ,W ,W ,W +Y>Y JW6W LY>Y IY>Y IY>Y IY>Y IY>Y 2Z FY>Y HY@] KY@] KY@] KY@] B^ >]?Y A^     6o Do Do Do "
+"Do IV (_     CX (Y    S (S ,[ 0[ GW4W J\\H\\ GW:W >^ :\\                %[@W   MX   ,VBV JXFSIZ :V:WEW:\\@e  (V 'V    MV BX   1X 2V $ZDZ 8X ?Z /U;] 2X GV="
+"\\ EZC[ @X 7[@[ JT?[ EX -X  /Y  1Y &X 5V=bK\\7X,X&X<^ I]=Z&X=b#X -X ']:\\+X/X'X -X -X7[\"X -X&X0X7_ \\?\\%X '\\?\\%X2X&Z<\\ >X 7[?[ B^ 9^7^4Y5Y CX ?Y +W \"V +W "
+"      DZB_ J_CZ I[>T G[C_ K[=W JW ,\\GXNW MW6W MW ,W ,W>Y GW ,W7W7W=W6W KZBZ I_CZ J[C_ MW /W>Z DZ .ZB^ C` 8\\>\\&X>Y =\\ AY  HW :V  MW       GZFYNY N]AZ N"
+"WCX <ZBZ JZ:Q EW6W B] ?X7W K\\A^ NYFWMWFY,ZJWJY KW=X H[JWJ[ N_BZ JZBZ 8Y <ZDZ LX,X&Y .X #ZCZ >_ FX0X ?X =\\?\\   >V   5b   <d   KX .\\JSHT BX 8X2X @X :V  "
+"IX   5V4U   Q?Q     AV4V            F\\A^ ;UGU        ,Q?Q 'V'U*V6W LV'U<[AW IX,X*X,X*X,X*X,X*X,X*X,X+X4X F]=Z&X -X -X -X -X -X -X -X ,X=b$X7_ \\?\\ N\\?\\"
+" N\\?\\ N\\?\\ N\\?\\ X1X(`?\\ [?[ L[?[ L[?[ L[?[ BX <X -WJS@Z\"ZB_ LZB_ LZB_ LZB_ LZB_ LZB_ LZBYM\\>W;[>T F[=W J[=W J[=W J[=W LW ,W ,W ,W *ZBZ IW6W KZBZ GZBZ "
+"GZBZ GZBZ GZBZ 1Z F[BZ GZB^ KZB^ KZB^ KZB^ A\\ =_CZ ?\\     3l Al Al Al Al HV (^     BX (X    NS (S ,Z .Y FW4W In GX:X ?^ 9_                (]FZ   MX   "
+",VBV J[ISL\\ :V9XGX9^Fi  )W )W    MV BX   1X 3W #[H[ Et Mx MZC_ 1X GZD^ C[G\\ @Y 7^F] IXF] DX -X  ,V  1V #X 4V<^IY5X*X'y G_D^&{!y NX &`B`+X/X'X -X -X6[#"
+"w LX&X0X7_ N^E^$X &^E^$X2Y'^C^ =X 7^E^ B^ 8]7]4Y3Y DX @~U&W \"W ,W       C\\HYNW JWNXG\\ H]EX F\\GXNW J]D[ JW +kMW MW6W MW ,W ,W=Y HW ,W7W7W=W6W K]H] IWNX"
+"G\\ I\\GXNW MW /[E\\ Be 9[GXNW B^ 7\\>\\'X<X =\\ AX  GW :V  MW       G\\IYM^$`F\\ MWEX ;]H] J]BV EW6W A\\ ?X7X L_GaKP#ZJYMYJZ*[LWL[ KW=Y H\\LWL\\ MWNXG] J]H\\ 7a "
+"C[H[ L~W'x MX 1iEi HX CX0X ?X <^E^   =V   4`   :b   JX -^MSLX Lz V0V ?X :V  HW   4V7V   MP>P     @W8W    3~W      :_GaKP @UGU        ,P>P 'V&U+V6V KV&"
+"U;]GZ JX*X,X*X,X*X,X*X,X*X,Y,Y,X4y7_D^&y Ny Ny Ny NX -X -X -X ,{\"X7_ N^E^ L^E^ L^E^ L^E^ L^E^ MV/V(dE^ N^E^ L^E^ L^E^ L^E^ BX <X -WJWF[ \\HYNW K\\HYNW K"
+"\\HYNW K\\HYNW K\\HYNW K\\HYNW K\\H[K^E[:]EX E]D[ I]D[ I]D[ I]D[ LW ,W ,W ,W )[F[ HW6W K]H] G]H] G]H] G]H] G]H] 1Z F]G] F[GXNW J[GXNW J[GXNW J[GXNW A\\ =WNX"
+"G\\ ?\\     1h =h =h =h =h FV ']     AV &W    T )T +X -X EW4W Hl FX9W ?^ 8~R                Jp   MX   ,VCV It 9V8XIX7sLZ  *W )W    MV BX   1X 3W #n Et M"
+"x Mu 0X Gs Ao @X 5t In CX -X  )S  1S  X 4V9XFU1X*X'x Ex&z y NX %|*X/X'X -X -X5[$w LX&X0X6^ Mu#X %u#X1X'y =X 6u A^ 8]7]4X1X DX @~U&W \"W ,W       ClMW J"
+"WMk Fo EkMW Is JW *jMW MW6W MW ,W ,W<Y IW ,W7W7W=W6W Jp HWMk GkMW MW /q Ae 9kMW B^ 7\\=[(Y;X >\\ Av 6W :V  MW       FkL]$u LXGX 9p Hp EW6W A[ ?X6X LpN\\#"
+"hKh)s JW<] Lu LWNm Hp 6` Bl K~W'x MX 1iEi HX CX0X ?X ;u   <V   3^   8`   IX ,o Lz NT.T >X :V  HW   3X=X        )X<X    2~W      :pN\\ @UGU           V&"
+"U+V7i.V&U:o JX*X,X*X,X*X,X*X,X*X,X*X-X3y6x&y Ny Ny Ny NX -X -X -X ,z!X6^ Mu Ju Ju Ju Ju KT-T(} Lu Ju Ju Ju AX <X -WJk NlMW KlMW KlMW KlMW KlMW KlMW Kn"
+"Is9o Ds Hs Hs Hs LW ,W ,W ,W )p HW6W Jp Ep Ep Ep Ep   Ls EkMW JkMW JkMW JkMW A\\ =WMk >\\     /c 8c 8c 8c 8c CV '\\     ?T %W    U *T *W ,V DW4W Gj EW8W "
+">\\ 5~P                In   LX   -VBV Is 9V7g6qJZ  *V )V    LV BX   1X 3V !l Dt Mx Mt /X Gr ?m ?X 4r Hm BX -X  &P  1P  LX 3V 3X*X'w Cv%x My NX #x(X/X'X"
+" -X -X4[%w LX&X0X5] Ls\"X $s\"X1Y(w ;X 5s ?\\ 7\\5\\5Y1Y EX @~U&W !V ,W       BjLW JWMj Dn DjMW Hr JW )hLW MW6W MW ,W ,W;Y JW ,W7W7W=W6W In GWMj EjMW MW /p"
+" ?d 8iLW B^ 6Z<[)Y:Y >Z @v 6W :V  MW       EiK]$t JYLZ 7n Fo EW6W A[ ?X5W LWNfM\\\"gKg'q IW<] Ks KWMk Fn 5` Aj J~W'x MX 1iEi HX CX0X ?X :s   ;V   2\\   6"
+"^   HX +n Lz MR,R =X :V  HW   1ZEZ        %ZDZ    0~W      :WNfM\\ @UGU          !V%U,V6i/V%U9n JX*X,X*X,X*X,X*X,X*X,X*X-X3y5v%y Ny Ny Ny NX -X -X -X ,"
+"x NX5] Ls Hs Hs Hs Hs IR+R(WMs Js Hs Hs Hs @X <X -WJk MjLW JjLW JjLW JjLW JjLW JjLW JmHr8n Cr Gr Gr Gr LW ,W ,W ,W (n GW6W In Cn Cn Cn Cn   Ls CiLW Ii"
+"LW IiLW IiLW @Z <WMj <Z     +] 2] 2] 2] 2] @V &[     >R $V    NU *U *U *U DW4W Fh DW8X ?\\ 4~                Hl   KX   -VBV Hp 8V5e4nGZ  +W +W    LV BX"
+"   1X 3V  j Ct Mx Mr -X Gq =j >Y 3p Gl AX -X       2X 3W 5X(X(u ?s$v Ky NX \"v'X/X'X -X -X3[&w LX&X0X5] Kq!X #p X0X(v :X 4p =\\ 7\\5\\6Y/Y FX @~U&W !V ,W "
+"      AhKW JWLh Bm ChLW Gq JW (eJW MW6W MW ,W ,W:Y KW ,W7W7W=W6W Hl FWLh ChLW MW /o >d 7gKW A\\ 5Z<Z(X8X >Z @v 6W :V  MW       DgI\\$s He 5l Dn EW6W @Y "
+">W4X MWMeM\\!eIe%o HW<] Jq JWLi Dk 2_ @h J~Y(x MX 1iEi HX CX0X ?X 9q   :V   1Z   4\\   GX *m Lz LP*P <X :V  HW   0m        \"l    .~W      :WMeM\\ @UGU   "
+"       !V%U,V6i/V%U8l JX(X.X(X.X(X.X(X.X(X.Y)X/X2y3s$y Ny Ny Ny NX -X -X -X ,v LX5] Kq Fq Fq Fq Fq GP)P'VKp Gp Ep Ep Ep >X <X -WJj KhKW IhKW IhKW IhKW"
+" IhKW IhKW IjEq7m Bq Fq Fq Fq LW ,W ,W ,W &j EW6W Hl Al Al Al Al   Ls AgKW HgKW HgKW HgKW @Z <WLh ;Z               MV &[     =P \"U    V +V )S (S CW4W "
+"De DX8X ?\\ 2|                Fh   IX   -VBV Ek 6V4c1kEZ  +V +V    KV BW   0X 4W  Mf At Mx Mq ,X Go :h =X 0l Ej ?X -W       1X 2W 6X(X(s ;o\"s Hy NX  r%"
+"X/X'X -X -X2['w LX&X0X4\\ Im NX !m NX0Y(t 9X 2m ;Z 5[5[5X-X FX @~U&W !W -W       @fJW JWJe ?j AeJW En IW 'cIW MW6W MW ,W ,W9Y LW ,W7W7W=W6W Fh DWJe AeJ"
+"W MW .m ;b 6eJW A\\ 5Z<Z)X6X >X ?v 6W :V  MW       CeG[$r Fc 2h Am EW6W @Y ?X3W MWMdL\\ cGc#m GW;\\ Hm HWKg Ah /] ?f I~Y(x MX 1iEi HX CX0X ?X 7m   8V   0"
+"X   2Z   FX (j Kz   AX :V  HW   -g         Lh    ,~W      :WMdL\\ @UGU          \"V$U-V5i0V$U7i HX(X.X(X.X(X.X(X.X(X.X(X/X2y1o\"y Ny Ny Ny NX -X -X -X ,t"
+" JX4\\ Im Bm Bm Bm Bm  %VHm Dm Bm Bm Bm =X <X -WJh HfJW HfJW HfJW HfJW HfJW HfJW HhBn4j ?n Cn Cn Cn KW ,W ,W ,W %h DW6W Fh =h =h =h =h   KVMi >eJW GeJW"
+" GeJW GeJW ?X ;WJe 9X               MW &Z       =U    W ,W *R &Q BW4W B` AW6W >[ /y                Dd   GX   -VCV Af 5V2a.gBZ  ,W -W    KV CX   0X 4V "
+" Kd @t Mx Km *X Ek 6d ;X .h Bh >X .X       1X 1W 7X(X(q 7j Np Ey NX  Mm\"X/X'X -X -X1[(w LX&X0X4\\ Gi LX  Ni LX/X$n 7X 0i 9Z 5[5[6Y-Y GX @~U&W  V -W    "
+"   >cIW JWIb <g =bIW Ci FW %_GW MW6W MW ,W ,W8Y MW ,W7W7W=W6W Ef CWIb =bIW MW +h 8a 5cIW @Z 4Y:Y*Y5X ?X ?v 6W :V  MW       AbDY$WMf Ca 0f >k EW6W @Y ?"
+"W2W MWK`I[ NaEa i EW;\\ Fi FWIc >e ,\\ =b G~Y(x MX 1iEi HX CX0X ?X 5i   6V   /V   0X   EX &f Iz   AX :V /P;W   *c         Gb    )~W      :WK`I[ @UGU    "
+"      #V#U.V4i1V#U6f FX(X.X(X.X(X.X(X.X(X.X(X/X2y/j Ny Ny Ny Ny NX -X -X -X ,p FX4\\ Gi >i >i >i >i  $VEi @i >i >i >i ;X <X -WIf EcIW FcIW FcIW FcIW Fc"
+"IW FcIW Fd>i0g ;i >i >i >i HW ,W ,W ,W #d BW6W Ef ;f ;f ;f ;f   JUJe ;cIW FcIW FcIW FcIW ?X ;WIb 7X               MW %Y       =T    X -X )P %P AW4W ?Z"
+" >W6X ?Z ,w                B`   EX   .VBV <] 1V0]*b?[  -W -W    KV CW   /X 4V  I` >t Mx Hg 'X Bf 2` :X +d =b ;X .W       0X 1X 9X&X)m 0d Kj ?y NX  Jg "
+"NX/X'X -X -X0[)w LX&X0X3[ Dc IX  Kf LX/Y!g 4X .e 7Z 5Z3Z7Y+Y HX @~U&W  V -W       =`GW JWG^ 7b 9^GW Ad CW \"YDW MW6W MW ,W ,W7Y NW ,W7W7W=W6W B` @WG^ 9"
+"^GW MW (c 2] 3_GW @Z 3X:X*Y4Y @X ?v 6W :V  MW       ?_AW$WKb @^ +` 9g CW6W ?W ?X2X NWJ^GY K]B^ Ke CW:[ Dd CWG_ 9` 'Y ;^ F~[)x MX 1iEi HX CX0X ?X 2c   "
+"3V   .T   .V   DX $b Gz   AX :V /R>X   &[         ?Z    %~W      :WJ^GY ?UGU          #V +V +V 1b EX&X0X&X0X&X0X&X0X&X0Y'X1X1y,d Ky Ny Ny Ny NX -X -X "
+"-X ,j @X3[ Dc 8c 8c 8c 8c  !VBc ;e :e :e :e 9X <X -WFa B`GW E`GW E`GW E`GW E`GW E`GW D`:d*b 7d 9d 9d 9d EW ,W ,W ,W !` @W6W B` 5` 5` 5` 5`   HVHa 7_GW"
+" D_GW D_GW D_GW ?X ;WG^ 5X               MW         7S                   @r                >Y         BS .V,W#Z   ;V -V     7W     ;W  EX     ;\\   6] "
+"+Z   5\\ 5Z   <W         7X     %\\       <]    \"X         ([   4c   E]   /[          (W  W .W       :Y #X 0Z 2X *\\   $W    &W         .Z =WDX 3XDW   I["
+"   0Y       8W   -W :V  MW       <Z ;WH[ 9Y &Z 1]  LW ?W   >WGXBU FX=X E` \"W >] @WDY 3Z   2X               C[           >T     :[       KV /TAY       "
+"                   EWGXBU =UGU   BT       6V +V +V ,Y               ?\\                    +[ 0[ 0[ 0[ 0[   KT=[ 2[ 0[ 0[ 0[     7Z ;Y .Y .Y .Y .Y .Y -"
+"Y2\\\"Z /\\ 1\\ 1\\ 1\\         CZ   3Z /Z /Z /Z /Z   FVCZ 1Y .Y .Y .Y ,W :WDX 2W               LW         7R                                             #S"
+"       >W /W     8W     :V                      \"W         5X                  )X             &Z                  CW  NV .W                   :W    %W"
+"           @W  :W              -X   -W :V  MW         LW        FW ?W   >W    NW   0W =W                                      3S       GV /XGZ        "
+"                  DW  HUGU   AT                            %T                               'R                             JT                         "
+"      #T         (X :W  NX               LW                                                       7S       =V /V     7W     :V                      \"W"
+"         4X'Q                 &Y             %Z                  DW  NV .W                   :W    %W           @W  :W              -W   ,W :V  MW    "
+"     LW        FW ?W   >W    NW   0W =W                                      3S       GV /j                          CW  HUGU   @T                    "
+"        %T                               'P                             HT                               \"Q         'W 9W  NW               KW        "
+"                                               7S       =W 1W     7V     :W                      \"V         2X)R                 &X             #Z    "
+"              EW  NW /W                   :W    %W           @W  :W              -W   ,X ;V  NX         LW        FW ?W   >W    NW   0W =W            "
+"                          3S       GV /j                          CW  HUGU   @U                            &U                                         "
+"                    U                               \"P         'W 9W  NW               KV                                                       6S    "
+"   <V 1V     6V     :V                      !V         1Y-U                 'X             \"Z                  FW  MV /W                   ;X    %W   "
+"        @W  :W              .X   +W ;V  NW         KW        FW ?W   >W    NW   0W =W                                      3S       GV /h             "
+"             AW  HUGU   ?T                            %T                                                             NT                               "
+"          )X 9W  X               KV                                                       6S       <W 3V     6V     9V                      \"V        "
+" /Z1X                 (X             !Z                  Ga (V 9a                   ;W    $W           @W  :W              .W   *W ;V  NW         KW  "
+"      FW ?W   >W    NW   0W =W                                      3S       GV .f                          @W  HUGU   ?U                            &"
+"U                                                             U                                         *W 8W  W               JV                     "
+"                                  6S       ;V 3V     6V     :W                      \"V         .[5[                 *Y              Z                 "
+" Ha (W :a                   <X    $W           @W  :W              /X   *X <V  X         KW        FW ?W   >W    NW   0W =W                           "
+"           3S       GV +a                          >W  HUGU   >T                            %T                                                        "
+"     NT                                         +X 8W !X              (VIV                                                       6S       :V 5V     5U"
+"     9W                      \"U         +\\;]                 )X              MZ                  Ia (W :a                   =Y    %W           ?W  :W "
+"             /W   )[ ?V #[         KW        FW ?W   >W    NW   0W =W                                      3S       GV 'Z                          ;W "
+" HUGU   >U                            &U                                                             U                                         ,W 7W !"
+"W              'VIV                                                       6S       :V 6W     6V                            4V         *_C`            "
+"     )Y              LZ                  Ja   :a                  (P7Y    $W           ?W  :W              0X   (b GV +b         JW        FW ?W   >W "
+"   NW   0W =W                                      3S       GV                            7W  HUGU   >U                            &U                 "
+"                                            U                                         -X 7W \"X              'VJW                                      "
+"                 6S       9V 7V     5U                            3U         'x                 (Z              KZ                  Ka   :a           "
+"       (R:Z    $W           ?W  :W              0X   (b GV +b         JW        FW ?W   >W    NW   0W =W                                      3S      "
+" GV                            7W     #U                            &U                                                             U                  "
+"                       -X 7W \"X              &UJW                                                       6S       9W 9W                                "
+"            Bu                 ([              IZ                  La   :a                  (T>[    $X           ?W  :W              1X   &a GV +a    "
+"     IW        FW ?W   >W    NW   0W =W                                      3S       GV                            7W     $V                         "
+"   'V                                                            !V                                         .X 6W #X              %VLW                "
+"                                       5S                                                     2p                 -a                                   "
+"                    8XE]    %Y           >W  :W              3Z   $_ GV +_         GW        FW ?W   >W    NW   0W =W                                 "
+"     3S       GV                            7W     /QGW                            2QGW                                                            ,QG"
+"W                                         0Z 6W %Z              %a                                                       5S                           "
+"                          0l                 +a                                                       8p    +_           >W  :W              ;a   !] G"
+"V +]         EW        FW ?W   >W    NW   0W =W                                      3S       GV                            7W     /`                 "
+"           1`                                                            +`                                         7a 5W -a              #`          "
+"                                                                                                   >e                 '`                              "
+"                         7o    *^           =W  :W              ;`    KY GV +Y         AW        FW ?W   >W    NW   0W =W                             "
+"         3S       GV                            7W     /`                            1`                                                            +` "
+"                                        7` 4W -`              \"_                                                                                      "
+"                       8\\                 #_                                       \"}              3n    )^           =W  :W              ;`     9V   "
+"        BW        FW ?W   >W    NW   0W =W                                             'V                            7W     /_                        "
+"    0_                                                            *_                                         6` 4W -`              !]                 "
+"                                                                                                              -]                                      "
+"  }              3l    ']           <W  :W              ;_     8V           BW        FW ?W   >W    NW   0W =W                                        "
+"     'V                            7W     /^                            /^                                                            )^              "
+"                           5_ 3W -_               N[                                                                                                  "
+"                             ,[                                        M}              2j    &\\           ;W  :W              ;^     7V           BW  "
+"      FW ?W   >W    NW   0W =W                                                                          7W     -Y                            *Y       "
+"                                                     $Y                                         2^ 2W -^               LX                             "
+"                                                                                                  *X                                        J}        "
+"      /d    #Z           9W  :W              ;\\     5V           BW        FW ?W   >W    NW   0W =W                                                   "
+"                       7W                                                                                                                             "
+"            /\\ 0W                 HT                                                                                                                  "
+"                                                      I}              *[     NW           6W  :W              ;Z     3V           BW        FW ?W   >W"
+"    NW   0W =W                                                                          7W                                                            "
+"                                                                             /Z .W                                                                    "
+"                                                                                                                     =}                               "
+"                                                                                                                                                      "
+"                                                                                                                              D" };
 
     // Define a 40x38 'danger' color logo (used by cimg::dialog()).
     const unsigned char logo40x38[4576] = {
@@ -3979,9 +3754,33 @@ namespace cimg_library_suffixed {
        \return Currently used output stream.
     **/
     inline std::FILE* output(std::FILE *file) {
+      cimg::mutex(1);
       static std::FILE *res = stderr;
       if (file) res = file;
+      cimg::mutex(1,0);
       return res;
+    }
+
+    // Return number of available CPU cores.
+    inline unsigned int nb_cpus() {
+      unsigned int res = 1;
+#if cimg_OS==2
+      SYSTEM_INFO sysinfo;
+      GetSystemInfo(&sysinfo);
+      res = (unsigned int)sysinfo.dwNumberOfProcessors;
+#else
+      res = (unsigned int)sysconf(_SC_NPROCESSORS_ONLN);
+#endif
+      return res?res:1U;
+    }
+
+    // Lock/unlock mutex for CImg multi-thread programming.
+    inline int mutex(const unsigned int n, const int lock_mode) {
+      switch (lock_mode) {
+      case 0 : cimg::Mutex_attr().unlock(n); return 0;
+      case 1 : cimg::Mutex_attr().lock(n); return 0;
+      default : return cimg::Mutex_attr().trylock(n);
+      }
     }
 
     //! Display a warning message on the default output stream.
@@ -4187,36 +3986,7 @@ namespace cimg_library_suffixed {
     }
 
     // Implement a tic/toc mechanism to display elapsed time of algorithms.
-    inline unsigned long tictoc(const bool is_tic) {
-      static unsigned long t0 = 0;
-      const unsigned long t = cimg::time();
-      if (is_tic) return (t0 = t);
-      const unsigned long dt = t>=t0?(t - t0):cimg::type<unsigned long>::max();
-      const unsigned int
-        edays = (unsigned int)(dt/86400000.0),
-        ehours = (unsigned int)((dt - edays*86400000.0)/3600000.0),
-        emin = (unsigned int)((dt - edays*86400000.0 - ehours*3600000.0)/60000.0),
-        esec = (unsigned int)((dt - edays*86400000.0 - ehours*3600000.0 - emin*60000.0)/1000.0),
-        ems = (unsigned int)(dt - edays*86400000.0 - ehours*3600000.0 - emin*60000.0 - esec*1000.0);
-      if (!edays && !ehours && !emin && !esec)
-        std::fprintf(cimg::output(),"%s[CImg] Elapsed time: %u ms%s\n",cimg::t_red,ems,cimg::t_normal);
-      else {
-        if (!edays && !ehours && !emin)
-          std::fprintf(cimg::output(),"%s[CImg] Elapsed time: %u sec %u ms%s\n",cimg::t_red,esec,ems,cimg::t_normal);
-        else {
-          if (!edays && !ehours)
-            std::fprintf(cimg::output(),"%s[CImg] Elapsed time: %u min %u sec %u ms%s\n",cimg::t_red,emin,esec,ems,cimg::t_normal);
-          else{
-            if (!edays)
-              std::fprintf(cimg::output(),"%s[CImg] Elapsed time: %u hours %u min %u sec %u ms%s\n",cimg::t_red,ehours,emin,esec,ems,cimg::t_normal);
-            else{
-              std::fprintf(cimg::output(),"%s[CImg] Elapsed time: %u days %u hours %u min %u sec %u ms%s\n",cimg::t_red,edays,ehours,emin,esec,ems,cimg::t_normal);
-            }
-          }
-        }
-      }
-      return t;
-    }
+    inline unsigned long tictoc(const bool is_tic);
 
     //! Start tic/toc timer for time measurement between code instructions.
     /**
@@ -4269,8 +4039,10 @@ namespace cimg_library_suffixed {
        of wait(). It may be used to temporize your program properly, without wasting CPU time.
     **/
     inline unsigned int wait(const unsigned int milliseconds) {
+      cimg::mutex(3);
       static unsigned long timer = 0;
       if (!timer) timer = cimg::time();
+      cimg::mutex(3,0);
       return _wait(milliseconds,timer);
     }
 
@@ -4280,11 +4052,15 @@ namespace cimg_library_suffixed {
     // at the same time!
 #ifdef cimg_use_rng
 
+#include <stdint.h>
+
     // Use a custom RNG.
     inline unsigned int _rand(const unsigned int seed=0, const bool set_seed=false) {
       static unsigned long next = 1;
+      cimg::mutex(4);
       if (set_seed) next = (unsigned long)seed;
-      next = next*1103515245 + 12345;
+      next = next*1103515245 + 12345 + rand();
+      cimg::mutex(4,0);
       return (unsigned int)((next>>16)&0x7FFF);
     }
 
@@ -4571,6 +4347,13 @@ namespace cimg_library_suffixed {
       else { const double tmp = absa/absb; return absb==0?0:absb*std::sqrt(1.0+tmp*tmp); }
     }
 
+    inline bool _is_self_expr(const char *expression) {
+      if (!expression || *expression=='>' || *expression=='<') return false;
+      for (const char *s = expression; *s; ++s)
+        if ((*s=='i' || *s=='j') && (s[1]=='(' || s[1]=='[')) return true;
+      return false;
+    }
+
     //! Convert ascii character to lower case.
     inline char uncase(const char x) {
       return (char)((x<'A'||x>'Z')?x:x-'A'+'a');
@@ -4651,7 +4434,7 @@ namespace cimg_library_suffixed {
      **/
     inline void strunescape(char *const str) {
 #define cimg_strunescape(ci,co) case ci: *nd = co; ++ns; break;
-      static unsigned int val = 0;
+      unsigned int val = 0;
       for (char *ns = str, *nd = str; *ns || (bool)(*nd=0); ++nd) if (*ns=='\\') switch (*(++ns)) {
             cimg_strunescape('n','\n');
             cimg_strunescape('t','\t');
@@ -4678,11 +4461,38 @@ namespace cimg_library_suffixed {
     // Return a temporary string describing the size of a memory buffer.
     inline const char *strbuffersize(const unsigned long size) {
       static char res[256] = { 0 };
+      cimg::mutex(5);
       if (size<1024LU) cimg_snprintf(res,sizeof(res),"%lu byte%s",size,size>1?"s":"");
       else if (size<1024*1024LU) { const float nsize = size/1024.0f; cimg_snprintf(res,sizeof(res),"%.1f Kio",nsize); }
       else if (size<1024*1024*1024LU) { const float nsize = size/(1024*1024.0f); cimg_snprintf(res,sizeof(res),"%.1f Mio",nsize); }
       else { const float nsize = size/(1024*1024*1024.0f); cimg_snprintf(res,sizeof(res),"%.1f Gio",nsize); }
+      cimg::mutex(5,0);
       return res;
+    }
+
+    // Return string that identifies the running OS.
+    inline const char *stros() {
+#if defined(linux) || defined(__linux) || defined(__linux__)
+      const char *const str = "Linux";
+#elif defined(sun) || defined(__sun)
+      const char *const str = "Sun OS";
+#elif defined(BSD) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__FreeBSD__) || defined (__DragonFly__)
+      const char *const str = "BSD";
+#elif defined(sgi) || defined(__sgi)
+      const char *const str = "Irix";
+#elif defined(__MACOSX__) || defined(__APPLE__)
+      const char *const str = "Mac OS";
+#elif defined(unix) || defined(__unix) || defined(__unix__)
+      const char *const str = "Generic Unix";
+#elif defined(_MSC_VER) || defined(WIN32)  || defined(_WIN32) || defined(__WIN32__) || defined(WIN64) || defined(_WIN64) || defined(__WIN64__)
+      const char *const str = "Windows";
+#else
+      const char
+        *const _str1 = std::getenv("OSTYPE"),
+        *const _str2 = _str1?_str1:std::getenv("OS"),
+        *const str = _str2?_str2:"Unknown OS";
+#endif
+      return str;
     }
 
     //! Return the basename of a filename.
@@ -4694,12 +4504,14 @@ namespace cimg_library_suffixed {
 
     // Return a random filename.
     inline const char* filenamerand() {
-      static char randomid[9] = { 0,0,0,0,0,0,0,0,0 };
+      cimg::mutex(6);
+      static char randomid[9] = { 0 };
       cimg::srand();
       for (unsigned int k = 0; k<8; ++k) {
         const int v = (int)std::rand()%3;
         randomid[k] = (char)(v==0?('0'+(std::rand()%10)):(v==1?('a'+(std::rand()%26)):('A'+(std::rand()%26))));
       }
+      cimg::mutex(6,0);
       return randomid;
     }
 
@@ -4766,19 +4578,20 @@ namespace cimg_library_suffixed {
     inline const char* temporary_path(const char *const user_path=0, const bool reinit_path=false) {
 #define _cimg_test_temporary_path(p) \
       if (!path_found) { \
-        cimg_snprintf(st_path,1024,"%s",p); \
-        cimg_snprintf(tmp,sizeof(tmp),"%s%c%s",st_path,cimg_file_separator,filetmp); \
+        cimg_snprintf(s_path,1024,"%s",p); \
+        cimg_snprintf(tmp,sizeof(tmp),"%s%c%s",s_path,cimg_file_separator,filetmp); \
         if ((file=std::fopen(tmp,"wb"))!=0) { cimg::fclose(file); std::remove(tmp); path_found = true; } \
       }
-      static char *st_path = 0;
-      if (reinit_path) { delete[] st_path; st_path = 0; }
+      static char *s_path = 0;
+      cimg::mutex(7);
+      if (reinit_path) { delete[] s_path; s_path = 0; }
       if (user_path) {
-        if (!st_path) st_path = new char[1024];
-        std::memset(st_path,0,1024);
-        std::strncpy(st_path,user_path,1023);
-      } else if (!st_path) {
-        st_path = new char[1024];
-        std::memset(st_path,0,1024);
+        if (!s_path) s_path = new char[1024];
+        std::memset(s_path,0,1024);
+        std::strncpy(s_path,user_path,1023);
+      } else if (!s_path) {
+        s_path = new char[1024];
+        std::memset(s_path,0,1024);
         bool path_found = false;
         char tmp[1024] = { 0 }, filetmp[512] = { 0 };
         std::FILE *file = 0;
@@ -4800,14 +4613,17 @@ namespace cimg_library_suffixed {
         _cimg_test_temporary_path("/var/tmp");
 #endif
         if (!path_found) {
-          *st_path = 0;
+          *s_path = 0;
           std::strncpy(tmp,filetmp,sizeof(tmp)-1);
           if ((file=std::fopen(tmp,"wb"))!=0) { cimg::fclose(file); std::remove(tmp); path_found = true; }
         }
-        if (!path_found)
+        if (!path_found) {
+          cimg::mutex(7,0);
           throw CImgIOException("cimg::temporary_path(): Failed to locate path for writing temporary files.\n");
+        }
       }
-      return st_path;
+      cimg::mutex(7,0);
+      return s_path;
     }
 
     //! Get/set path to the <i>Program Files/</i> directory (Windows only).
@@ -4818,27 +4634,29 @@ namespace cimg_library_suffixed {
     **/
 #if cimg_OS==2
     inline const char* programfiles_path(const char *const user_path=0, const bool reinit_path=false) {
-      static char *st_path = 0;
-      if (reinit_path) { delete[] st_path; st_path = 0; }
+      static char *s_path = 0;
+      cimg::mutex(7);
+      if (reinit_path) { delete[] s_path; s_path = 0; }
       if (user_path) {
-        if (!st_path) st_path = new char[1024];
-        std::memset(st_path,0,1024);
-        std::strncpy(st_path,user_path,1023);
-      } else if (!st_path) {
-        st_path = new char[MAX_PATH];
-        std::memset(st_path,0,MAX_PATH);
+        if (!s_path) s_path = new char[1024];
+        std::memset(s_path,0,1024);
+        std::strncpy(s_path,user_path,1023);
+      } else if (!s_path) {
+        s_path = new char[MAX_PATH];
+        std::memset(s_path,0,MAX_PATH);
         // Note: in the following line, 0x26 = CSIDL_PROGRAM_FILES (not defined on every compiler).
 #if !defined(__INTEL_COMPILER)
-        if (!SHGetSpecialFolderPathA(0,st_path,0x0026,false)) {
+        if (!SHGetSpecialFolderPathA(0,s_path,0x0026,false)) {
           const char *const pfPath = std::getenv("PROGRAMFILES");
-          if (pfPath) std::strncpy(st_path,pfPath,MAX_PATH-1);
-          else std::strcpy(st_path,"C:\\PROGRA~1");
+          if (pfPath) std::strncpy(s_path,pfPath,MAX_PATH-1);
+          else std::strcpy(s_path,"C:\\PROGRA~1");
         }
 #else
-        std::strcpy(st_path,"C:\\PROGRA~1");
+        std::strcpy(s_path,"C:\\PROGRA~1");
 #endif
       }
-      return st_path;
+      cimg::mutex(7,0);
+      return s_path;
     }
 #endif
 
@@ -4849,106 +4667,108 @@ namespace cimg_library_suffixed {
        \return Path containing the \c convert binary.
     **/
     inline const char* imagemagick_path(const char *const user_path=0, const bool reinit_path=false) {
-      static char *st_path = 0;
-      if (reinit_path) { delete[] st_path; st_path = 0; }
+      static char *s_path = 0;
+      cimg::mutex(7);
+      if (reinit_path) { delete[] s_path; s_path = 0; }
       if (user_path) {
-        if (!st_path) st_path = new char[1024];
-        std::memset(st_path,0,1024);
-        std::strncpy(st_path,user_path,1023);
-      } else if (!st_path) {
-        st_path = new char[1024];
-        std::memset(st_path,0,1024);
+        if (!s_path) s_path = new char[1024];
+        std::memset(s_path,0,1024);
+        std::strncpy(s_path,user_path,1023);
+      } else if (!s_path) {
+        s_path = new char[1024];
+        std::memset(s_path,0,1024);
         bool path_found = false;
         std::FILE *file = 0;
 #if cimg_OS==2
         const char *const pf_path = programfiles_path();
         if (!path_found) {
-          std::strcpy(st_path,".\\convert.exe");
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          std::strcpy(s_path,".\\convert.exe");
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=10 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"%s\\IMAGEM~1.%.2d-\\convert.exe",pf_path,k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"%s\\IMAGEM~1.%.2d-\\convert.exe",pf_path,k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 9; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"%s\\IMAGEM~1.%d-Q\\convert.exe",pf_path,k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"%s\\IMAGEM~1.%d-Q\\convert.exe",pf_path,k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"%s\\IMAGEM~1.%d\\convert.exe",pf_path,k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"%s\\IMAGEM~1.%d\\convert.exe",pf_path,k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=10 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"%s\\IMAGEM~1.%.2d-\\VISUA~1\\BIN\\convert.exe",pf_path,k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"%s\\IMAGEM~1.%.2d-\\VISUA~1\\BIN\\convert.exe",pf_path,k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 9; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"%s\\IMAGEM~1.%d-Q\\VISUA~1\\BIN\\convert.exe",pf_path,k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"%s\\IMAGEM~1.%d-Q\\VISUA~1\\BIN\\convert.exe",pf_path,k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"%s\\IMAGEM~1.%d\\VISUA~1\\BIN\\convert.exe",pf_path,k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"%s\\IMAGEM~1.%d\\VISUA~1\\BIN\\convert.exe",pf_path,k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=10 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"C:\\IMAGEM~1.%.2d-\\convert.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"C:\\IMAGEM~1.%.2d-\\convert.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 9; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"C:\\IMAGEM~1.%d-Q\\convert.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"C:\\IMAGEM~1.%d-Q\\convert.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"C:\\IMAGEM~1.%d\\convert.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"C:\\IMAGEM~1.%d\\convert.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=10 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"C:\\IMAGEM~1.%.2d-\\VISUA~1\\BIN\\convert.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"C:\\IMAGEM~1.%.2d-\\VISUA~1\\BIN\\convert.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 9; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"C:\\IMAGEM~1.%d-Q\\VISUA~1\\BIN\\convert.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"C:\\IMAGEM~1.%d-Q\\VISUA~1\\BIN\\convert.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"C:\\IMAGEM~1.%d\\VISUA~1\\BIN\\convert.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"C:\\IMAGEM~1.%d\\VISUA~1\\BIN\\convert.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=10 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"D:\\IMAGEM~1.%.2d-\\convert.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"D:\\IMAGEM~1.%.2d-\\convert.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 9; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"D:\\IMAGEM~1.%d-Q\\convert.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"D:\\IMAGEM~1.%d-Q\\convert.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"D:\\IMAGEM~1.%d\\convert.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"D:\\IMAGEM~1.%d\\convert.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=10 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"D:\\IMAGEM~1.%.2d-\\VISUA~1\\BIN\\convert.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"D:\\IMAGEM~1.%.2d-\\VISUA~1\\BIN\\convert.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 9; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"D:\\IMAGEM~1.%d-Q\\VISUA~1\\BIN\\convert.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"D:\\IMAGEM~1.%d-Q\\VISUA~1\\BIN\\convert.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"D:\\IMAGEM~1.%d\\VISUA~1\\BIN\\convert.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"D:\\IMAGEM~1.%d\\VISUA~1\\BIN\\convert.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
-        if (!path_found) std::strcpy(st_path,"convert.exe");
+        if (!path_found) std::strcpy(s_path,"convert.exe");
 #else
         if (!path_found) {
-          std::strcpy(st_path,"./convert");
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          std::strcpy(s_path,"./convert");
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
-        if (!path_found) std::strcpy(st_path,"convert");
+        if (!path_found) std::strcpy(s_path,"convert");
 #endif
-        winformat_string(st_path);
+        winformat_string(s_path);
       }
-      return st_path;
+      cimg::mutex(7,0);
+      return s_path;
     }
 
     //! Get/set path to the GraphicsMagick's \c gm binary.
@@ -4958,106 +4778,108 @@ namespace cimg_library_suffixed {
        \return Path containing the \c gm binary.
     **/
     inline const char* graphicsmagick_path(const char *const user_path=0, const bool reinit_path=false) {
-      static char *st_path = 0;
-      if (reinit_path) { delete[] st_path; st_path = 0; }
+      static char *s_path = 0;
+      cimg::mutex(7);
+      if (reinit_path) { delete[] s_path; s_path = 0; }
       if (user_path) {
-        if (!st_path) st_path = new char[1024];
-        std::memset(st_path,0,1024);
-        std::strncpy(st_path,user_path,1023);
-      } else if (!st_path) {
-        st_path = new char[1024];
-        std::memset(st_path,0,1024);
+        if (!s_path) s_path = new char[1024];
+        std::memset(s_path,0,1024);
+        std::strncpy(s_path,user_path,1023);
+      } else if (!s_path) {
+        s_path = new char[1024];
+        std::memset(s_path,0,1024);
         bool path_found = false;
         std::FILE *file = 0;
 #if cimg_OS==2
         const char *const pf_path = programfiles_path();
         if (!path_found) {
-          std::strcpy(st_path,".\\gm.exe");
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          std::strcpy(s_path,".\\gm.exe");
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=10 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"%s\\GRAPHI~1.%.2d-\\gm.exe",pf_path,k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"%s\\GRAPHI~1.%.2d-\\gm.exe",pf_path,k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 9; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"%s\\GRAPHI~1.%d-Q\\gm.exe",pf_path,k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"%s\\GRAPHI~1.%d-Q\\gm.exe",pf_path,k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"%s\\GRAPHI~1.%d\\gm.exe",pf_path,k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"%s\\GRAPHI~1.%d\\gm.exe",pf_path,k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=10 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"%s\\GRAPHI~1.%.2d-\\VISUA~1\\BIN\\gm.exe",pf_path,k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"%s\\GRAPHI~1.%.2d-\\VISUA~1\\BIN\\gm.exe",pf_path,k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 9; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"%s\\GRAPHI~1.%d-Q\\VISUA~1\\BIN\\gm.exe",pf_path,k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"%s\\GRAPHI~1.%d-Q\\VISUA~1\\BIN\\gm.exe",pf_path,k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"%s\\GRAPHI~1.%d\\VISUA~1\\BIN\\gm.exe",pf_path,k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"%s\\GRAPHI~1.%d\\VISUA~1\\BIN\\gm.exe",pf_path,k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=10 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"C:\\GRAPHI~1.%.2d-\\gm.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"C:\\GRAPHI~1.%.2d-\\gm.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 9; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"C:\\GRAPHI~1.%d-Q\\gm.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"C:\\GRAPHI~1.%d-Q\\gm.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"C:\\GRAPHI~1.%d\\gm.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"C:\\GRAPHI~1.%d\\gm.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=10 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"C:\\GRAPHI~1.%.2d-\\VISUA~1\\BIN\\gm.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"C:\\GRAPHI~1.%.2d-\\VISUA~1\\BIN\\gm.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 9; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"C:\\GRAPHI~1.%d-Q\\VISUA~1\\BIN\\gm.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"C:\\GRAPHI~1.%d-Q\\VISUA~1\\BIN\\gm.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"C:\\GRAPHI~1.%d\\VISUA~1\\BIN\\gm.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"C:\\GRAPHI~1.%d\\VISUA~1\\BIN\\gm.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=10 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"D:\\GRAPHI~1.%.2d-\\gm.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"D:\\GRAPHI~1.%.2d-\\gm.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 9; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"D:\\GRAPHI~1.%d-Q\\gm.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"D:\\GRAPHI~1.%d-Q\\gm.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"D:\\GRAPHI~1.%d\\gm.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"D:\\GRAPHI~1.%d\\gm.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=10 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"D:\\GRAPHI~1.%.2d-\\VISUA~1\\BIN\\gm.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"D:\\GRAPHI~1.%.2d-\\VISUA~1\\BIN\\gm.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 9; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"D:\\GRAPHI~1.%d-Q\\VISUA~1\\BIN\\gm.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"D:\\GRAPHI~1.%d-Q\\VISUA~1\\BIN\\gm.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         for (int k = 32; k>=0 && !path_found; --k) {
-          cimg_snprintf(st_path,sizeof(st_path),"D:\\GRAPHI~1.%d\\VISUA~1\\BIN\\gm.exe",k);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"D:\\GRAPHI~1.%d\\VISUA~1\\BIN\\gm.exe",k);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
-        if (!path_found) std::strcpy(st_path,"gm.exe");
+        if (!path_found) std::strcpy(s_path,"gm.exe");
 #else
         if (!path_found) {
-          std::strcpy(st_path,"./gm");
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          std::strcpy(s_path,"./gm");
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
-        if (!path_found) std::strcpy(st_path,"gm");
+        if (!path_found) std::strcpy(s_path,"gm");
 #endif
-        winformat_string(st_path);
+        winformat_string(s_path);
       }
-      return st_path;
+      cimg::mutex(7,0);
+      return s_path;
     }
 
     //! Get/set path to the XMedcon's \c medcon binary.
@@ -5067,42 +4889,44 @@ namespace cimg_library_suffixed {
        \return Path containing the \c medcon binary.
     **/
     inline const char* medcon_path(const char *const user_path=0, const bool reinit_path=false) {
-      static char *st_path = 0;
-      if (reinit_path) { delete[] st_path; st_path = 0; }
+      static char *s_path = 0;
+      cimg::mutex(7);
+      if (reinit_path) { delete[] s_path; s_path = 0; }
       if (user_path) {
-        if (!st_path) st_path = new char[1024];
-        std::memset(st_path,0,1024);
-        std::strncpy(st_path,user_path,1023);
-      } else if (!st_path) {
-        st_path = new char[1024];
-        std::memset(st_path,0,1024);
+        if (!s_path) s_path = new char[1024];
+        std::memset(s_path,0,1024);
+        std::strncpy(s_path,user_path,1023);
+      } else if (!s_path) {
+        s_path = new char[1024];
+        std::memset(s_path,0,1024);
         bool path_found = false;
         std::FILE *file = 0;
 #if cimg_OS==2
         const char *const pf_path = programfiles_path();
         if (!path_found) {
-          std::strcpy(st_path,".\\medcon.exe");
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          std::strcpy(s_path,".\\medcon.exe");
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         if (!path_found) {
-          cimg_snprintf(st_path,sizeof(st_path),"%s\\XMedCon\\bin\\medcon.bat",pf_path);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"%s\\XMedCon\\bin\\medcon.bat",pf_path);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
         if (!path_found) {
-          cimg_snprintf(st_path,sizeof(st_path),"%s\\XMedCon\\bin\\medcon.exe",pf_path);
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          cimg_snprintf(s_path,sizeof(s_path),"%s\\XMedCon\\bin\\medcon.exe",pf_path);
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
-        if (!path_found) std::strcpy(st_path,"medcon.exe");
+        if (!path_found) std::strcpy(s_path,"medcon.exe");
 #else
         if (!path_found) {
-          std::strcpy(st_path,"./medcon");
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          std::strcpy(s_path,"./medcon");
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
-        if (!path_found) std::strcpy(st_path,"medcon");
+        if (!path_found) std::strcpy(s_path,"medcon");
 #endif
-        winformat_string(st_path);
+        winformat_string(s_path);
       }
-      return st_path;
+      cimg::mutex(7,0);
+      return s_path;
     }
 
     //! Get/set path to the FFMPEG's \c ffmpeg binary.
@@ -5112,33 +4936,35 @@ namespace cimg_library_suffixed {
        \return Path containing the \c ffmpeg binary.
     **/
     inline const char *ffmpeg_path(const char *const user_path=0, const bool reinit_path=false) {
-      static char *st_path = 0;
-      if (reinit_path) { delete[] st_path; st_path = 0; }
+      static char *s_path = 0;
+      cimg::mutex(7);
+      if (reinit_path) { delete[] s_path; s_path = 0; }
       if (user_path) {
-        if (!st_path) st_path = new char[1024];
-        std::memset(st_path,0,1024);
-        std::strncpy(st_path,user_path,1023);
-      } else if (!st_path) {
-        st_path = new char[1024];
-        std::memset(st_path,0,1024);
+        if (!s_path) s_path = new char[1024];
+        std::memset(s_path,0,1024);
+        std::strncpy(s_path,user_path,1023);
+      } else if (!s_path) {
+        s_path = new char[1024];
+        std::memset(s_path,0,1024);
         bool path_found = false;
         std::FILE *file = 0;
 #if cimg_OS==2
         if (!path_found) {
-          std::strcpy(st_path,".\\ffmpeg.exe");
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          std::strcpy(s_path,".\\ffmpeg.exe");
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
-        if (!path_found) std::strcpy(st_path,"ffmpeg.exe");
+        if (!path_found) std::strcpy(s_path,"ffmpeg.exe");
 #else
         if (!path_found) {
-          std::strcpy(st_path,"./ffmpeg");
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          std::strcpy(s_path,"./ffmpeg");
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
-        if (!path_found) std::strcpy(st_path,"ffmpeg");
+        if (!path_found) std::strcpy(s_path,"ffmpeg");
 #endif
-        winformat_string(st_path);
+        winformat_string(s_path);
       }
-      return st_path;
+      cimg::mutex(7,0);
+      return s_path;
     }
 
     //! Get/set path to the \c gzip binary.
@@ -5148,33 +4974,35 @@ namespace cimg_library_suffixed {
        \return Path containing the \c gzip binary.
     **/
     inline const char *gzip_path(const char *const user_path=0, const bool reinit_path=false) {
-      static char *st_path = 0;
-      if (reinit_path) { delete[] st_path; st_path = 0; }
+      static char *s_path = 0;
+      cimg::mutex(7);
+      if (reinit_path) { delete[] s_path; s_path = 0; }
       if (user_path) {
-        if (!st_path) st_path = new char[1024];
-        std::memset(st_path,0,1024);
-        std::strncpy(st_path,user_path,1023);
-      } else if (!st_path) {
-        st_path = new char[1024];
-        std::memset(st_path,0,1024);
+        if (!s_path) s_path = new char[1024];
+        std::memset(s_path,0,1024);
+        std::strncpy(s_path,user_path,1023);
+      } else if (!s_path) {
+        s_path = new char[1024];
+        std::memset(s_path,0,1024);
         bool path_found = false;
         std::FILE *file = 0;
 #if cimg_OS==2
         if (!path_found) {
-          std::strcpy(st_path,".\\gzip.exe");
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          std::strcpy(s_path,".\\gzip.exe");
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
-        if (!path_found) std::strcpy(st_path,"gzip.exe");
+        if (!path_found) std::strcpy(s_path,"gzip.exe");
 #else
         if (!path_found) {
-          std::strcpy(st_path,"./gzip");
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          std::strcpy(s_path,"./gzip");
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
-        if (!path_found) std::strcpy(st_path,"gzip");
+        if (!path_found) std::strcpy(s_path,"gzip");
 #endif
-        winformat_string(st_path);
+        winformat_string(s_path);
       }
-      return st_path;
+      cimg::mutex(7,0);
+      return s_path;
     }
 
     //! Get/set path to the \c gzip binary.
@@ -5184,33 +5012,35 @@ namespace cimg_library_suffixed {
        \return Path containing the \c gunzip binary.
     **/
     inline const char *gunzip_path(const char *const user_path=0, const bool reinit_path=false) {
-      static char *st_path = 0;
-      if (reinit_path) { delete[] st_path; st_path = 0; }
+      static char *s_path = 0;
+      cimg::mutex(7);
+      if (reinit_path) { delete[] s_path; s_path = 0; }
       if (user_path) {
-        if (!st_path) st_path = new char[1024];
-        std::memset(st_path,0,1024);
-        std::strncpy(st_path,user_path,1023);
-      } else if (!st_path) {
-        st_path = new char[1024];
-        std::memset(st_path,0,1024);
+        if (!s_path) s_path = new char[1024];
+        std::memset(s_path,0,1024);
+        std::strncpy(s_path,user_path,1023);
+      } else if (!s_path) {
+        s_path = new char[1024];
+        std::memset(s_path,0,1024);
         bool path_found = false;
         std::FILE *file = 0;
 #if cimg_OS==2
         if (!path_found) {
-          std::strcpy(st_path,".\\gunzip.exe");
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          std::strcpy(s_path,".\\gunzip.exe");
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
-        if (!path_found) std::strcpy(st_path,"gunzip.exe");
+        if (!path_found) std::strcpy(s_path,"gunzip.exe");
 #else
         if (!path_found) {
-          std::strcpy(st_path,"./gunzip");
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          std::strcpy(s_path,"./gunzip");
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
-        if (!path_found) std::strcpy(st_path,"gunzip");
+        if (!path_found) std::strcpy(s_path,"gunzip");
 #endif
-        winformat_string(st_path);
+        winformat_string(s_path);
       }
-      return st_path;
+      cimg::mutex(7,0);
+      return s_path;
     }
 
     //! Get/set path to the \c dcraw binary.
@@ -5220,33 +5050,35 @@ namespace cimg_library_suffixed {
        \return Path containing the \c dcraw binary.
     **/
     inline const char *dcraw_path(const char *const user_path=0, const bool reinit_path=false) {
-      static char *st_path = 0;
-      if (reinit_path) { delete[] st_path; st_path = 0; }
+      static char *s_path = 0;
+      cimg::mutex(7);
+      if (reinit_path) { delete[] s_path; s_path = 0; }
       if (user_path) {
-        if (!st_path) st_path = new char[1024];
-        std::memset(st_path,0,1024);
-        std::strncpy(st_path,user_path,1023);
-      } else if (!st_path) {
-        st_path = new char[1024];
-        std::memset(st_path,0,1024);
+        if (!s_path) s_path = new char[1024];
+        std::memset(s_path,0,1024);
+        std::strncpy(s_path,user_path,1023);
+      } else if (!s_path) {
+        s_path = new char[1024];
+        std::memset(s_path,0,1024);
         bool path_found = false;
         std::FILE *file = 0;
 #if cimg_OS==2
         if (!path_found) {
-          std::strcpy(st_path,".\\dcraw.exe");
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          std::strcpy(s_path,".\\dcraw.exe");
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
-        if (!path_found) std::strcpy(st_path,"dcraw.exe");
+        if (!path_found) std::strcpy(s_path,"dcraw.exe");
 #else
         if (!path_found) {
-          std::strcpy(st_path,"./dcraw");
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          std::strcpy(s_path,"./dcraw");
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
-        if (!path_found) std::strcpy(st_path,"dcraw");
+        if (!path_found) std::strcpy(s_path,"dcraw");
 #endif
-        winformat_string(st_path);
+        winformat_string(s_path);
       }
-      return st_path;
+      cimg::mutex(7,0);
+      return s_path;
     }
 
     //! Get/set path to the \c wget binary.
@@ -5256,33 +5088,35 @@ namespace cimg_library_suffixed {
        \return Path containing the \c wget binary.
     **/
     inline const char *wget_path(const char *const user_path=0, const bool reinit_path=false) {
-      static char *st_path = 0;
-      if (reinit_path) { delete[] st_path; st_path = 0; }
+      static char *s_path = 0;
+      cimg::mutex(7);
+      if (reinit_path) { delete[] s_path; s_path = 0; }
       if (user_path) {
-        if (!st_path) st_path = new char[1024];
-        std::memset(st_path,0,1024);
-        std::strncpy(st_path,user_path,1023);
-      } else if (!st_path) {
-        st_path = new char[1024];
-        std::memset(st_path,0,1024);
+        if (!s_path) s_path = new char[1024];
+        std::memset(s_path,0,1024);
+        std::strncpy(s_path,user_path,1023);
+      } else if (!s_path) {
+        s_path = new char[1024];
+        std::memset(s_path,0,1024);
         bool path_found = false;
         std::FILE *file = 0;
 #if cimg_OS==2
         if (!path_found) {
-          std::strcpy(st_path,".\\wget.exe");
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          std::strcpy(s_path,".\\wget.exe");
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
-        if (!path_found) std::strcpy(st_path,"wget.exe");
+        if (!path_found) std::strcpy(s_path,"wget.exe");
 #else
         if (!path_found) {
-          std::strcpy(st_path,"./wget");
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          std::strcpy(s_path,"./wget");
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
-        if (!path_found) std::strcpy(st_path,"wget");
+        if (!path_found) std::strcpy(s_path,"wget");
 #endif
-        winformat_string(st_path);
+        winformat_string(s_path);
       }
-      return st_path;
+      cimg::mutex(7,0);
+      return s_path;
     }
 
     //! Get/set path to the \c curl binary.
@@ -5292,33 +5126,35 @@ namespace cimg_library_suffixed {
        \return Path containing the \c curl binary.
     **/
     inline const char *curl_path(const char *const user_path=0, const bool reinit_path=false) {
-      static char *st_path = 0;
-      if (reinit_path) { delete[] st_path; st_path = 0; }
+      static char *s_path = 0;
+      cimg::mutex(7);
+      if (reinit_path) { delete[] s_path; s_path = 0; }
       if (user_path) {
-        if (!st_path) st_path = new char[1024];
-        std::memset(st_path,0,1024);
-        std::strncpy(st_path,user_path,1023);
-      } else if (!st_path) {
-        st_path = new char[1024];
-        std::memset(st_path,0,1024);
+        if (!s_path) s_path = new char[1024];
+        std::memset(s_path,0,1024);
+        std::strncpy(s_path,user_path,1023);
+      } else if (!s_path) {
+        s_path = new char[1024];
+        std::memset(s_path,0,1024);
         bool path_found = false;
         std::FILE *file = 0;
 #if cimg_OS==2
         if (!path_found) {
-          std::strcpy(st_path,".\\curl.exe");
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          std::strcpy(s_path,".\\curl.exe");
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
-        if (!path_found) std::strcpy(st_path,"curl.exe");
+        if (!path_found) std::strcpy(s_path,"curl.exe");
 #else
         if (!path_found) {
-          std::strcpy(st_path,"./curl");
-          if ((file=std::fopen(st_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
+          std::strcpy(s_path,"./curl");
+          if ((file=std::fopen(s_path,"r"))!=0) { cimg::fclose(file); path_found = true; }
         }
-        if (!path_found) std::strcpy(st_path,"curl");
+        if (!path_found) std::strcpy(s_path,"curl");
 #endif
-        winformat_string(st_path);
+        winformat_string(s_path);
       }
-      return st_path;
+      cimg::mutex(7,0);
+      return s_path;
     }
 
     //! Split filename into two C-strings \c body and \c extension.
@@ -5335,13 +5171,13 @@ namespace cimg_library_suffixed {
     }
 
     //! Generate a numbered version of a filename.
-    inline char* number_filename(const char *const filename, const int number, const unsigned int n, char *const str) {
+    inline char* number_filename(const char *const filename, const int number, const unsigned int digits, char *const str) {
       if (!filename) { if (str) *str = 0; return 0; }
       char format[1024] = { 0 }, body[1024] = { 0 };
       const char *const ext = cimg::split_filename(filename,body);
-      if (n>0) cimg_snprintf(format,sizeof(format),"%s_%%.%ud.%s",body,n,ext);
-      else cimg_snprintf(format,sizeof(format),"%s_%%d.%s",body,ext);
-      std::sprintf(str,format,number);
+      if (*ext) cimg_snprintf(format,sizeof(format),"%%s_%%.%ud.%%s",digits);
+      else cimg_snprintf(format,sizeof(format),"%%s_%%.%ud",digits);
+      std::sprintf(str,format,body,number,ext);
       return str;
     }
 
@@ -7145,6 +6981,11 @@ namespace cimg_library_suffixed {
     CImgDisplay& set_button() {
       _button = 0;
       _is_event = true;
+#if cimg_display==1
+      pthread_cond_broadcast(&cimg::X11_attr().wait_event);
+#elif cimg_display==2
+      SetEvent(cimg::Win32_attr().wait_event);
+#endif
       return *this;
     }
 
@@ -7157,6 +6998,13 @@ namespace cimg_library_suffixed {
       const unsigned int buttoncode = button==1?1:button==2?2:button==3?4:0;
       if (is_pressed) _button |= buttoncode; else _button &= ~buttoncode;
       _is_event = buttoncode?true:false;
+      if (buttoncode) {
+#if cimg_display==1
+        pthread_cond_broadcast(&cimg::X11_attr().wait_event);
+#elif cimg_display==2
+        SetEvent(cimg::Win32_attr().wait_event);
+#endif
+      }
       return *this;
     }
 
@@ -7167,6 +7015,11 @@ namespace cimg_library_suffixed {
     CImgDisplay& set_wheel() {
       _wheel = 0;
       _is_event = true;
+#if cimg_display==1
+      pthread_cond_broadcast(&cimg::X11_attr().wait_event);
+#elif cimg_display==2
+      SetEvent(cimg::Win32_attr().wait_event);
+#endif
       return *this;
     }
 
@@ -7178,6 +7031,13 @@ namespace cimg_library_suffixed {
     CImgDisplay& set_wheel(const int amplitude) {
       _wheel+=amplitude;
       _is_event = amplitude?true:false;
+      if (amplitude) {
+#if cimg_display==1
+        pthread_cond_broadcast(&cimg::X11_attr().wait_event);
+#elif cimg_display==2
+        SetEvent(cimg::Win32_attr().wait_event);
+#endif
+      }
       return *this;
     }
 
@@ -7199,6 +7059,11 @@ namespace cimg_library_suffixed {
         _is_keyPAD3 = _is_keyPAD4 = _is_keyPAD5 = _is_keyPAD6 = _is_keyPAD7 = _is_keyPAD8 = _is_keyPAD9 = _is_keyPADADD = _is_keyPADSUB =
         _is_keyPADMUL = _is_keyPADDIV = false;
       _is_event = true;
+#if cimg_display==1
+      pthread_cond_broadcast(&cimg::X11_attr().wait_event);
+#elif cimg_display==2
+      SetEvent(cimg::Win32_attr().wait_event);
+#endif
       return *this;
     }
 
@@ -7254,6 +7119,13 @@ namespace cimg_library_suffixed {
         *_released_keys = keycode;
       }
       _is_event = keycode?true:false;
+      if (keycode) {
+#if cimg_display==1
+        pthread_cond_broadcast(&cimg::X11_attr().wait_event);
+#elif cimg_display==2
+        SetEvent(cimg::Win32_attr().wait_event);
+#endif
+      }
       return *this;
     }
 
@@ -7287,34 +7159,34 @@ namespace cimg_library_suffixed {
 
     //! Wait for any event occuring on the display \c disp1.
     static void wait(CImgDisplay& disp1) {
-      disp1._is_event = 0;
+      disp1._is_event = false;
       while (!disp1._is_closed && !disp1._is_event) wait_all();
     }
 
     //! Wait for any event occuring either on the display \c disp1 or \c disp2.
     static void wait(CImgDisplay& disp1, CImgDisplay& disp2) {
-      disp1._is_event = disp2._is_event = 0;
+      disp1._is_event = disp2._is_event = false;
       while ((!disp1._is_closed || !disp2._is_closed) &&
              !disp1._is_event && !disp2._is_event) wait_all();
     }
 
     //! Wait for any event occuring either on the display \c disp1, \c disp2 or \c disp3.
     static void wait(CImgDisplay& disp1, CImgDisplay& disp2, CImgDisplay& disp3) {
-      disp1._is_event = disp2._is_event = disp3._is_event = 0;
+      disp1._is_event = disp2._is_event = disp3._is_event = false;
       while ((!disp1._is_closed || !disp2._is_closed || !disp3._is_closed) &&
              !disp1._is_event && !disp2._is_event && !disp3._is_event) wait_all();
     }
 
     //! Wait for any event occuring either on the display \c disp1, \c disp2, \c disp3 or \c disp4.
     static void wait(CImgDisplay& disp1, CImgDisplay& disp2, CImgDisplay& disp3, CImgDisplay& disp4) {
-      disp1._is_event = disp2._is_event = disp3._is_event = disp4._is_event = 0;
+      disp1._is_event = disp2._is_event = disp3._is_event = disp4._is_event = false;
       while ((!disp1._is_closed || !disp2._is_closed || !disp3._is_closed || !disp4._is_closed) &&
              !disp1._is_event && !disp2._is_event && !disp3._is_event && !disp4._is_event) wait_all();
     }
 
     //! Wait for any event occuring either on the display \c disp1, \c disp2, \c disp3, \c disp4 or \c disp5.
     static void wait(CImgDisplay& disp1, CImgDisplay& disp2, CImgDisplay& disp3, CImgDisplay& disp4, CImgDisplay& disp5) {
-      disp1._is_event = disp2._is_event = disp3._is_event = disp4._is_event = disp5._is_event = 0;
+      disp1._is_event = disp2._is_event = disp3._is_event = disp4._is_event = disp5._is_event = false;
       while ((!disp1._is_closed || !disp2._is_closed || !disp3._is_closed || !disp4._is_closed || !disp5._is_closed) &&
              !disp1._is_event && !disp2._is_event && !disp3._is_event && !disp4._is_event && !disp5._is_event) wait_all();
     }
@@ -7323,7 +7195,7 @@ namespace cimg_library_suffixed {
     static void wait(CImgDisplay& disp1, CImgDisplay& disp2, CImgDisplay& disp3, CImgDisplay& disp4, CImgDisplay& disp5,
                      CImgDisplay& disp6) {
       disp1._is_event = disp2._is_event = disp3._is_event = disp4._is_event = disp5._is_event =
-        disp6._is_event = 0;
+        disp6._is_event = false;
       while ((!disp1._is_closed || !disp2._is_closed || !disp3._is_closed || !disp4._is_closed || !disp5._is_closed ||
               !disp6._is_closed) &&
              !disp1._is_event && !disp2._is_event && !disp3._is_event && !disp4._is_event && !disp5._is_event &&
@@ -7334,7 +7206,7 @@ namespace cimg_library_suffixed {
     static void wait(CImgDisplay& disp1, CImgDisplay& disp2, CImgDisplay& disp3, CImgDisplay& disp4, CImgDisplay& disp5,
                      CImgDisplay& disp6, CImgDisplay& disp7) {
       disp1._is_event = disp2._is_event = disp3._is_event = disp4._is_event = disp5._is_event =
-        disp6._is_event = disp7._is_event = 0;
+        disp6._is_event = disp7._is_event = false;
       while ((!disp1._is_closed || !disp2._is_closed || !disp3._is_closed || !disp4._is_closed || !disp5._is_closed ||
               !disp6._is_closed || !disp7._is_closed) &&
              !disp1._is_event && !disp2._is_event && !disp3._is_event && !disp4._is_event && !disp5._is_event &&
@@ -7345,7 +7217,7 @@ namespace cimg_library_suffixed {
     static void wait(CImgDisplay& disp1, CImgDisplay& disp2, CImgDisplay& disp3, CImgDisplay& disp4, CImgDisplay& disp5,
                      CImgDisplay& disp6, CImgDisplay& disp7, CImgDisplay& disp8) {
       disp1._is_event = disp2._is_event = disp3._is_event = disp4._is_event = disp5._is_event =
-        disp6._is_event = disp7._is_event = disp8._is_event = 0;
+        disp6._is_event = disp7._is_event = disp8._is_event = false;
       while ((!disp1._is_closed || !disp2._is_closed || !disp3._is_closed || !disp4._is_closed || !disp5._is_closed ||
               !disp6._is_closed || !disp7._is_closed || !disp8._is_closed) &&
              !disp1._is_event && !disp2._is_event && !disp3._is_event && !disp4._is_event && !disp5._is_event &&
@@ -7356,7 +7228,7 @@ namespace cimg_library_suffixed {
     static void wait(CImgDisplay& disp1, CImgDisplay& disp2, CImgDisplay& disp3, CImgDisplay& disp4, CImgDisplay& disp5,
                      CImgDisplay& disp6, CImgDisplay& disp7, CImgDisplay& disp8, CImgDisplay& disp9) {
       disp1._is_event = disp2._is_event = disp3._is_event = disp4._is_event = disp5._is_event =
-        disp6._is_event = disp7._is_event = disp8._is_event = disp9._is_event = 0;
+        disp6._is_event = disp7._is_event = disp8._is_event = disp9._is_event = false;
       while ((!disp1._is_closed || !disp2._is_closed || !disp3._is_closed || !disp4._is_closed || !disp5._is_closed ||
               !disp6._is_closed || !disp7._is_closed || !disp8._is_closed || !disp9._is_closed) &&
              !disp1._is_event && !disp2._is_event && !disp3._is_event && !disp4._is_event && !disp5._is_event &&
@@ -7367,7 +7239,7 @@ namespace cimg_library_suffixed {
     static void wait(CImgDisplay& disp1, CImgDisplay& disp2, CImgDisplay& disp3, CImgDisplay& disp4, CImgDisplay& disp5,
                      CImgDisplay& disp6, CImgDisplay& disp7, CImgDisplay& disp8, CImgDisplay& disp9, CImgDisplay& disp10) {
       disp1._is_event = disp2._is_event = disp3._is_event = disp4._is_event = disp5._is_event =
-        disp6._is_event = disp7._is_event = disp8._is_event = disp9._is_event = disp10._is_event = 0;
+        disp6._is_event = disp7._is_event = disp8._is_event = disp9._is_event = disp10._is_event = false;
       while ((!disp1._is_closed || !disp2._is_closed || !disp3._is_closed || !disp4._is_closed || !disp5._is_closed ||
               !disp6._is_closed || !disp7._is_closed || !disp8._is_closed || !disp9._is_closed || !disp10._is_closed) &&
              !disp1._is_event && !disp2._is_event && !disp3._is_event && !disp4._is_event && !disp5._is_event &&
@@ -7472,20 +7344,10 @@ namespace cimg_library_suffixed {
     }
 
     static void wait_all() {
-      Display *const dpy = cimg::X11_attr().display;
-      if (!dpy) return;
-      XLockDisplay(dpy);
-      bool flag = true;
-      XEvent event;
-      while (flag) {
-        XNextEvent(dpy,&event);
-        for (unsigned int i = 0; i<cimg::X11_attr().nb_wins; ++i)
-          if (!cimg::X11_attr().wins[i]->_is_closed && event.xany.window==cimg::X11_attr().wins[i]->_window) {
-            cimg::X11_attr().wins[i]->_handle_events(&event);
-            if (cimg::X11_attr().wins[i]->_is_event) flag = false;
-          }
-      }
-      XUnlockDisplay(dpy);
+      if (!cimg::X11_attr().display) return;
+      if (cimg::mutex(13,2)) { cimg::sleep(10); return; }
+      pthread_cond_wait(&cimg::X11_attr().wait_event,&cimg::X11_attr().wait_event_mutex);
+      cimg::mutex(13,0);
     }
 
     void _handle_events(const XEvent *const pevent) {
@@ -7497,6 +7359,7 @@ namespace cimg_library_suffixed {
             (int)event.xclient.data.l[0]==(int)_wm_window_atom) {
           XUnmapWindow(cimg::X11_attr().display,_window);
           _is_closed = _is_event = true;
+          pthread_cond_broadcast(&cimg::X11_attr().wait_event);
         }
       } break;
       case ConfigureNotify : {
@@ -7507,8 +7370,12 @@ namespace cimg_library_suffixed {
           _window_width = nw; _window_height = nh; _mouse_x = _mouse_y = -1;
           XResizeWindow(dpy,_window,_window_width,_window_height);
           _is_resized = _is_event = true;
+          pthread_cond_broadcast(&cimg::X11_attr().wait_event);
         }
-        if (nx!=_window_x || ny!=_window_y) { _window_x = nx; _window_y = ny; _is_moved = _is_event = true; }
+        if (nx!=_window_x || ny!=_window_y) {
+          _window_x = nx; _window_y = ny; _is_moved = _is_event = true;
+          pthread_cond_broadcast(&cimg::X11_attr().wait_event);
+        }
       } break;
       case Expose : {
         while (XCheckWindowEvent(dpy,_window,ExposureMask,&event)) {}
@@ -7569,6 +7436,7 @@ namespace cimg_library_suffixed {
       case LeaveNotify : {
         while (XCheckWindowEvent(dpy,_window,LeaveWindowMask,&event)) {}
         _mouse_x = _mouse_y =-1; _is_event = true;
+        pthread_cond_broadcast(&cimg::X11_attr().wait_event);
       } break;
       case MotionNotify : {
         while (XCheckWindowEvent(dpy,_window,PointerMotionMask,&event)) {}
@@ -7576,11 +7444,12 @@ namespace cimg_library_suffixed {
         _mouse_y = event.xmotion.y;
         if (_mouse_x<0 || _mouse_y<0 || _mouse_x>=width() || _mouse_y>=height()) _mouse_x = _mouse_y = -1;
         _is_event = true;
+        pthread_cond_broadcast(&cimg::X11_attr().wait_event);
       } break;
       }
     }
 
-    static void* _events_thread(void *) { // Only one thread to handle events for all opened display windows.
+    static void* _events_thread(void *) { // Thread to manage events for all opened display windows.
       Display *const dpy = cimg::X11_attr().display;
       XEvent event;
       pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED,0);
@@ -7589,7 +7458,7 @@ namespace cimg_library_suffixed {
         XLockDisplay(dpy);
         bool event_flag = XCheckTypedEvent(dpy,ClientMessage,&event);
         if (!event_flag) event_flag = XCheckMaskEvent(dpy,
-                                                      ExposureMask | StructureNotifyMask | ButtonPressMask|
+                                                      ExposureMask | StructureNotifyMask | ButtonPressMask |
                                                       KeyPressMask | PointerMotionMask | EnterWindowMask | LeaveWindowMask|
                                                       ButtonReleaseMask | KeyReleaseMask,&event);
         if (event_flag)
@@ -7662,7 +7531,7 @@ namespace cimg_library_suffixed {
       if (_is_closed || !_image) return;
       Display *const dpy = cimg::X11_attr().display;
       if (wait_expose) { // Send an expose event sticked to display window to force repaint.
-        static XEvent event;
+        XEvent event;
         event.xexpose.type = Expose;
         event.xexpose.serial = 0;
         event.xexpose.send_event = 1;
@@ -7677,12 +7546,8 @@ namespace cimg_library_suffixed {
       } else { // Repaint directly (may be called from the expose event).
         GC gc = DefaultGC(dpy,DefaultScreen(dpy));
 #ifdef cimg_use_xshm
-        if (_shminfo) {
-          const int completion_type = XShmGetEventBase(dpy) + ShmCompletion;
-          XEvent event;
-          XShmPutImage(dpy,_window,gc,_image,0,0,0,0,_width,_height,1);
-          do { XNextEvent(dpy,&event); } while (event.type!=completion_type);  // Wait for the image drawing to be completed.
-        } else XPutImage(dpy,_window,gc,_image,0,0,0,0,_width,_height);
+        if (_shminfo) XShmPutImage(dpy,_window,gc,_image,0,0,0,0,_width,_height,1);
+        else XPutImage(dpy,_window,gc,_image,0,0,0,0,_width,_height);
 #else
         XPutImage(dpy,_window,gc,_image,0,0,0,0,_width,_height);
 #endif
@@ -7843,6 +7708,7 @@ namespace cimg_library_suffixed {
     void _assign(const unsigned int dimw, const unsigned int dimh, const char *const ptitle=0,
                  const unsigned int normalization_type=3,
                  const bool fullscreen_flag=false, const bool closed_flag=false) {
+      cimg::mutex(14);
 
       // Allocate space for window title
       const char *const nptitle = ptitle?ptitle:"";
@@ -7856,8 +7722,6 @@ namespace cimg_library_suffixed {
       // Open X11 display and retrieve graphical properties.
       Display* &dpy = cimg::X11_attr().display;
       if (!dpy) {
-        static const int xinit_status = XInitThreads();
-        cimg::unused(xinit_status);
         dpy = XOpenDisplay(0);
         if (!dpy)
           throw CImgDisplayException(_cimgdisplay_instance
@@ -7880,8 +7744,8 @@ namespace cimg_library_suffixed {
         XFree(vinfo);
 
         XLockDisplay(dpy);
-        cimg::X11_attr().event_thread = new pthread_t;
-        pthread_create(cimg::X11_attr().event_thread,0,_events_thread,0);
+        cimg::X11_attr().events_thread = new pthread_t;
+        pthread_create(cimg::X11_attr().events_thread,0,_events_thread,0);
       } else XLockDisplay(dpy);
 
       // Set display variables.
@@ -7969,6 +7833,7 @@ namespace cimg_library_suffixed {
       cimg::X11_attr().wins[cimg::X11_attr().nb_wins++]=this;
       if (!_is_closed) _map_window(); else { _window_x = _window_y = cimg::type<int>::min(); }
       XUnlockDisplay(dpy);
+      cimg::mutex(14,0);
     }
 
     CImgDisplay& assign() {
@@ -8002,7 +7867,7 @@ namespace cimg_library_suffixed {
       _colormap = 0;
       XSync(dpy,0);
 
-      // Reset display variables
+      // Reset display variables.
       delete[] _title;
       _width = _height = _normalization = _window_width = _window_height = 0;
       _window_x = _window_y = 0;
@@ -8012,19 +7877,7 @@ namespace cimg_library_suffixed {
       _title = 0;
       flush();
 
-      // End event thread and close display if necessary
       XUnlockDisplay(dpy);
-      if (!cimg::X11_attr().nb_wins) {
-        // Kill event thread
-        //pthread_cancel(*cimg::X11_attr().event_thread);
-        //XUnlockDisplay(cimg::X11_attr().display);
-        //pthread_join(*cimg::X11_attr().event_thread,0);
-        //delete cimg::X11_attr().event_thread;
-        //cimg::X11_attr().event_thread = 0;
-        // XUnlockDisplay(cimg::X11_attr().display); // <- This call make the library hang sometimes (fix required).
-        // XCloseDisplay(cimg::X11_attr().display); // <- This call make the library hang sometimes (fix required).
-        //cimg::X11_attr().display = 0;
-      }
       return *this;
     }
 
@@ -8045,7 +7898,7 @@ namespace cimg_library_suffixed {
                         const bool fullscreen_flag=false, const bool closed_flag=false) {
       if (!img) return assign();
       CImg<T> tmp;
-      const CImg<T>& nimg = (img._depth==1)?img:(tmp=img.get_projections2d(img._width/2,img._height/2,img._depth/2));
+      const CImg<T>& nimg = (img._depth==1)?img:(tmp=img.get_projections2d((img._width-1)/2,(img._height-1)/2,(img._depth-1)/2));
       _assign(nimg._width,nimg._height,title,normalization_type,fullscreen_flag,closed_flag);
       if (_normalization==2) _min = (float)nimg.min_max(_max);
       return render(nimg).paint();
@@ -8057,7 +7910,7 @@ namespace cimg_library_suffixed {
                         const bool fullscreen_flag=false, const bool closed_flag=false) {
       if (!list) return assign();
       CImg<T> tmp;
-      const CImg<T> img = list>'x', &nimg = (img._depth==1)?img:(tmp=img.get_projections2d(img._width/2,img._height/2,img._depth/2));
+      const CImg<T> img = list>'x', &nimg = (img._depth==1)?img:(tmp=img.get_projections2d((img._width-1)/2,(img._height-1)/2,(img._depth-1)/2));
       _assign(nimg._width,nimg._height,title,normalization_type,fullscreen_flag,closed_flag);
       if (_normalization==2) _min = (float)nimg.min_max(_max);
       return render(nimg).paint();
@@ -8143,8 +7996,8 @@ namespace cimg_library_suffixed {
 
     CImgDisplay& move(const int posx, const int posy) {
       if (is_empty()) return *this;
-      Display *const dpy = cimg::X11_attr().display;
       show();
+      Display *const dpy = cimg::X11_attr().display;
       XLockDisplay(dpy);
       XMoveWindow(dpy,_window,posx,posy);
       _window_x = posx; _window_y = posy;
@@ -8234,7 +8087,7 @@ namespace cimg_library_suffixed {
                                     "render(): Empty specified image.",
                                     cimgdisplay_instance);
       if (is_empty()) return *this;
-      if (img._depth!=1) return render(img.get_projections2d(img._width/2,img._height/2,img._depth/2));
+      if (img._depth!=1) return render(img.get_projections2d((img._width-1)/2,(img._height-1)/2,(img._depth-1)/2));
       if (cimg::X11_attr().nb_bits==8 && (img._width!=_width || img._height!=_height)) return render(img.get_resize(_width,_height,1,-100,1));
       if (cimg::X11_attr().nb_bits==8 && !flag8 && img._spectrum==3) {
         static const CImg<typename CImg<T>::ucharT> default_colormap = CImg<typename CImg<T>::ucharT>::default_LUT256();
@@ -8633,7 +8486,7 @@ namespace cimg_library_suffixed {
       WaitForSingleObject(cimg::Win32_attr().wait_event,INFINITE);
     }
 
-    static LRESULT APIENTRY _handle_events(HWND window,UINT msg,WPARAM wParam,LPARAM lParam) {
+    static LRESULT APIENTRY _handle_events(HWND window, UINT msg, WPARAM wParam, LPARAM lParam) {
 #ifdef _WIN64
       CImgDisplay *const disp = (CImgDisplay*)GetWindowLongPtr(window,GWLP_USERDATA);
 #else
@@ -8677,6 +8530,7 @@ namespace cimg_library_suffixed {
       } break;
       case WM_PAINT :
         disp->paint();
+        if (disp->_is_cursor_visible) while (ShowCursor(TRUE)<0); else while (ShowCursor(FALSE)>=0);
         break;
       case WM_KEYDOWN :
         disp->set_key((unsigned int)wParam);
@@ -8703,10 +8557,12 @@ namespace cimg_library_suffixed {
           disp->_mouse_x = disp->_mouse_y = -1;
         disp->_is_event = true;
         SetEvent(cimg::Win32_attr().wait_event);
+        if (disp->_is_cursor_visible) while (ShowCursor(TRUE)<0); else while (ShowCursor(FALSE)>=0);
       } break;
       case WM_MOUSELEAVE : {
         disp->_mouse_x = disp->_mouse_y = -1;
         disp->_is_mouse_tracked = false;
+        while (ShowCursor(TRUE)<0);
       } break;
       case WM_LBUTTONDOWN :
         disp->set_button(1);
@@ -8735,10 +8591,6 @@ namespace cimg_library_suffixed {
       case 0x020A : // WM_MOUSEWHEEL:
         disp->set_wheel((int)((short)HIWORD(wParam))/120);
         SetEvent(cimg::Win32_attr().wait_event);
-      case WM_SETCURSOR :
-        if (disp->_is_cursor_visible) while (ShowCursor(TRUE)<0);
-        else while (ShowCursor(FALSE)>=0);
-        break;
       }
       return DefWindowProc(window,msg,wParam,lParam);
     }
@@ -8884,10 +8736,9 @@ namespace cimg_library_suffixed {
       void *const arg = (void*)(new void*[2]);
       ((void**)arg)[0] = (void*)this;
       ((void**)arg)[1] = (void*)_title;
-      unsigned long ThreadID = 0;
       _mutex = CreateMutex(0,FALSE,0);
       _is_created = CreateEvent(0,FALSE,FALSE,0);
-      _thread = CreateThread(0,0,_events_thread,arg,0,&ThreadID);
+      _thread = CreateThread(0,0,_events_thread,arg,0,0);
       WaitForSingleObject(_is_created,INFINITE);
       return *this;
     }
@@ -8927,7 +8778,7 @@ namespace cimg_library_suffixed {
                         const bool fullscreen_flag=false, const bool closed_flag=false) {
       if (!img) return assign();
       CImg<T> tmp;
-      const CImg<T>& nimg = (img._depth==1)?img:(tmp=img.get_projections2d(img._width/2,img._height/2,img._depth/2));
+      const CImg<T>& nimg = (img._depth==1)?img:(tmp=img.get_projections2d((img._width-1)/2,(img._height-1)/2,(img._depth-1)/2));
       _assign(nimg._width,nimg._height,title,normalization_type,fullscreen_flag,closed_flag);
       if (_normalization==2) _min = (float)nimg.min_max(_max);
       return display(nimg);
@@ -8939,7 +8790,7 @@ namespace cimg_library_suffixed {
                         const bool fullscreen_flag=false, const bool closed_flag=false) {
       if (!list) return assign();
       CImg<T> tmp;
-      const CImg<T> img = list>'x', &nimg = (img._depth==1)?img:(tmp=img.get_projections2d(img._width/2,img._height/2,img._depth/2));
+      const CImg<T> img = list>'x', &nimg = (img._depth==1)?img:(tmp=img.get_projections2d((img._width-1)/2,(img._height-1)/2,(img._depth-1)/2));
       _assign(nimg._width,nimg._height,title,normalization_type,fullscreen_flag,closed_flag);
       if (_normalization==2) _min = (float)nimg.min_max(_max);
       return display(nimg);
@@ -9033,14 +8884,12 @@ namespace cimg_library_suffixed {
     CImgDisplay& show_mouse() {
       if (is_empty()) return *this;
       _is_cursor_visible = true;
-      SendMessage(_window,WM_SETCURSOR,0,0);
       return *this;
     }
 
     CImgDisplay& hide_mouse() {
       if (is_empty()) return *this;
       _is_cursor_visible = false;
-      SendMessage(_window,WM_SETCURSOR,0,0);
       return *this;
     }
 
@@ -9094,7 +8943,7 @@ namespace cimg_library_suffixed {
                                     cimgdisplay_instance);
 
       if (is_empty()) return *this;
-      if (img._depth!=1) return render(img.get_projections2d(img._width/2,img._height/2,img._depth/2));
+      if (img._depth!=1) return render(img.get_projections2d((img._width-1)/2,(img._height-1)/2,(img._depth-1)/2));
 
       const T
         *data1 = img._data,
@@ -10491,10 +10340,11 @@ namespace cimg_library_suffixed {
       const unsigned int omode = cimg::exception_mode();
       cimg::exception_mode() = 0;
       try {
-        const CImg<T> _base = std::strstr(expression,"i(")?+*this:CImg<T>(), &base = _base?_base:*this;
-        _cimg_math_parser mp(base,expression,"operator+=");
-        T *ptrd = _data;
-        cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)(*ptrd + mp.eval(x,y,z,c)); ++ptrd; }
+        const CImg<T> _base = cimg::_is_self_expr(expression)?+*this:CImg<T>(), &base = _base?_base:*this;
+        _cimg_math_parser mp(base,expression+(*expression=='>' || *expression=='<'?1:0),"operator+=");
+        T *ptrd = *expression=='<'?end()-1:_data;
+        if (*expression=='<') cimg_rofXYZC(*this,x,y,z,c) { *ptrd = (T)(*ptrd + mp.eval(x,y,z,c)); --ptrd; }
+        else cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)(*ptrd + mp.eval(x,y,z,c)); ++ptrd; }
       } catch (CImgException&) {
         cimg::exception_mode() = omode;
         *this+=CImg<T>(_width,_height,_depth,_spectrum,expression,true);
@@ -10510,7 +10360,7 @@ namespace cimg_library_suffixed {
        \note
        - The size of the image instance is never modified.
        - It is not mandatory that input image \c img has the same size as the image instance. If less values are available
-         in \c img, then the values are added cyclically. For instance, adding one WxH scalar image (spectrum() equal to \c 1) to
+         in \c img, then the values are added periodically. For instance, adding one WxH scalar image (spectrum() equal to \c 1) to
          one WxH color image (spectrum() equal to \c 3) means each color channel will be incremented with the same values at the same
          locations.
        \par Example
@@ -10620,10 +10470,11 @@ namespace cimg_library_suffixed {
       const unsigned int omode = cimg::exception_mode();
       cimg::exception_mode() = 0;
       try {
-        const CImg<T> _base = std::strstr(expression,"i(")?+*this:CImg<T>(), &base = _base?_base:*this;
-        _cimg_math_parser mp(base,expression,"operator-=");
-        T *ptrd = _data;
-        cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)(*ptrd - mp.eval(x,y,z,c)); ++ptrd; }
+        const CImg<T> _base = cimg::_is_self_expr(expression)?+*this:CImg<T>(), &base = _base?_base:*this;
+        _cimg_math_parser mp(base,expression+(*expression=='>' || *expression=='<'?1:0),"operator-=");
+        T *ptrd = *expression=='<'?end()-1:_data;
+        if (*expression=='<') cimg_rofXYZC(*this,x,y,z,c) { *ptrd = (T)(*ptrd - mp.eval(x,y,z,c)); --ptrd; }
+        else cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)(*ptrd - mp.eval(x,y,z,c)); ++ptrd; }
       } catch (CImgException&) {
         cimg::exception_mode() = omode;
         *this-=CImg<T>(_width,_height,_depth,_spectrum,expression,true);
@@ -10733,10 +10584,11 @@ namespace cimg_library_suffixed {
       const unsigned int omode = cimg::exception_mode();
       cimg::exception_mode() = 0;
       try {
-        const CImg<T> _base = std::strstr(expression,"i(")?+*this:CImg<T>(), &base = _base?_base:*this;
-        _cimg_math_parser mp(base,expression,"operator*=");
-        T *ptrd = _data;
-        cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)(*ptrd * mp.eval(x,y,z,c)); ++ptrd; }
+        const CImg<T> _base = cimg::_is_self_expr(expression)?+*this:CImg<T>(), &base = _base?_base:*this;
+        _cimg_math_parser mp(base,expression+(*expression=='>' || *expression=='<'?1:0),"operator*=");
+        T *ptrd = *expression=='<'?end()-1:_data;
+        if (*expression=='<') cimg_rofXYZC(*this,x,y,z,c) { *ptrd = (T)(*ptrd * mp.eval(x,y,z,c)); --ptrd; }
+        else cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)(*ptrd * mp.eval(x,y,z,c)); ++ptrd; }
       } catch (CImgException&) {
         cimg::exception_mode() = omode;
         mul(CImg<T>(_width,_height,_depth,_spectrum,expression,true));
@@ -10826,10 +10678,11 @@ namespace cimg_library_suffixed {
       const unsigned int omode = cimg::exception_mode();
       cimg::exception_mode() = 0;
       try {
-        const CImg<T> _base = std::strstr(expression,"i(")?+*this:CImg<T>(), &base = _base?_base:*this;
-        _cimg_math_parser mp(base,expression,"operator/=");
-        T *ptrd = _data;
-        cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)(*ptrd / mp.eval(x,y,z,c)); ++ptrd; }
+        const CImg<T> _base = cimg::_is_self_expr(expression)?+*this:CImg<T>(), &base = _base?_base:*this;
+        _cimg_math_parser mp(base,expression+(*expression=='>' || *expression=='<'?1:0),"operator/=");
+        T *ptrd = *expression=='<'?end()-1:_data;
+        if (*expression=='<') cimg_rofXYZC(*this,x,y,z,c) { *ptrd = (T)(*ptrd / mp.eval(x,y,z,c)); --ptrd; }
+        else cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)(*ptrd / mp.eval(x,y,z,c)); ++ptrd; }
       } catch (CImgException&) {
         cimg::exception_mode() = omode;
         div(CImg<T>(_width,_height,_depth,_spectrum,expression,true));
@@ -10899,10 +10752,11 @@ namespace cimg_library_suffixed {
       const unsigned int omode = cimg::exception_mode();
       cimg::exception_mode() = 0;
       try {
-        const CImg<T> _base = std::strstr(expression,"i(")?+*this:CImg<T>(), &base = _base?_base:*this;
-        _cimg_math_parser mp(base,expression,"operator%=");
-        T *ptrd = _data;
-        cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)cimg::mod(*ptrd,(T)mp.eval(x,y,z,c)); ++ptrd; }
+        const CImg<T> _base = cimg::_is_self_expr(expression)?+*this:CImg<T>(), &base = _base?_base:*this;
+        _cimg_math_parser mp(base,expression+(*expression=='>' || *expression=='<'?1:0),"operator%=");
+        T *ptrd = *expression=='<'?end()-1:_data;
+        if (*expression=='<') cimg_rofXYZC(*this,x,y,z,c) { *ptrd = (T)cimg::mod(*ptrd,(T)mp.eval(x,y,z,c)); --ptrd; }
+        else cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)cimg::mod(*ptrd,(T)mp.eval(x,y,z,c)); ++ptrd; }
       } catch (CImgException&) {
         cimg::exception_mode() = omode;
         *this%=CImg<T>(_width,_height,_depth,_spectrum,expression,true);
@@ -10975,10 +10829,11 @@ namespace cimg_library_suffixed {
       const unsigned int omode = cimg::exception_mode();
       cimg::exception_mode() = 0;
       try {
-        const CImg<T> _base = std::strstr(expression,"i(")?+*this:CImg<T>(), &base = _base?_base:*this;
-        _cimg_math_parser mp(base,expression,"operator&=");
-        T *ptrd = _data;
-        cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)((unsigned long)*ptrd & (unsigned long)mp.eval(x,y,z,c)); ++ptrd; }
+        const CImg<T> _base = cimg::_is_self_expr(expression)?+*this:CImg<T>(), &base = _base?_base:*this;
+        _cimg_math_parser mp(base,expression+(*expression=='>' || *expression=='<'?1:0),"operator&=");
+        T *ptrd = *expression=='<'?end()-1:_data;
+        if (*expression=='<') cimg_rofXYZC(*this,x,y,z,c) { *ptrd = (T)((unsigned long)*ptrd & (unsigned long)mp.eval(x,y,z,c)); --ptrd; }
+        else cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)((unsigned long)*ptrd & (unsigned long)mp.eval(x,y,z,c)); ++ptrd; }
       } catch (CImgException&) {
         cimg::exception_mode() = omode;
         *this&=CImg<T>(_width,_height,_depth,_spectrum,expression,true);
@@ -11051,10 +10906,11 @@ namespace cimg_library_suffixed {
       const unsigned int omode = cimg::exception_mode();
       cimg::exception_mode() = 0;
       try {
-        const CImg<T> _base = std::strstr(expression,"i(")?+*this:CImg<T>(), &base = _base?_base:*this;
-        _cimg_math_parser mp(base,expression,"operator|=");
-        T *ptrd = _data;
-        cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)((unsigned long)*ptrd | (unsigned long)mp.eval(x,y,z,c)); ++ptrd; }
+        const CImg<T> _base = cimg::_is_self_expr(expression)?+*this:CImg<T>(), &base = _base?_base:*this;
+        _cimg_math_parser mp(base,expression+(*expression=='>' || *expression=='<'?1:0),"operator|=");
+        T *ptrd = *expression=='<'?end()-1:_data;
+        if (*expression=='<') cimg_rofXYZC(*this,x,y,z,c) { *ptrd = (T)((unsigned long)*ptrd | (unsigned long)mp.eval(x,y,z,c)); --ptrd; }
+        else cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)((unsigned long)*ptrd | (unsigned long)mp.eval(x,y,z,c)); ++ptrd; }
       } catch (CImgException&) {
         cimg::exception_mode() = omode;
         *this|=CImg<T>(_width,_height,_depth,_spectrum,expression,true);
@@ -11131,10 +10987,11 @@ namespace cimg_library_suffixed {
       const unsigned int omode = cimg::exception_mode();
       cimg::exception_mode() = 0;
       try {
-        const CImg<T> _base = std::strstr(expression,"i(")?+*this:CImg<T>(), &base = _base?_base:*this;
-        _cimg_math_parser mp(base,expression,"operator^=");
-        T *ptrd = _data;
-        cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)((unsigned long)*ptrd ^ (unsigned long)mp.eval(x,y,z,c)); ++ptrd; }
+        const CImg<T> _base = cimg::_is_self_expr(expression)?+*this:CImg<T>(), &base = _base?_base:*this;
+        _cimg_math_parser mp(base,expression+(*expression=='>' || *expression=='<'?1:0),"operator^=");
+        T *ptrd = *expression=='<'?end()-1:_data;
+        if (*expression=='<') cimg_rofXYZC(*this,x,y,z,c) { *ptrd = (T)((unsigned long)*ptrd ^ (unsigned long)mp.eval(x,y,z,c)); --ptrd; }
+        else cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)((unsigned long)*ptrd ^ (unsigned long)mp.eval(x,y,z,c)); ++ptrd; }
       } catch (CImgException&) {
         cimg::exception_mode() = omode;
         *this^=CImg<T>(_width,_height,_depth,_spectrum,expression,true);
@@ -11209,10 +11066,11 @@ namespace cimg_library_suffixed {
       const unsigned int omode = cimg::exception_mode();
       cimg::exception_mode() = 0;
       try {
-        const CImg<T> _base = std::strstr(expression,"i(")?+*this:CImg<T>(), &base = _base?_base:*this;
-        _cimg_math_parser mp(base,expression,"operator<<=");
-        T *ptrd = _data;
-        cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)((long)*ptrd << (int)mp.eval(x,y,z,c)); ++ptrd; }
+        const CImg<T> _base = cimg::_is_self_expr(expression)?+*this:CImg<T>(), &base = _base?_base:*this;
+        _cimg_math_parser mp(base,expression+(*expression=='>' || *expression=='<'?1:0),"operator<<=");
+        T *ptrd = *expression=='<'?end()-1:_data;
+        if (*expression=='<') cimg_rofXYZC(*this,x,y,z,c) { *ptrd = (T)((long)*ptrd << (int)mp.eval(x,y,z,c)); --ptrd; }
+        else cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)((long)*ptrd << (int)mp.eval(x,y,z,c)); ++ptrd; }
       } catch (CImgException&) {
         cimg::exception_mode() = omode;
         *this<<=CImg<T>(_width,_height,_depth,_spectrum,expression,true);
@@ -11285,10 +11143,11 @@ namespace cimg_library_suffixed {
       const unsigned int omode = cimg::exception_mode();
       cimg::exception_mode() = 0;
       try {
-        const CImg<T> _base = std::strstr(expression,"i(")?+*this:CImg<T>(), &base = _base?_base:*this;
-        _cimg_math_parser mp(base,expression,"operator<<=");
-        T *ptrd = _data;
-        cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)((long)*ptrd >> (int)mp.eval(x,y,z,c)); ++ptrd; }
+        const CImg<T> _base = cimg::_is_self_expr(expression)?+*this:CImg<T>(), &base = _base?_base:*this;
+        _cimg_math_parser mp(base,expression+(*expression=='>' || *expression=='<'?1:0),"operator<<=");
+        T *ptrd = *expression=='<'?end()-1:_data;
+        if (*expression=='<') cimg_rofXYZC(*this,x,y,z,c) { *ptrd = (T)((long)*ptrd >> (int)mp.eval(x,y,z,c)); --ptrd; }
+        else cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)((long)*ptrd >> (int)mp.eval(x,y,z,c)); ++ptrd; }
       } catch (CImgException&) {
         cimg::exception_mode() = omode;
         *this>>=CImg<T>(_width,_height,_depth,_spectrum,expression,true);
@@ -11379,10 +11238,11 @@ namespace cimg_library_suffixed {
       cimg::exception_mode() = 0;
       bool is_equal = true;
       try {
-        const CImg<T> _base = std::strstr(expression,"i(")?+*this:CImg<T>(), &base = _base?_base:*this;
-        _cimg_math_parser mp(base,expression,"operator<<=");
+        const CImg<T> _base = cimg::_is_self_expr(expression)?+*this:CImg<T>(), &base = _base?_base:*this;
+        _cimg_math_parser mp(base,expression+(*expression=='>' || *expression=='<'?1:0),"operator<<=");
         const T *ptrs = _data;
-        cimg_forXYZC(*this,x,y,z,c) { if (!is_equal) break; is_equal = ((double)*(ptrs++)==mp.eval(x,y,z,c)); }
+        if (*expression=='<') cimg_rofXYZC(*this,x,y,z,c) { if (!is_equal) break; is_equal = ((double)*(ptrs--)==mp.eval(x,y,z,c)); }
+        else cimg_forXYZC(*this,x,y,z,c) { if (!is_equal) break; is_equal = ((double)*(ptrs++)==mp.eval(x,y,z,c)); }
       } catch (CImgException&) {
         cimg::exception_mode() = omode;
         is_equal = (*this==CImg<T>(_width,_height,_depth,_spectrum,expression,true));
@@ -11652,13 +11512,11 @@ namespace cimg_library_suffixed {
 #if cimg_verbosity>=3
     T *data(const unsigned int x, const unsigned int y=0, const unsigned int z=0, const unsigned int c=0) {
       const unsigned long off = (unsigned long)offset(x,y,z,c);
-      if (off>=size()) {
+      if (off>=size())
         cimg::warn(_cimg_instance
                    "data(): Invalid pointer request, at coordinates (%u,%u,%u,%u) [offset=%u].",
                    cimg_instance,
                    x,y,z,c,off);
-        return _data;
-      }
       return _data + off;
     }
 
@@ -12340,6 +12198,7 @@ namespace cimg_library_suffixed {
     /**
        Return a cubicly-interpolated pixel value of the image instance located at (\c fx,\c y,\c z,\c c),
        or a specified default value in case of out-of-bounds access along the X-axis.
+       The cubic interpolation uses Hermite splines.
        \param fx d X-coordinate of the pixel value (float-valued).
        \param y Y-coordinate of the pixel value.
        \param z Z-coordinate of the pixel value.
@@ -12377,6 +12236,7 @@ namespace cimg_library_suffixed {
     /**
        Return a cubicly-interpolated pixel value of the image instance located at (\c fx,\c y,\c z,\c c),
        or the value of the nearest pixel location in the image instance in case of out-of-bounds access along the X-axis.
+       The cubic interpolation uses Hermite splines.
        \param fx X-coordinate of the pixel value (float-valued).
        \param y Y-coordinate of the pixel value.
        \param z Z-coordinate of the pixel value.
@@ -13262,10 +13122,10 @@ namespace cimg_library_suffixed {
        \param primitives List of primitives of the 3d object.
        \param colors List of colors of the 3d object.
        \param opacities List (or image) of opacities of the 3d object.
-       \param is_full_check Tells if full checking of the 3d object must be performed.
+       \param full_check Tells if full checking of the 3d object must be performed.
        \param[out] error_message C-string to contain the error message, if the test does not succeed.
        \note
-       - Set \c is_full_checking to \c false to speed-up the 3d object checking. In this case, only the size of
+       - Set \c full_checking to \c false to speed-up the 3d object checking. In this case, only the size of
          each 3d object component is checked.
        - Size of the string \c error_message should be at least 128-bytes long, to be able to contain the error message.
     **/
@@ -13273,7 +13133,7 @@ namespace cimg_library_suffixed {
     bool is_object3d(const CImgList<tp>& primitives,
                      const CImgList<tc>& colors,
                      const to& opacities,
-                     const bool is_full_check=true,
+                     const bool full_check=true,
                      char *const error_message=0) const {
       if (error_message) *error_message = 0;
 
@@ -13281,8 +13141,8 @@ namespace cimg_library_suffixed {
       if (is_empty()) {
         if (primitives || colors || opacities) {
           if (error_message) std::sprintf(error_message,
-                                          "3d object has no vertices but %u primitives, %u colors and %lu opacities",
-                                          primitives._width,colors._width,(unsigned long)opacities.size());
+                                          "3d object (%u,%u) defines no vertices but %u primitives, %u colors and %lu opacities",
+                                          _width,primitives._width,primitives._width,colors._width,(unsigned long)opacities.size());
           return false;
         }
         return true;
@@ -13291,7 +13151,7 @@ namespace cimg_library_suffixed {
       // Check consistency of vertices.
       if (_height!=3 || _depth>1 || _spectrum>1) { // Check vertices dimensions.
         if (error_message) std::sprintf(error_message,
-                                        "3d object (%u,%u) has invalid vertices dimensions (%u,%u,%u,%u)",
+                                        "3d object (%u,%u) has invalid vertex dimensions (%u,%u,%u,%u)",
                                         _width,primitives._width,_width,_height,_depth,_spectrum);
         return false;
       }
@@ -13307,7 +13167,7 @@ namespace cimg_library_suffixed {
                                         _width,primitives._width,(unsigned long)opacities.size());
         return false;
       }
-      if (!is_full_check) return true;
+      if (!full_check) return true;
 
       // Check consistency of primitives.
       cimglist_for(primitives,l) {
@@ -13318,7 +13178,7 @@ namespace cimg_library_suffixed {
           const unsigned int i0 = (unsigned int)primitive(0);
           if (i0>=_width) {
             if (error_message) std::sprintf(error_message,
-                                            "3d object (%u,%u) refers to invalid vertex indice %u in point primitive %u",
+                                            "3d object (%u,%u) refers to invalid vertex indice %u in point primitive [%u]",
                                             _width,primitives._width,i0,l);
             return false;
           }
@@ -13329,7 +13189,7 @@ namespace cimg_library_suffixed {
             i1 = (unsigned int)primitive(1);
           if (i0>=_width || i1>=_width) {
             if (error_message) std::sprintf(error_message,
-                                            "3d object (%u,%u) refers to invalid vertex indices (%u,%u) in sphere primitive %u",
+                                            "3d object (%u,%u) refers to invalid vertex indices (%u,%u) in sphere primitive [%u]",
                                             _width,primitives._width,i0,i1,l);
             return false;
           }
@@ -13341,7 +13201,7 @@ namespace cimg_library_suffixed {
             i1 = (unsigned int)primitive(1);
           if (i0>=_width || i1>=_width) {
             if (error_message) std::sprintf(error_message,
-                                            "3d object (%u,%u) refers to invalid vertex indices (%u,%u) in segment primitive %u",
+                                            "3d object (%u,%u) refers to invalid vertex indices (%u,%u) in segment primitive [%u]",
                                             _width,primitives._width,i0,i1,l);
             return false;
           }
@@ -13354,7 +13214,7 @@ namespace cimg_library_suffixed {
             i2 = (unsigned int)primitive(2);
           if (i0>=_width || i1>=_width || i2>=_width) {
             if (error_message) std::sprintf(error_message,
-                                            "3d object (%u,%u) refers to invalid vertex indices (%u,%u,%u) in triangle primitive %u",
+                                            "3d object (%u,%u) refers to invalid vertex indices (%u,%u,%u) in triangle primitive [%u]",
                                             _width,primitives._width,i0,i1,i2,l);
             return false;
           }
@@ -13368,15 +13228,15 @@ namespace cimg_library_suffixed {
             i3 = (unsigned int)primitive(3);
           if (i0>=_width || i1>=_width || i2>=_width || i3>=_width) {
             if (error_message) std::sprintf(error_message,
-                                            "3d object (%u,%u) refers to invalid vertex indices (%u,%u,%u,%u) in quadrangle primitive %u",
+                                            "3d object (%u,%u) refers to invalid vertex indices (%u,%u,%u,%u) in quadrangle primitive [%u]",
                                             _width,primitives._width,i0,i1,i2,i3,l);
             return false;
           }
         } break;
         default :
           if (error_message) std::sprintf(error_message,
-                                          "3d object has invalid primitive %u of size %u",
-                                          l,(unsigned int)psiz);
+                                          "3d object (%u,%u) defines an invalid primitive [%u] of size %u",
+                                          _width,primitives._width,l,(unsigned int)psiz);
           return false;
         }
       }
@@ -13386,8 +13246,8 @@ namespace cimg_library_suffixed {
         const CImg<tc>& color = colors[c];
         if (!color) {
           if (error_message) std::sprintf(error_message,
-                                          "3d object has empty color for primitive %u",
-                                          c);
+                                          "3d object (%u,%u) defines no color for primitive [%u]",
+                                          _width,primitives._width,c);
           return false;
         }
       }
@@ -13397,8 +13257,8 @@ namespace cimg_library_suffixed {
         const CImg<tc> &light = colors.back();
         if (!light || light._depth>1) {
           if (error_message) std::sprintf(error_message,
-                                          "3d object has invalid light texture (%u,%u,%u,%u)",
-                                          light._width,light._height,light._depth,light._spectrum);
+                                          "3d object (%u,%u) defines an invalid light texture (%u,%u,%u,%u)",
+                                          _width,primitives._width,light._width,light._height,light._depth,light._spectrum);
           return false;
         }
       }
@@ -13409,14 +13269,14 @@ namespace cimg_library_suffixed {
     //! Test if image instance represents a valid serialization of a 3d object.
     /**
        Return \c true if the image instance represents a valid serialization of a 3d object, and \c false otherwise.
-       \param is_full_check Tells if full checking of the instance must be performed.
+       \param full_check Tells if full checking of the instance must be performed.
        \param[out] error_message C-string to contain the error message, if the test does not succeed.
        \note
-       - Set \c is_full_checking to \c false to speed-up the 3d object checking. In this case, only the size of
+       - Set \c full_check to \c false to speed-up the 3d object checking. In this case, only the size of
          each 3d object component is checked.
        - Size of the string \c error_message should be at least 128-bytes long, to be able to contain the error message.
     **/
-    bool is_CImg3d(const bool is_full_check=true, char *const error_message=0) const {
+    bool is_CImg3d(const bool full_check=true, char *const error_message=0) const {
       if (error_message) *error_message = 0;
 
       // Check instance dimension and header.
@@ -13437,38 +13297,51 @@ namespace cimg_library_suffixed {
         nb_points = cimg::float2uint((float)*(ptrs++)),
         nb_primitives = cimg::float2uint((float)*(ptrs++));
 
+      // Check consistency of number of vertices / primitives.
+      if (!full_check) {
+        const unsigned long minimal_size = 8UL + 3*nb_points + 6*nb_primitives;
+        if (_data + minimal_size>ptre) {
+          if (error_message) std::sprintf(error_message,
+                                          "CImg3d (%u,%u) has only %lu values, while at least %lu values were expected",
+                                          nb_points,nb_primitives,size(),minimal_size);
+          return false;
+        }
+      }
+
       // Check consistency of vertex data.
       if (!nb_points) {
         if (nb_primitives) {
           if (error_message) std::sprintf(error_message,
-                                          "CImg3d has no vertices but %u primitives",
-                                          nb_primitives);
+                                          "CImg3d (%u,%u) defines no vertices but %u primitives",
+                                          nb_points,nb_primitives,nb_primitives);
           return false;
         }
         if (ptrs!=ptre) {
           if (error_message) std::sprintf(error_message,
-                                          "CImg3d (%u,%u) is empty but contains %u byte%s more than expected",
+                                          "CImg3d (%u,%u) is an empty object but contains %u value%s more than expected",
                                           nb_points,nb_primitives,(unsigned int)(ptre-ptrs),(ptre-ptrs)>1?"s":"");
           return false;
         }
         return true;
       }
-      ptrs+=3*nb_points;
-      if (ptrs>ptre) {
+      if (ptrs+3*nb_points>ptre) {
         if (error_message) std::sprintf(error_message,
-                                        "CImg3d (%u,%u) has incomplete vertex data",
-                                        nb_points,nb_primitives);
+                                        "CImg3d (%u,%u) defines only %u vertices data",
+                                        nb_points,nb_primitives,(unsigned int)(ptre-ptrs)/3);
         return false;
       }
-      if (!is_full_check) return true;
+      ptrs+=3*nb_points;
 
       // Check consistency of primitive data.
       if (ptrs==ptre) {
         if (error_message) std::sprintf(error_message,
-                                        "CImg3d (%u,%u) has no primitive data",
-                                        nb_points,nb_primitives);
+                                        "CImg3d (%u,%u) defines %u vertices but no primitive",
+                                        nb_points,nb_primitives,nb_points);
         return false;
       }
+
+      if (!full_check) return true;
+
       for (unsigned int p = 0; p<nb_primitives; ++p) {
         const unsigned int nb_inds = (unsigned int)*(ptrs++);
         switch (nb_inds) {
@@ -13476,7 +13349,7 @@ namespace cimg_library_suffixed {
           const unsigned int i0 = cimg::float2uint((float)*(ptrs++));
           if (i0>=nb_points) {
             if (error_message) std::sprintf(error_message,
-                                            "CImg3d (%u,%u) refers to invalid vertex indice %u in point primitive %u",
+                                            "CImg3d (%u,%u) refers to invalid vertex indice %u in point primitive [%u]",
                                             nb_points,nb_primitives,i0,p);
             return false;
           }
@@ -13488,7 +13361,7 @@ namespace cimg_library_suffixed {
           ptrs+=3;
           if (i0>=nb_points || i1>=nb_points) {
             if (error_message) std::sprintf(error_message,
-                                            "CImg3d (%u,%u) refers to invalid vertex indices (%u,%u) in sphere primitive %u",
+                                            "CImg3d (%u,%u) refers to invalid vertex indices (%u,%u) in sphere primitive [%u]",
                                             nb_points,nb_primitives,i0,i1,p);
             return false;
           }
@@ -13500,7 +13373,7 @@ namespace cimg_library_suffixed {
           if (nb_inds==6) ptrs+=4;
           if (i0>=nb_points || i1>=nb_points) {
             if (error_message) std::sprintf(error_message,
-                                            "CImg3d (%u,%u) refers to invalid vertex indices (%u,%u) in segment primitive %u",
+                                            "CImg3d (%u,%u) refers to invalid vertex indices (%u,%u) in segment primitive [%u]",
                                             nb_points,nb_primitives,i0,i1,p);
             return false;
           }
@@ -13513,7 +13386,7 @@ namespace cimg_library_suffixed {
           if (nb_inds==9) ptrs+=6;
           if (i0>=nb_points || i1>=nb_points || i2>=nb_points) {
             if (error_message) std::sprintf(error_message,
-                                            "CImg3d (%u,%u) refers to invalid vertex indices (%u,%u,%u) in triangle primitive %u",
+                                            "CImg3d (%u,%u) refers to invalid vertex indices (%u,%u,%u) in triangle primitive [%u]",
                                             nb_points,nb_primitives,i0,i1,i2,p);
             return false;
           }
@@ -13527,21 +13400,21 @@ namespace cimg_library_suffixed {
           if (nb_inds==12) ptrs+=8;
           if (i0>=nb_points || i1>=nb_points || i2>=nb_points || i3>=nb_points) {
             if (error_message) std::sprintf(error_message,
-                                            "CImg3d (%u,%u) refers to invalid vertex indices (%u,%u,%u,%u) in quadrangle primitive %u",
+                                            "CImg3d (%u,%u) refers to invalid vertex indices (%u,%u,%u,%u) in quadrangle primitive [%u]",
                                             nb_points,nb_primitives,i0,i1,i2,i3,p);
             return false;
           }
         } break;
         default :
           if (error_message) std::sprintf(error_message,
-                                          "CImg3d (%u,%u) has invalid primitive %u of size %u",
+                                          "CImg3d (%u,%u) defines an invalid primitive [%u] of size %u",
                                           nb_points,nb_primitives,p,nb_inds);
           return false;
         }
         if (ptrs>ptre) {
           if (error_message) std::sprintf(error_message,
-                                          "CImg3d (%u,%u) has incomplete primitive data for primitive %u",
-                                          nb_points,nb_primitives,p);
+                                          "CImg3d (%u,%u) has incomplete primitive data for primitive [%u], %u values missing",
+                                          nb_points,nb_primitives,p,(unsigned int)(ptrs-ptre));
           return false;
         }
       }
@@ -13549,7 +13422,7 @@ namespace cimg_library_suffixed {
       // Check consistency of color data.
       if (ptrs==ptre) {
         if (error_message) std::sprintf(error_message,
-                                        "CImg3d (%u,%u) has no color/texture data",
+                                        "CImg3d (%u,%u) defines no color/texture data",
                                         nb_points,nb_primitives);
         return false;
       }
@@ -13560,7 +13433,7 @@ namespace cimg_library_suffixed {
           if (!h && !s) {
             if (w>=c) {
               if (error_message) std::sprintf(error_message,
-                                              "CImg3d (%u,%u) refers to invalid shared sprite/texture indice %u for primitive %u",
+                                              "CImg3d (%u,%u) refers to invalid shared sprite/texture indice %u for primitive [%u]",
                                               nb_points,nb_primitives,w,c);
               return false;
             }
@@ -13568,8 +13441,8 @@ namespace cimg_library_suffixed {
         }
         if (ptrs>ptre) {
           if (error_message) std::sprintf(error_message,
-                                          "CImg3d (%u,%u) has incomplete color/texture data for primitive %u",
-                                          nb_points,nb_primitives,c);
+                                          "CImg3d (%u,%u) has incomplete color/texture data for primitive [%u], %u values missing",
+                                          nb_points,nb_primitives,c,(unsigned int)(ptrs-ptre));
           return false;
         }
       }
@@ -13577,7 +13450,7 @@ namespace cimg_library_suffixed {
       // Check consistency of opacity data.
       if (ptrs==ptre) {
         if (error_message) std::sprintf(error_message,
-                                        "CImg3d (%u,%u) has no opacity data",
+                                        "CImg3d (%u,%u) defines no opacity data",
                                         nb_points,nb_primitives);
         return false;
       }
@@ -13587,7 +13460,7 @@ namespace cimg_library_suffixed {
           if (!h && !s) {
             if (w>=o) {
               if (error_message) std::sprintf(error_message,
-                                              "CImg3d (%u,%u) refers to invalid shared opacity indice %u for primitive %u",
+                                              "CImg3d (%u,%u) refers to invalid shared opacity indice %u for primitive [%u]",
                                               nb_points,nb_primitives,w,o);
               return false;
             }
@@ -13595,7 +13468,7 @@ namespace cimg_library_suffixed {
         }
         if (ptrs>ptre) {
           if (error_message) std::sprintf(error_message,
-                                          "CImg3d (%u,%u) has incomplete opacity data for primitive %u",
+                                          "CImg3d (%u,%u) has incomplete opacity data for primitive [%u]",
                                           nb_points,nb_primitives,o);
           return false;
         }
@@ -13604,7 +13477,7 @@ namespace cimg_library_suffixed {
       // Check end of data.
       if (ptrs<ptre) {
         if (error_message) std::sprintf(error_message,
-                                        "CImg3d (%u,%u) contains %u byte%s more than expected",
+                                        "CImg3d (%u,%u) contains %u value%s more than expected",
                                         nb_points,nb_primitives,(unsigned int)(ptre-ptrs),(ptre-ptrs)>1?"s":"");
         return false;
       }
@@ -13624,15 +13497,19 @@ namespace cimg_library_suffixed {
 
     // Define the math formula parser/compiler and evaluator.
     struct _cimg_math_parser {
-      CImgList<charT> label;
+      CImgList<charT> labelM;
       CImgList<uintT> code;
-      CImg<uintT> level, opcode;
+      CImg<uintT> level, opcode, labelMpos, label1pos;
+      const CImg<uintT>* p_code;
       CImg<doubleT> mem;
       CImg<charT> expr;
       const CImg<T>& reference;
       CImg<Tdouble> reference_stats;
       unsigned int mempos, result;
       const char *const calling_function;
+      typedef double (_cimg_math_parser::*mp_func)();
+      const mp_func *mp_funcs;
+
 #define _cimg_mp_return(x) { *se = saved_char; return x; }
 #define _cimg_mp_opcode0(op) _cimg_mp_return(opcode0(op));
 #define _cimg_mp_opcode1(op,i1) _cimg_mp_return(opcode1(op,i1));
@@ -13658,28 +13535,40 @@ namespace cimg_library_suffixed {
                                             "CImg<%s>::%s(): Empty specified expression.",
                                             pixel_type(),calling_function);
 
-        int lv = 0; // Count parenthesis level of expression.
+        int lv = 0; // Count parentheses/brackets level of expression.
         level.assign(l);
         unsigned int *pd = level._data;
-        for (const char *ps = expr._data; *ps && lv>=0; ++ps) *(pd++) = (unsigned int)(*ps=='('?lv++:*ps==')'?--lv:lv);
+        for (const char *ps = expr._data; *ps && lv>=0; ++ps) *(pd++) = (unsigned int)(*ps=='('||*ps=='['?lv++:*ps==')'||*ps==']'?--lv:lv);
         if (lv!=0) {
           throw CImgArgumentException("[_cimg_math_parser] "
-                                      "CImg<%s>::%s(): Unbalanced parentheses in specified expression '%s'.",
+                                      "CImg<%s>::%s(): Unbalanced parentheses/brackets in specified expression '%s'.",
                                       pixel_type(),calling_function,
                                       expr._data);
         }
         // Init constant values.
         mem.assign(512);
-        label.assign(512);
         mem[0] = 0;
         mem[1] = 1;
-        mem[2] = (double)reference._width;
-        mem[3] = (double)reference._height;
-        mem[4] = (double)reference._depth;
-        mem[5] = (double)reference._spectrum;
-        mem[6] = cimg::PI;
-        mem[7] = std::exp(1.0); // Then [8] = x, [9] = y, [10] = z, [11] = c
-        mempos = 12;
+        mem[2] = 2;
+        mem[3] = (double)reference._width;
+        mem[4] = (double)reference._height;
+        mem[5] = (double)reference._depth;
+        mem[6] = (double)reference._spectrum;
+        mem[7] = cimg::PI;
+        mem[8] = std::exp(1.0); // Then [9] = x, [10] = y, [11] = z, [12] = c
+        mempos = 13;
+        labelMpos.assign(8);
+        label1pos.assign(128,1,1,1,~0U);
+        label1pos['w'] = 3;
+        label1pos['h'] = 4;
+        label1pos['d'] = 5;
+        label1pos['s'] = 6;
+        label1pos[0] = 7; // pi
+        label1pos['e'] = 8;
+        label1pos['x'] = 9;
+        label1pos['y'] = 10;
+        label1pos['z'] = 11;
+        label1pos['c'] = 12;
         result = compile(expr._data,expr._data+l); // Compile formula into a serie of opcodes.
       }
 
@@ -13740,55 +13629,47 @@ namespace cimg_library_suffixed {
         char end = 0, sep = 0; double val = 0;
         const int nb = std::sscanf(ss,"%lf%c%c",&val,&sep,&end);
         if (nb==1) {
-          if (val==0) _cimg_mp_return(0);
-          if (val==1) _cimg_mp_return(1);
+          if (val==0 || val==1 || val==2) _cimg_mp_return((int)val);
           if (mempos>=mem._width) mem.resize(-200,1,1,1,0);
           const unsigned int pos = mempos++;
           mem[pos] = val;
           _cimg_mp_return(pos);
         }
         if (nb==2 && sep=='%') {
-          if (val==0) _cimg_mp_return(0);
-          if (val==100) _cimg_mp_return(1);
+          if (val==0 || val==100 || val==200) _cimg_mp_return((int)(val/100));
           if (mempos>=mem._width) mem.resize(-200,1,1,1,0);
           const unsigned int pos = mempos++;
           mem[pos] = val/100;
           _cimg_mp_return(pos);
         }
         if (ss1==se) switch (*ss) {
-          case 'w' : _cimg_mp_return(2); case 'h' : _cimg_mp_return(3); case 'd' : _cimg_mp_return(4); case 's' : _cimg_mp_return(5);
-          case 'x' : _cimg_mp_return(8); case 'y' : _cimg_mp_return(9); case 'z' : _cimg_mp_return(10); case 'c' : _cimg_mp_return(11);
-          case 'e' : _cimg_mp_return(7);
-          case 'u' : case '?' : _cimg_mp_opcode2(0,0,1);
-          case 'g' : _cimg_mp_opcode0(1);
-          case 'i' : _cimg_mp_opcode0(2);
+          case 'w' : case 'h' : case 'd' : case 's' :
+          case 'x' : case 'y' : case 'z' : case 'c' : case 'e' : _cimg_mp_return(label1pos[*ss]);
+          case 'u' : if (label1pos['u']!=~0U) _cimg_mp_return(label1pos['u']); _cimg_mp_opcode2(0,0,1);
+          case 'g' : if (label1pos['g']!=~0U) _cimg_mp_return(label1pos['g']); _cimg_mp_opcode0(1);
+          case 'i' : if (label1pos['i']!=~0U) _cimg_mp_return(label1pos['i']); _cimg_mp_opcode0(2);
+          case '?' : _cimg_mp_opcode2(0,0,1);
           }
         if (ss1==se1) {
-          if (*ss=='p' && *ss1=='i') _cimg_mp_return(6); // pi
+          if (*ss=='p' && *ss1=='i') _cimg_mp_return(label1pos[0]); // pi
           if (*ss=='i') {
-            if (*ss1=='m') _cimg_mp_opcode0(57); // im
-            if (*ss1=='M') _cimg_mp_opcode0(58); // iM
-            if (*ss1=='a') _cimg_mp_opcode0(59); // ia
-            if (*ss1=='v') _cimg_mp_opcode0(60); // iv
+            if (*ss1=='m') { if (label1pos[1]!=~0U) _cimg_mp_return(label1pos[1]); _cimg_mp_opcode0(57); } // im
+            if (*ss1=='M') { if (label1pos[2]!=~0U) _cimg_mp_return(label1pos[2]); _cimg_mp_opcode0(58); } // iM
+            if (*ss1=='a') { if (label1pos[3]!=~0U) _cimg_mp_return(label1pos[3]); _cimg_mp_opcode0(59); } // ia
+            if (*ss1=='v') { if (label1pos[4]!=~0U) _cimg_mp_return(label1pos[4]); _cimg_mp_opcode0(60); } // iv
           }
           if (*ss1=='m') {
-            if (*ss=='x') _cimg_mp_opcode0(61); // xm
-            if (*ss=='y') _cimg_mp_opcode0(62); // ym
-            if (*ss=='z') _cimg_mp_opcode0(63); // zm
-            if (*ss=='c') _cimg_mp_opcode0(64); // cm
+            if (*ss=='x') { if (label1pos[5]!=~0U) _cimg_mp_return(label1pos[5]); _cimg_mp_opcode0(61); } // xm
+            if (*ss=='y') { if (label1pos[6]!=~0U) _cimg_mp_return(label1pos[6]); _cimg_mp_opcode0(62); } // ym
+            if (*ss=='z') { if (label1pos[7]!=~0U) _cimg_mp_return(label1pos[7]); _cimg_mp_opcode0(63); } // zm
+            if (*ss=='c') { if (label1pos[8]!=~0U) _cimg_mp_return(label1pos[8]); _cimg_mp_opcode0(64); } // cm
           }
           if (*ss1=='M') {
-            if (*ss=='x') _cimg_mp_opcode0(65); // xM
-            if (*ss=='y') _cimg_mp_opcode0(66); // yM
-            if (*ss=='z') _cimg_mp_opcode0(67); // zM
-            if (*ss=='c') _cimg_mp_opcode0(68); // cM
+            if (*ss=='x') { if (label1pos[9]!=~0U) _cimg_mp_return(label1pos[9]); _cimg_mp_opcode0(65); } // xM
+            if (*ss=='y') { if (label1pos[10]!=~0U) _cimg_mp_return(label1pos[10]); _cimg_mp_opcode0(66); } // yM
+            if (*ss=='z') { if (label1pos[11]!=~0U) _cimg_mp_return(label1pos[11]); _cimg_mp_opcode0(67); } // zM
+            if (*ss=='c') { if (label1pos[12]!=~0U) _cimg_mp_return(label1pos[12]); _cimg_mp_opcode0(6); } // cM
           }
-        }
-        if (ss3==se) {
-          if (*ss=='x' && *ss1=='/' && *ss2=='w') _cimg_mp_opcode0(3);
-          if (*ss=='y' && *ss1=='/' && *ss2=='h') _cimg_mp_opcode0(4);
-          if (*ss=='z' && *ss1=='/' && *ss2=='d') _cimg_mp_opcode0(5);
-          if (*ss=='c' && *ss1=='/' && *ss2=='s') _cimg_mp_opcode0(6);
         }
 
         // Look for variable declarations.
@@ -13798,70 +13679,70 @@ namespace cimg_library_suffixed {
             CImg<charT> variable_name(ss,(unsigned int)(s-ss+1));
             variable_name.back() = 0;
             bool is_valid_name = true;
-            if ((*ss>='0' && *ss<='9') ||
-                (s==ss+1 && (*ss=='x' || *ss=='y' || *ss=='z' || *ss=='c' ||
-                             *ss=='w' || *ss=='h' || *ss=='d' || *ss=='s' ||
-                             *ss=='e' || *ss=='u' || *ss=='g' || *ss=='i')) ||
-                (s==ss+2 && ((*ss=='p' && *(ss+1)=='i') ||
-                             (*ss=='i' && (*(ss+1)=='m' || *(ss+1)=='M' || *(ss+1)=='a' || *(ss+1)=='v')) ||
-                             (*ss=='x' && (*(ss+1)=='m' || *(ss+1)=='M')) ||
-                             (*ss=='y' && (*(ss+1)=='m' || *(ss+1)=='M')) ||
-                             (*ss=='z' && (*(ss+1)=='m' || *(ss+1)=='M')) ||
-                             (*ss=='c' && (*(ss+1)=='m' || *(ss+1)=='M'))))) is_valid_name = false;
-            for (const char *ns = ss; ns<s; ++ns)
-              if ((*ns<'a' || *ns>'z') && (*ns<'A' || *ns>'Z') && (*ns<'0' || *ns>'9') && *ns!='_') {
-                is_valid_name = false; break;
-              }
+            if (*ss>='0' && *ss<='9') is_valid_name = false;
+            else for (const char *ns = ss+1; ns<s; ++ns)
+                   if ((*ns<'a' || *ns>'z') && (*ns<'A' || *ns>'Z') && (*ns<'0' || *ns>'9') && *ns!='_') {
+                     is_valid_name = false; break;
+                   }
             if (!is_valid_name) {
               *se = saved_char;
-              if (!std::strcmp(variable_name,"x") || !std::strcmp(variable_name,"y") || !std::strcmp(variable_name,"z") ||
-                  !std::strcmp(variable_name,"c") || !std::strcmp(variable_name,"w") || !std::strcmp(variable_name,"h") ||
-                  !std::strcmp(variable_name,"d") || !std::strcmp(variable_name,"s") || !std::strcmp(variable_name,"e") ||
-                  !std::strcmp(variable_name,"u") || !std::strcmp(variable_name,"g") || !std::strcmp(variable_name,"i") ||
-                  !std::strcmp(variable_name,"pi") || !std::strcmp(variable_name,"im") || !std::strcmp(variable_name,"iM") ||
-                  !std::strcmp(variable_name,"ia") || !std::strcmp(variable_name,"iv") ||
-                  !std::strcmp(variable_name,"xm") || !std::strcmp(variable_name,"ym") ||
-                  !std::strcmp(variable_name,"zm") || !std::strcmp(variable_name,"cm") ||
-                  !std::strcmp(variable_name,"xM") || !std::strcmp(variable_name,"yM") ||
-                  !std::strcmp(variable_name,"zM") || !std::strcmp(variable_name,"cM"))
-                throw CImgArgumentException("[_cimg_math_parser] "
-                                            "CImg<%s>::%s(): Invalid assignment of reserved variable name '%s' in specified expression '%s%s%s'.",
-                                            pixel_type(),calling_function,
-                                            variable_name._data,
-                                            (ss-8)>expr._data?"...":"",
-                                            (ss-8)>expr._data?ss-8:expr._data,
-                                            se<&expr.back()?"...":"");
-              else
-                 throw CImgArgumentException("[_cimg_math_parser] "
-                                             "CImg<%s>::%s(): Invalid variable name '%s' in specified expression '%s%s%s'.",
-                                             pixel_type(),calling_function,
-                                             variable_name._data,
-                                             (ss-8)>expr._data?"...":"",
-                                             (ss-8)>expr._data?ss-8:expr._data,
-                                             se<&expr.back()?"...":"");
+              throw CImgArgumentException("[_cimg_math_parser] "
+                                          "CImg<%s>::%s(): Invalid variable name '%s' in specified expression '%s%s%s'.",
+                                          pixel_type(),calling_function,
+                                          variable_name._data,
+                                          (ss-8)>expr._data?"...":"",
+                                          (ss-8)>expr._data?ss-8:expr._data,
+                                          se<&expr.back()?"...":"");
             }
-             for (unsigned int i = 0; i<mempos; ++i) // Check for existing variable with same name.
-               if (label[i]._data && !std::strcmp(variable_name,label[i])) {
-                 *se = saved_char;
-                 throw CImgArgumentException("[_cimg_math_parser] "
-                                             "CImg<%s>::%s(): Invalid multiple assignments of variable '%s' in specified expression '%s%s%s'.",
-                                             pixel_type(),calling_function,
-                                             variable_name._data,
-                                             (ss-8)>expr._data?"...":"",
-                                             (ss-8)>expr._data?ss-8:expr._data,
-                                             se<&expr.back()?"...":"");
-               }
-             const unsigned int src_pos = compile(s+1,se);
-             if (mempos>=mem.size()) mem.resize(-200,1,1,1,0);
-             const unsigned int dest_pos = mempos++;
-             variable_name.move_to(label[dest_pos]);
-             CImg<uintT>::vector(7,dest_pos,src_pos).move_to(code);
-             _cimg_mp_return(dest_pos);
-           }
+            const unsigned int pos = compile(s+1,se);
+            if (variable_name[0] && variable_name[1] && !variable_name[2]) { // Check for particular case of a reserved variable.
+              const char c1 = variable_name[0], c2 = variable_name[1];
+              if (c1=='p' && c2=='i') variable_name.fill((char)0,(char)0); // pi
+              else if (c1=='i') {
+                if (c2=='m') variable_name.fill(1,0); // im
+                else if (c2=='M') variable_name.fill(2,0); // iM
+                else if (c2=='a') variable_name.fill(3,0); // ia
+                else if (c2=='v') variable_name.fill(4,0); // iv
+              } else if (c2=='m') {
+                if (c1=='x') variable_name.fill(5,0); // xm
+                else if (c1=='y') variable_name.fill(6,0); // ym
+                else if (c1=='z') variable_name.fill(7,0); // zm
+                else if (c1=='c') variable_name.fill(8,0); // cm
+              } else if (c2=='M') {
+                if (c1=='x') variable_name.fill(9,0); // xM
+                else if (c1=='y') variable_name.fill(10,0); // yM
+                else if (c1=='z') variable_name.fill(11,0); // zM
+                else if (c1=='c') variable_name.fill(12,0); // cM
+              }
+            }
+            if (variable_name[1]) { // Multi-char variable.
+              int label_pos = -1;
+              cimglist_for(labelM,i) if (!std::strcmp(variable_name,labelM[i])) { label_pos = i; break; } // Check for existing variable with same name.
+              if (label_pos<0) { // If new variable.
+                if (labelM._width>=labelMpos._width) labelMpos.resize(-200,1,1,1,0);
+                label_pos = labelM._width;
+                variable_name.move_to(labelM);
+              }
+              labelMpos[label_pos] = pos;
+            } else label1pos[*variable_name] = pos; // Single-char variable.
+            _cimg_mp_return(pos);
+          }
 
         // Look for unary/binary operators. The operator precedences is defined as in C++.
-        for (char *s = se3, *ns = se2; s>ss; --s, --ns) if (*s=='|' && *ns=='|' && level[s-expr._data]==clevel) _cimg_mp_opcode2(8,compile(ss,s),compile(s+2,se));
-        for (char *s = se3, *ns = se2; s>ss; --s, --ns) if (*s=='&' && *ns=='&' && level[s-expr._data]==clevel) _cimg_mp_opcode2(9,compile(ss,s),compile(s+2,se));
+        for (char *s = se3, *ns = se2; s>ss; --s, --ns) if (*s=='|' && *ns=='|' && level[s-expr._data]==clevel) {
+            const unsigned int mem_A = compile(ss,s), bp1 = code._width, mem_B = compile(s+2,se);
+            if (mempos>=mem._width) mem.resize(-200,1,1,1,0);
+            const unsigned int pos = mempos++;
+            CImg<uintT>::vector(8,pos,mem_A,mem_B,code._width-bp1).move_to(code,bp1);
+            _cimg_mp_return(pos);
+          }
+        for (char *s = se3, *ns = se2; s>ss; --s, --ns) if (*s=='&' && *ns=='&' && level[s-expr._data]==clevel) {
+            const unsigned int mem_A = compile(ss,s), bp1 = code._width, mem_B = compile(s+2,se);
+            if (mempos>=mem._width) mem.resize(-200,1,1,1,0);
+            const unsigned int pos = mempos++;
+            CImg<uintT>::vector(9,pos,mem_A,mem_B,code._width-bp1).move_to(code,bp1);
+            _cimg_mp_return(pos);
+          }
         for (char *s = se2; s>ss; --s) if (*s=='|' && level[s-expr._data]==clevel) _cimg_mp_opcode2(10,compile(ss,s),compile(s+1,se));
         for (char *s = se2; s>ss; --s) if (*s=='&' && level[s-expr._data]==clevel) _cimg_mp_opcode2(11,compile(ss,s),compile(s+1,se));
         for (char *s = se3, *ns = se2; s>ss; --s, --ns) if (*s=='!' && *ns=='=' && level[s-expr._data]==clevel) _cimg_mp_opcode2(12,compile(ss,s),compile(s+2,se));
@@ -13882,7 +13763,13 @@ namespace cimg_library_suffixed {
           if (*s=='-' && *ps!='-' && *ps!='+' && *ps!='*' && *ps!='/' && *ps!='%' && *ps!='&' && *ps!='|' && *ps!='^' && *ps!='!' && *ps!='~' &&
               (*ps!='e' || !(ps>ss && (*(ps-1)=='.' || (*(ps-1)>='0' && *(ps-1)<='9')))) && level[s-expr._data]==clevel)
             _cimg_mp_opcode2(20,compile(ss,s),compile(s+1,se));
-        for (char *s = se2; s>ss; --s) if (*s=='*' && level[s-expr._data]==clevel) _cimg_mp_opcode2(22,compile(ss,s),compile(s+1,se));
+        for (char *s = se2; s>ss; --s) if (*s=='*' && level[s-expr._data]==clevel) {
+            const unsigned int mem_A = compile(ss,s), bp1 = code._width, mem_B = compile(s+1,se);
+            if (mempos>=mem._width) mem.resize(-200,1,1,1,0);
+            const unsigned int pos = mempos++;
+            CImg<uintT>::vector(22,pos,mem_A,mem_B,code._width-bp1).move_to(code,bp1);
+            _cimg_mp_return(pos);
+          }
         for (char *s = se2; s>ss; --s) if (*s=='/' && level[s-expr._data]==clevel) _cimg_mp_opcode2(23,compile(ss,s),compile(s+1,se));
         for (char *s = se2, *ns = se1; s>ss; --s, --ns)
           if (*s=='%' && *ns!='^' && level[s-expr._data]==clevel)
@@ -13896,6 +13783,13 @@ namespace cimg_library_suffixed {
         for (char *s = se2; s>ss; --s) if (*s=='^' && level[s-expr._data]==clevel) _cimg_mp_opcode2(25,compile(ss,s),compile(s+1,se));
 
         // Look for a function call or a parenthesis.
+        if (*se1==']') {
+          const bool is_relative = *ss=='j';
+          if ((*ss=='i' || is_relative) && *ss1=='[') {
+            if (*ss2==']') _cimg_mp_opcode0(2);
+            _cimg_mp_opcode1(is_relative?69:68,compile(ss2,se1));
+          }
+        }
         if (*se1==')') {
           if (*ss=='(') _cimg_mp_return(compile(ss1,se1));
           if (!std::strncmp(ss,"sin(",4)) _cimg_mp_opcode1(29,compile(ss4,se1));
@@ -13908,7 +13802,7 @@ namespace cimg_library_suffixed {
           if (!std::strncmp(ss,"cosh(",5)) _cimg_mp_opcode1(36,compile(ss5,se1));
           if (!std::strncmp(ss,"tanh(",5)) _cimg_mp_opcode1(37,compile(ss5,se1));
           if (!std::strncmp(ss,"log10(",6)) _cimg_mp_opcode1(38,compile(ss6,se1));
-          if (!std::strncmp(ss,"log2(",5)) _cimg_mp_opcode1(71,compile(ss5,se1));
+          if (!std::strncmp(ss,"log2(",5)) _cimg_mp_opcode1(3,compile(ss5,se1));
           if (!std::strncmp(ss,"log(",4)) _cimg_mp_opcode1(39,compile(ss4,se1));
           if (!std::strncmp(ss,"exp(",4)) _cimg_mp_opcode1(40,compile(ss4,se1));
           if (!std::strncmp(ss,"sqrt(",5)) _cimg_mp_opcode1(41,compile(ss5,se1));
@@ -13918,10 +13812,15 @@ namespace cimg_library_suffixed {
             char *s1 = ss6; while (s1<se2 && (*s1!=',' || level[s1-expr._data]!=clevel1)) ++s1;
             _cimg_mp_opcode2(44,compile(ss6,s1),compile(s1+1,se1));
           }
-          if (!std::strncmp(ss,"if(",3)) {
+          if (*ss=='i' && *ss1=='f' && *ss2=='(') {
             char *s1 = ss3; while (s1<se4 && (*s1!=',' || level[s1-expr._data]!=clevel1)) ++s1;
             char *s2 = s1+1; while (s2<se2 && (*s2!=',' || level[s2-expr._data]!=clevel1)) ++s2;
-            _cimg_mp_opcode3(45,compile(ss3,s1),compile(s1+1,s2),compile(s2+1,se1));
+            const unsigned int mem_cond = compile(ss3,s1), bp1 = code._width, mem_A = compile(s1+1,s2),
+              bp2 = code._width, mem_B = compile(s2+1,se1);
+            if (mempos>=mem._width) mem.resize(-200,1,1,1,0);
+            const unsigned int pos = mempos++;
+            CImg<uintT>::vector(45,pos,mem_cond,mem_A,mem_B,bp2-bp1,code._width-bp2).move_to(code,bp1);
+            _cimg_mp_return(pos);
           }
           if (!std::strncmp(ss,"round(",6)) {
             unsigned int value = 0, round = 1, direction = 0;
@@ -13934,15 +13833,19 @@ namespace cimg_library_suffixed {
             }
             _cimg_mp_opcode3(46,value,round,direction);
           }
-          if (!std::strncmp(ss,"?(",2) || !std::strncmp(ss,"u(",2)) {
+          if ((*ss=='?' || *ss=='u') && *ss1=='(') {
             if (*ss2==')') _cimg_mp_opcode2(0,0,1);
             char *s1 = ss2; while (s1<se1 && (*s1!=',' || level[s1-expr._data]!=clevel1)) ++s1;
             if (s1<se1) _cimg_mp_opcode2(0,compile(ss2,s1),compile(s1+1,se1));
             _cimg_mp_opcode2(0,0,compile(ss2,s1));
           }
-          if (!std::strncmp(ss,"i(",2)) {
-            if (*ss2==')') _cimg_mp_return(0);
-            unsigned int indx = 8, indy = 9, indz = 10, indc = 11, borders = 0, interpolation = 0;
+          const bool is_relative = *ss=='j';
+          if ((*ss=='i' || is_relative) && *ss1=='(') {
+            if (*ss2==')') _cimg_mp_opcode0(2);
+            unsigned int
+              indx = is_relative?0:9, indy = is_relative?0:10,
+              indz = is_relative?0:11, indc = is_relative?0:12,
+              borders = 0, interpolation = 0;
             if (ss2!=se1) {
               char *s1 = ss2; while (s1<se2 && (*s1!=',' || level[s1-expr._data]!=clevel1)) ++s1;
               indx = compile(ss2,s1==se2?++s1:s1);
@@ -13964,13 +13867,13 @@ namespace cimg_library_suffixed {
                 }
               }
             }
-            _cimg_mp_opcode6(47,indx,indy,indz,indc,interpolation,borders);
+            _cimg_mp_opcode6(is_relative?7:47,indx,indy,indz,indc,interpolation,borders);
           }
-          if (!std::strncmp(ss,"min(",4) || !std::strncmp(ss,"max(",4)) {
+          if (!std::strncmp(ss,"min(",4) || !std::strncmp(ss,"max(",4) || !std::strncmp(ss,"med(",4) || !std::strncmp(ss,"kth(",4)) {
             CImgList<uintT> opcode;
             if (mempos>=mem.size()) mem.resize(-200,1,1,1,0);
             const unsigned int pos = mempos++;
-            CImg<uintT>::vector(ss[1]=='i'?48:49,pos).move_to(opcode);
+            CImg<uintT>::vector(*ss=='k'?71:ss[1]=='i'?48:ss[1]=='a'?49:70,pos).move_to(opcode);
             for (char *s = ss4; s<se; ++s) {
               char *ns = s; while (ns<se && (*ns!=',' || level[ns-expr._data]!=clevel1) && (*ns!=')' || level[ns-expr._data]!=clevel)) ++ns;
               CImg<uintT>::vector(compile(s,ns)).move_to(opcode);
@@ -13983,7 +13886,7 @@ namespace cimg_library_suffixed {
             CImgList<uintT> opcode;
             if (mempos>=mem.size()) mem.resize(-200,1,1,1,0);
             const unsigned int pos = mempos++;
-            CImg<uintT>::vector(69,pos).move_to(opcode);
+            CImg<uintT>::vector(5,pos).move_to(opcode);
             for (char *s = ss4; s<se; ++s) {
               char *ns = s; while (ns<se && (*ns!=',' || level[ns-expr._data]!=clevel1) && (*ns!=')' || level[ns-expr._data]!=clevel)) ++ns;
               CImg<uintT>::vector(compile(s,ns)).move_to(opcode);
@@ -14026,13 +13929,14 @@ namespace cimg_library_suffixed {
           }
 
           if (!std::strncmp(ss,"sinc(",5)) _cimg_mp_opcode1(56,compile(ss5,se1));
-          if (!std::strncmp(ss,"int(",4)) _cimg_mp_opcode1(70,compile(ss4,se1));
+          if (!std::strncmp(ss,"int(",4)) _cimg_mp_opcode1(4,compile(ss4,se1));
         }
 
         // No known item found, assuming this is an already initialized variable.
         CImg<charT> variable_name(ss,(unsigned int)(se-ss+1));
         variable_name.back() = 0;
-        for (unsigned int i = 0; i<mempos; ++i) if (label[i]._data && !std::strcmp(variable_name,label[i])) _cimg_mp_return(i);
+        if (variable_name[1]) { cimglist_for(labelM,i) if (!std::strcmp(variable_name,labelM[i])) _cimg_mp_return(labelMpos[i]); } // Multi-char variable.
+        else if (label1pos[*variable_name]!=~0U) _cimg_mp_return(label1pos[*variable_name]); // Single-char variable.
         *se = saved_char;
         throw CImgArgumentException("[_cimg_math_parser] "
                                     "CImg<%s>::%s(): Invalid item '%s' in specified expression '%s%s%s'.\n",
@@ -14052,28 +13956,35 @@ namespace cimg_library_suffixed {
         return cimg::grand();
       }
       double mp_i() {
-        return (double)reference.atXYZC((int)mem[8],(int)mem[9],(int)mem[10],(int)mem[11],0);
-      }
-      double mp_xw() {
-        return mem[8]/reference.width();
-      }
-      double mp_yh() {
-        return mem[9]/reference.height();
-      }
-      double mp_zd() {
-        return mem[10]/reference.depth();
-      }
-      double mp_cs() {
-        return mem[11]/reference.spectrum();
-      }
-      double mp_equal() {
-        return mem[opcode[2]];
+        return (double)reference.atXYZC((int)mem[9],(int)mem[10],(int)mem[11],(int)mem[12],0);
       }
       double mp_logical_and() {
-        return (double)((bool)mem[opcode(2)] && (bool)mem[opcode(3)]);
+        const bool is_A = (bool)mem[opcode(2)];
+        const CImg<uintT> *const pE = ++p_code + opcode(4);
+        if (!is_A) { p_code = pE - 1; return 0; }
+        const unsigned int mem_B = opcode(3);
+        for ( ; p_code<pE; ++p_code) {
+          const CImg<uintT> &op = *p_code;
+          opcode._data = op._data; opcode._height = op._height;
+          const unsigned int target = opcode(1);
+          mem[target] = (this->*mp_funcs[opcode[0]])();
+        }
+        --p_code;
+        return (double)(bool)mem[mem_B];
       }
       double mp_logical_or() {
-        return (double)((bool)mem[opcode(2)] || (bool)mem[opcode(3)]);
+        const bool is_A = (bool)mem[opcode(2)];
+        const CImg<uintT> *const pE = ++p_code + opcode(4);
+        if (is_A) { p_code = pE - 1; return 1; }
+        const unsigned int mem_B = opcode(3);
+        for ( ; p_code<pE; ++p_code) {
+          const CImg<uintT> &op = *p_code;
+          opcode._data = op._data; opcode._height = op._height;
+          const unsigned int target = opcode(1);
+          mem[target] = (this->*mp_funcs[opcode[0]])();
+        }
+        --p_code;
+        return (double)(bool)mem[mem_B];
       }
       double mp_infeq() {
         return (double)(mem[opcode(2)]<=mem[opcode(3)]);
@@ -14100,7 +14011,18 @@ namespace cimg_library_suffixed {
         return mem[opcode(2)] - mem[opcode(3)];
       }
       double mp_mul() {
-        return mem[opcode(2)] * mem[opcode(3)];
+        const double A = mem[opcode(2)];
+        const CImg<uintT> *const pE = ++p_code + opcode(4);
+        if (!A) { p_code = pE - 1; return 0; }
+        const unsigned int mem_B = opcode(3);
+        for ( ; p_code<pE; ++p_code) {
+          const CImg<uintT> &op = *p_code;
+          opcode._data = op._data; opcode._height = op._height;
+          const unsigned int target = opcode(1);
+          mem[target] = (this->*mp_funcs[opcode[0]])();
+        }
+        --p_code;
+        return A*(double)mem[mem_B];
       }
       double mp_div() {
         return mem[opcode(2)] / mem[opcode(3)];
@@ -14188,7 +14110,29 @@ namespace cimg_library_suffixed {
         return std::atan2(mem[opcode(2)],mem[opcode(3)]);
       }
       double mp_if() {
-        return mem[opcode(2)]?mem[opcode(3)]:mem[opcode(4)];
+        const bool is_cond = (bool)mem[opcode(2)];
+        const unsigned int mem_A = opcode(3), mem_B = opcode(4);
+        const CImg<uintT>
+          *const pB = ++p_code + opcode(5),
+          *const pE = pB + opcode(6);
+        if (is_cond) { // Evaluate on-the-fly only the correct argument.
+          for ( ; p_code<pB; ++p_code) {
+            const CImg<uintT> &op = *p_code;
+            opcode._data = op._data; opcode._height = op._height;
+            const unsigned int target = opcode(1);
+            mem[target] = (this->*mp_funcs[opcode[0]])();
+          }
+          p_code = pE - 1;
+          return mem[mem_A];
+        }
+        for (p_code = pB; p_code<pE; ++p_code) {
+          const CImg<uintT> &op = *p_code;
+          opcode._data = op._data; opcode._height = op._height;
+          const unsigned int target = opcode(1);
+          mem[target] = (this->*mp_funcs[opcode[0]])();
+        }
+        --p_code;
+        return mem[mem_B];
       }
       double mp_round() {
         return cimg::round(mem[opcode(2)],mem[opcode(3)],(int)mem[opcode(4)]);
@@ -14223,6 +14167,37 @@ namespace cimg_library_suffixed {
                                                  (float)mem[opcode(5)],0);
         }
       }
+      double mp_jxyzc() {
+        const double x = mem[9], y = mem[10], z = mem[11], c = mem[12];
+        const int i = (int)mem[opcode(6)], b = (int)mem[opcode(7)];
+        if (i==0) { // Nearest neighbor interpolation.
+          if (b==2) return (double)reference.atXYZC(cimg::mod((int)(x+mem[opcode(2)]),reference.width()),
+                                                    cimg::mod((int)(y+mem[opcode(3)]),reference.height()),
+                                                    cimg::mod((int)(z+mem[opcode(4)]),reference.depth()),
+                                                    cimg::mod((int)(c+mem[opcode(5)]),reference.spectrum()));
+          if (b==1) return (double)reference.atXYZC((int)(x+mem[opcode(2)]),
+                                                    (int)(y+mem[opcode(3)]),
+                                                    (int)(z+mem[opcode(4)]),
+                                                    (int)(c+mem[opcode(5)]));
+          return (double)reference.atXYZC((int)(x+mem[opcode(2)]),
+                                          (int)(y+mem[opcode(3)]),
+                                          (int)(z+mem[opcode(4)]),
+                                          (int)(c+mem[opcode(5)]),0);
+        } else { // Linear interpolation.
+          if (b==2) return (double)reference.linear_atXYZC(cimg::mod((float)(x+mem[opcode(2)]),(float)reference.width()),
+                                                           cimg::mod((float)(y+mem[opcode(3)]),(float)reference.height()),
+                                                           cimg::mod((float)(z+mem[opcode(4)]),(float)reference.depth()),
+                                                           cimg::mod((float)(c+mem[opcode(5)]),(float)reference.spectrum()));
+          if (b==1) return (double)reference.linear_atXYZC((float)(x+mem[opcode(2)]),
+                                                           (float)(y+mem[opcode(3)]),
+                                                           (float)(z+mem[opcode(4)]),
+                                                           (float)(c+mem[opcode(5)]));
+          return (double)reference.linear_atXYZC((float)(x+mem[opcode(2)]),
+                                                 (float)(y+mem[opcode(3)]),
+                                                 (float)(z+mem[opcode(4)]),
+                                                 (float)(c+mem[opcode(5)]),0);
+        }
+      }
       double mp_min() {
         double val = mem[opcode(2)];
         for (unsigned int i = 3; i<opcode._height; ++i) val = cimg::min(val,mem[opcode(i)]);
@@ -14233,13 +14208,28 @@ namespace cimg_library_suffixed {
         for (unsigned int i = 3; i<opcode._height; ++i) val = cimg::max(val,mem[opcode(i)]);
         return val;
       }
+      double mp_med() {
+        CImg<doubleT> values(opcode._height-2);
+        double *p = values.data();
+        for (unsigned int i = 2; i<opcode._height; ++i) *(p++) = mem[opcode(i)];
+        return values.median();
+      }
+      double mp_kth() {
+        CImg<doubleT> values(opcode._height-3);
+        double *p = values.data();
+        for (unsigned int i = 3; i<opcode._height; ++i) *(p++) = mem[opcode(i)];
+        int ind = (int)cimg::round(mem[opcode(2)]);
+        if (ind<0) ind+=1+values.width();
+        ind = cimg::max(1,cimg::min(values.width(),ind));
+        return values.kth_smallest(ind-1);
+      }
       double mp_isnan() {
         const double val = mem[opcode(2)];
-        return !(val==val);
+        return cimg::type<double>::is_nan(val);
       }
       double mp_isinf() {
         const double val = mem[opcode(2)];
-        return val==(val+1);
+        return cimg::type<double>::is_inf(val);
       }
       double mp_isint() {
         const double val = mem[opcode(2)];
@@ -14321,19 +14311,29 @@ namespace cimg_library_suffixed {
       double mp_int() {
         return (double)(long)mem[opcode(2)];
       }
+      double mp_ioff() {
+        const unsigned long off = (unsigned long)mem[opcode(2)];
+        if (off>=reference.size()) return 0;
+        return (double)reference[off];
+      }
+      double mp_joff() {
+        const int x = (int)mem[9], y = (int)mem[10], z = (int)mem[11], c = (int)mem[12];
+        const unsigned long off = reference.offset(x,y,z,c) + (unsigned long)(mem[opcode(2)]);
+        if (off>=reference.size()) return 0;
+        return (double)reference[off];
+      }
 
       // Evaluation procedure, with image data.
       double eval(const double x, const double y, const double z, const double c) {
-        typedef double (_cimg_math_parser::*mp_func)();
-        const mp_func mp_funcs[] = {
+        static const mp_func mp_funcs[] = {
           &_cimg_math_parser::mp_u,            // 0
           &_cimg_math_parser::mp_g,            // 1
           &_cimg_math_parser::mp_i,            // 2
-          &_cimg_math_parser::mp_xw,           // 3
-          &_cimg_math_parser::mp_yh,           // 4
-          &_cimg_math_parser::mp_zd,           // 5
-          &_cimg_math_parser::mp_cs,           // 6
-          &_cimg_math_parser::mp_equal,        // 7
+          &_cimg_math_parser::mp_log2,         // 3
+          &_cimg_math_parser::mp_int,          // 4
+          &_cimg_math_parser::mp_arg,          // 5
+          &_cimg_math_parser::mp_cM,           // 6
+          &_cimg_math_parser::mp_jxyzc,        // 7
           &_cimg_math_parser::mp_logical_or,   // 8
           &_cimg_math_parser::mp_logical_and,  // 9
           &_cimg_math_parser::mp_bitwise_or,   // 10
@@ -14394,19 +14394,21 @@ namespace cimg_library_suffixed {
           &_cimg_math_parser::mp_xM,           // 65
           &_cimg_math_parser::mp_yM,           // 66
           &_cimg_math_parser::mp_zM,           // 67
-          &_cimg_math_parser::mp_cM,           // 68
-          &_cimg_math_parser::mp_arg,          // 69
-          &_cimg_math_parser::mp_int,          // 70
-          &_cimg_math_parser::mp_log2          // 71
+          &_cimg_math_parser::mp_ioff,         // 68
+          &_cimg_math_parser::mp_joff,         // 69
+          &_cimg_math_parser::mp_med,          // 70
+          &_cimg_math_parser::mp_kth           // 71
         };
-
         if (!mem) return 0;
-        mem[8] = x; mem[9] = y; mem[10] = z; mem[11] = c;
+        this->mp_funcs = mp_funcs;
+        mem[9] = x; mem[10] = y; mem[11] = z; mem[12] = c;
         opcode._is_shared = true; opcode._width = opcode._depth = opcode._spectrum = 1;
-        cimglist_for(code,l) {
-          const CImg<uintT> &op = code[l];
+
+        for (p_code = code._data; p_code<code.end(); ++p_code) {
+          const CImg<uintT> &op = *p_code;
           opcode._data = op._data; opcode._height = op._height;  // Allows to avoid parameter passing to evaluation functions.
-          mem[opcode(1)] = (this->*mp_funcs[opcode[0]])();
+          const unsigned int target = opcode(1);
+          mem[target] = (this->*mp_funcs[opcode[0]])();
         }
         return mem[result];
       }
@@ -14848,6 +14850,11 @@ namespace cimg_library_suffixed {
        \endcode
     **/
     CImg<T>& pow(const double p) {
+      if (p==-4) { cimg_for(*this,ptrd,T) { const T val = *ptrd; *ptrd = (T)(1.0/(val*val*val*val)); } return *this; }
+      if (p==-3) { cimg_for(*this,ptrd,T) { const T val = *ptrd; *ptrd = (T)(1.0/(val*val*val)); } return *this; }
+      if (p==-2) { cimg_for(*this,ptrd,T) { const T val = *ptrd; *ptrd = (T)(1.0/(val*val)); } return *this; }
+      if (p==-1) { cimg_for(*this,ptrd,T) { const T val = *ptrd; *ptrd = (T)(1.0/val); } return *this; }
+      if (p==-0.5) { cimg_for(*this,ptrd,T) { const T val = *ptrd; *ptrd = (T)(1/std::sqrt((double)val)); } return *this; }
       if (p==0) return fill(1);
       if (p==0.5) { cimg_for(*this,ptrd,T) { const T val = *ptrd; *ptrd = (T)std::sqrt((double)val); } return *this; }
       if (p==1) return *this;
@@ -14871,10 +14878,11 @@ namespace cimg_library_suffixed {
       const unsigned int omode = cimg::exception_mode();
       cimg::exception_mode() = 0;
       try {
-        const CImg<T> _base = std::strstr(expression,"i(")?+*this:CImg<T>(), &base = _base?_base:*this;
-        _cimg_math_parser mp(base,expression,"pow");
-        T *ptrd = _data;
-        cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)std::pow((double)*ptrd,mp.eval(x,y,z,c)); ++ptrd; }
+        const CImg<T> _base = cimg::_is_self_expr(expression)?+*this:CImg<T>(), &base = _base?_base:*this;
+        _cimg_math_parser mp(base,expression+(*expression=='>' || *expression=='<'?1:0),"pow");
+        T *ptrd = *expression=='<'?end()-1:_data;
+        if (*expression=='<') cimg_rofXYZC(*this,x,y,z,c) { *ptrd = (T)std::pow((double)*ptrd,mp.eval(x,y,z,c)); --ptrd; }
+        else cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)std::pow((double)*ptrd,mp.eval(x,y,z,c)); ++ptrd; }
       } catch (CImgException&) {
         CImg<Tfloat> values(_width,_height,_depth,_spectrum);
         try {
@@ -14939,10 +14947,11 @@ namespace cimg_library_suffixed {
       const unsigned int omode = cimg::exception_mode();
       cimg::exception_mode() = 0;
       try {
-        const CImg<T> _base = std::strstr(expression,"i(")?+*this:CImg<T>(), &base = _base?_base:*this;
-        _cimg_math_parser mp(base,expression,"rol");
-        T *ptrd = _data;
-        cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)cimg::rol(*ptrd,(unsigned int)mp.eval(x,y,z,c)); ++ptrd; }
+        const CImg<T> _base = cimg::_is_self_expr(expression)?+*this:CImg<T>(), &base = _base?_base:*this;
+        _cimg_math_parser mp(base,expression+(*expression=='>' || *expression=='<'?1:0),"rol");
+        T *ptrd = *expression=='<'?end()-1:_data;
+        if (*expression=='<') cimg_rofXYZC(*this,x,y,z,c) { *ptrd = (T)cimg::rol(*ptrd,(unsigned int)mp.eval(x,y,z,c)); --ptrd; }
+        else cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)cimg::rol(*ptrd,(unsigned int)mp.eval(x,y,z,c)); ++ptrd; }
       } catch (CImgException&) {
         CImg<Tfloat> values(_width,_height,_depth,_spectrum);
         try {
@@ -15007,10 +15016,11 @@ namespace cimg_library_suffixed {
       const unsigned int omode = cimg::exception_mode();
       cimg::exception_mode() = 0;
       try {
-        const CImg<T> _base = std::strstr(expression,"i(")?+*this:CImg<T>(), &base = _base?_base:*this;
-        _cimg_math_parser mp(base,expression,"ror");
-        T *ptrd = _data;
-        cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)cimg::ror(*ptrd,(unsigned int)mp.eval(x,y,z,c)); ++ptrd; }
+        const CImg<T> _base = cimg::_is_self_expr(expression)?+*this:CImg<T>(), &base = _base?_base:*this;
+        _cimg_math_parser mp(base,expression+(*expression=='>' || *expression=='<'?1:0),"ror");
+        T *ptrd = *expression=='<'?end()-1:_data;
+        if (*expression=='<') cimg_rofXYZC(*this,x,y,z,c) { *ptrd = (T)cimg::ror(*ptrd,(unsigned int)mp.eval(x,y,z,c)); --ptrd; }
+        else cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)cimg::ror(*ptrd,(unsigned int)mp.eval(x,y,z,c)); ++ptrd; }
       } catch (CImgException&) {
         CImg<Tfloat> values(_width,_height,_depth,_spectrum);
         try {
@@ -15101,10 +15111,11 @@ namespace cimg_library_suffixed {
       const unsigned int omode = cimg::exception_mode();
       cimg::exception_mode() = 0;
       try {
-        const CImg<T> _base = std::strstr(expression,"i(")?+*this:CImg<T>(), &base = _base?_base:*this;
-        _cimg_math_parser mp(base,expression,"min");
-        T *ptrd = _data;
-        cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)cimg::min(*ptrd,(T)mp.eval(x,y,z,c)); ++ptrd; }
+        const CImg<T> _base = cimg::_is_self_expr(expression)?+*this:CImg<T>(), &base = _base?_base:*this;
+        _cimg_math_parser mp(base,expression+(*expression=='>' || *expression=='<'?1:0),"min");
+        T *ptrd = *expression=='<'?end()-1:_data;
+        if (*expression=='<') cimg_rofXYZC(*this,x,y,z,c) { *ptrd = (T)cimg::min(*ptrd,(T)mp.eval(x,y,z,c)); --ptrd; }
+        else cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)cimg::min(*ptrd,(T)mp.eval(x,y,z,c)); ++ptrd; }
       } catch (CImgException&) {
         CImg<T> values(_width,_height,_depth,_spectrum);
         try {
@@ -15172,10 +15183,11 @@ namespace cimg_library_suffixed {
       const unsigned int omode = cimg::exception_mode();
       cimg::exception_mode() = 0;
       try {
-        const CImg<T> _base = std::strstr(expression,"i(")?+*this:CImg<T>(), &base = _base?_base:*this;
-        _cimg_math_parser mp(base,expression,"max");
-        T *ptrd = _data;
-        cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)cimg::max(*ptrd,(T)mp.eval(x,y,z,c)); ++ptrd; }
+        const CImg<T> _base = cimg::_is_self_expr(expression)?+*this:CImg<T>(), &base = _base?_base:*this;
+        _cimg_math_parser mp(base,expression+(*expression=='>' || *expression=='<'?1:0),"max");
+        T *ptrd = *expression=='<'?end()-1:_data;
+        if (*expression=='<') cimg_rofXYZC(*this,x,y,z,c) { *ptrd = (T)cimg::max(*ptrd,(T)mp.eval(x,y,z,c)); --ptrd; }
+        else cimg_forXYZC(*this,x,y,z,c) { *ptrd = (T)cimg::max(*ptrd,(T)mp.eval(x,y,z,c)); ++ptrd; }
       } catch (CImgException&) {
         CImg<T> values(_width,_height,_depth,_spectrum);
         try {
@@ -15445,7 +15457,7 @@ namespace cimg_library_suffixed {
         average = S;
       } break;
       case 2 : { // Least Median of Squares (MAD)
-        CImg<Tfloat> buf(*this);
+        CImg<Tfloat> buf(*this,false);
         buf.sort();
         const unsigned long siz2 = siz>>1;
         const Tdouble med_i = (double)buf[siz2];
@@ -15455,7 +15467,7 @@ namespace cimg_library_suffixed {
         variance = sig*sig;
       } break;
       default : { // Least trimmed of Squares
-        CImg<Tfloat> buf(*this);
+        CImg<Tfloat> buf(*this,false);
         const unsigned long siz2 = siz>>1;
         cimg_for(buf,ptrs,Tfloat) { const Tdouble val = (Tdouble)*ptrs; (*ptrs)=(Tfloat)((*ptrs)*val); average+=val; }
         buf.sort();
@@ -15574,16 +15586,33 @@ namespace cimg_library_suffixed {
        \param y Value of the pre-defined variable \c y.
        \param z Value of the pre-defined variable \c z.
        \param c Value of the pre-defined variable \c c.
-       \note Set \c expression to \c 0 to keep evaluating the last specified \c expression.
     **/
     double eval(const char *const expression, const double x=0, const double y=0, const double z=0, const double c=0) const {
-      static _cimg_math_parser *mp = 0;
-      if (expression) { delete mp; mp = 0; mp = new _cimg_math_parser(*this,expression,"eval"); }
-      return mp?mp->eval(x,y,z,c):0;
+      if (!expression) return 0;
+      return _cimg_math_parser(*this,expression,"eval").eval(x,y,z,c);
+    }
+
+    //! Evaluate math formula on a set of variables.
+    /**
+       \param expression Math formula, as a C-string.
+       \param xyzc Set of values (x,y,z,c) used for the evaluation.
+    **/
+    template<typename t>
+    CImg<doubleT> eval(const char *const expression, const CImg<t>& xyzc) const {
+      CImg<doubleT> res(1,xyzc.size()/4);
+      if (!expression) return res.fill(0);
+      _cimg_math_parser mp(*this,expression,"eval");
+      const t *ps = xyzc._data;
+      double x, y, z, c;
+      cimg_for(res,pd,double) {
+        x = (double)*(ps++); y = (double)*(ps++); z = (double)*(ps++); c = (double)*(ps++);
+        *pd = mp.eval(x,y,z,c);
+      }
+      return res;
     }
 
     //! Compute statistics vector from the pixel values.
-    /**
+    /*
        \param variance_method Method used to compute the variance (see variance(const unsigned int) const).
        \return Statistics vector as <tt>[min; max; mean; variance; xmin; ymin; zmin; cmin; xmax; ymax; zmax; cmax]</tt>.
     **/
@@ -15731,7 +15760,7 @@ namespace cimg_library_suffixed {
        \param z Z-coordinate of the pixel value.
     **/
     CImg<T> get_vector_at(const unsigned int x, const unsigned int y=0, const unsigned int z=0) const {
-      _cimg_static CImg<T> res;
+      CImg<T> res;
       if (res._height!=_spectrum) res.assign(1,_spectrum);
       const unsigned long whd = (unsigned long)_width*_height*_depth;
       const T *ptrs = data(x,y,z);
@@ -16227,7 +16256,7 @@ namespace cimg_library_suffixed {
                                     cimg_instance,
                                     A._width,A._height,A._depth,A._spectrum,A._data);
       typedef _cimg_Ttfloat Ttfloat;
-      const Ttfloat epsilon = 1e-4;
+      const Ttfloat epsilon = 1e-4f;
       CImg<Ttfloat> B = A.get_column(1), V(*this,false);
       for (int i = 1; i<(int)siz; ++i) {
         const Ttfloat m = A(0,i)/(B[i-1]?B[i-1]:epsilon);
@@ -16835,7 +16864,7 @@ namespace cimg_library_suffixed {
     **/
     static CImg<T> string(const char *const str, const bool is_last_zero=true) {
       if (!str) return CImg<T>();
-      return CImg<T>(str,std::strlen(str)+(is_last_zero?1:0));
+      return CImg<T>(str,(unsigned int)std::strlen(str)+(is_last_zero?1:0));
     }
 
     //! Return a \c 1x1 image containing specified value.
@@ -16843,7 +16872,7 @@ namespace cimg_library_suffixed {
        \param a0 First vector value.
     **/
     static CImg<T> vector(const T& a0) {
-      _cimg_static CImg<T> r(1,1);
+      CImg<T> r(1,1);
       r[0] = a0;
       return r;
     }
@@ -16854,7 +16883,7 @@ namespace cimg_library_suffixed {
        \param a1 Second vector value.
     **/
     static CImg<T> vector(const T& a0, const T& a1) {
-      _cimg_static CImg<T> r(1,2); T *ptr = r._data;
+      CImg<T> r(1,2); T *ptr = r._data;
       *(ptr++) = a0; *(ptr++) = a1;
       return r;
     }
@@ -16866,7 +16895,7 @@ namespace cimg_library_suffixed {
        \param a2 Third vector value.
     **/
     static CImg<T> vector(const T& a0, const T& a1, const T& a2) {
-      _cimg_static CImg<T> r(1,3); T *ptr = r._data;
+      CImg<T> r(1,3); T *ptr = r._data;
       *(ptr++) = a0; *(ptr++) = a1; *(ptr++) = a2;
       return r;
     }
@@ -16879,21 +16908,21 @@ namespace cimg_library_suffixed {
        \param a3 Fourth vector value.
     **/
     static CImg<T> vector(const T& a0, const T& a1, const T& a2, const T& a3) {
-      _cimg_static CImg<T> r(1,4); T *ptr = r._data;
+      CImg<T> r(1,4); T *ptr = r._data;
       *(ptr++) = a0; *(ptr++) = a1; *(ptr++) = a2; *(ptr++) = a3;
       return r;
     }
 
     //! Return a \c 1x5 image containing specified values.
     static CImg<T> vector(const T& a0, const T& a1, const T& a2, const T& a3, const T& a4) {
-      _cimg_static CImg<T> r(1,5); T *ptr = r._data;
+      CImg<T> r(1,5); T *ptr = r._data;
       *(ptr++) = a0; *(ptr++) = a1; *(ptr++) = a2; *(ptr++) = a3; *(ptr++) = a4;
       return r;
     }
 
     //! Return a \c 1x6 image containing specified values.
     static CImg<T> vector(const T& a0, const T& a1, const T& a2, const T& a3, const T& a4, const T& a5) {
-      _cimg_static CImg<T> r(1,6); T *ptr = r._data;
+      CImg<T> r(1,6); T *ptr = r._data;
       *(ptr++) = a0; *(ptr++) = a1; *(ptr++) = a2; *(ptr++) = a3; *(ptr++) = a4; *(ptr++) = a5;
       return r;
     }
@@ -16901,7 +16930,7 @@ namespace cimg_library_suffixed {
     //! Return a \c 1x7 image containing specified values.
     static CImg<T> vector(const T& a0, const T& a1, const T& a2, const T& a3,
                           const T& a4, const T& a5, const T& a6) {
-      _cimg_static CImg<T> r(1,7); T *ptr = r._data;
+      CImg<T> r(1,7); T *ptr = r._data;
       *(ptr++) = a0; *(ptr++) = a1; *(ptr++) = a2; *(ptr++) = a3;
       *(ptr++) = a4; *(ptr++) = a5; *(ptr++) = a6;
       return r;
@@ -16910,7 +16939,7 @@ namespace cimg_library_suffixed {
     //! Return a \c 1x8 image containing specified values.
     static CImg<T> vector(const T& a0, const T& a1, const T& a2, const T& a3,
                           const T& a4, const T& a5, const T& a6, const T& a7) {
-      _cimg_static CImg<T> r(1,8); T *ptr = r._data;
+      CImg<T> r(1,8); T *ptr = r._data;
       *(ptr++) = a0; *(ptr++) = a1; *(ptr++) = a2; *(ptr++) = a3;
       *(ptr++) = a4; *(ptr++) = a5; *(ptr++) = a6; *(ptr++) = a7;
       return r;
@@ -16920,7 +16949,7 @@ namespace cimg_library_suffixed {
     static CImg<T> vector(const T& a0, const T& a1, const T& a2, const T& a3,
                           const T& a4, const T& a5, const T& a6, const T& a7,
                           const T& a8) {
-      _cimg_static CImg<T> r(1,9); T *ptr = r._data;
+      CImg<T> r(1,9); T *ptr = r._data;
       *(ptr++) = a0; *(ptr++) = a1; *(ptr++) = a2; *(ptr++) = a3;
       *(ptr++) = a4; *(ptr++) = a5; *(ptr++) = a6; *(ptr++) = a7;
       *(ptr++) = a8;
@@ -16931,7 +16960,7 @@ namespace cimg_library_suffixed {
     static CImg<T> vector(const T& a0, const T& a1, const T& a2, const T& a3,
                           const T& a4, const T& a5, const T& a6, const T& a7,
                           const T& a8, const T& a9) {
-      _cimg_static CImg<T> r(1,10); T *ptr = r._data;
+      CImg<T> r(1,10); T *ptr = r._data;
       *(ptr++) = a0; *(ptr++) = a1; *(ptr++) = a2; *(ptr++) = a3;
       *(ptr++) = a4; *(ptr++) = a5; *(ptr++) = a6; *(ptr++) = a7;
       *(ptr++) = a8; *(ptr++) = a9;
@@ -16942,7 +16971,7 @@ namespace cimg_library_suffixed {
     static CImg<T> vector(const T& a0, const T& a1, const T& a2, const T& a3,
                           const T& a4, const T& a5, const T& a6, const T& a7,
                           const T& a8, const T& a9, const T& a10) {
-      _cimg_static CImg<T> r(1,11); T *ptr = r._data;
+      CImg<T> r(1,11); T *ptr = r._data;
       *(ptr++) = a0; *(ptr++) = a1; *(ptr++) = a2; *(ptr++) = a3;
       *(ptr++) = a4; *(ptr++) = a5; *(ptr++) = a6; *(ptr++) = a7;
       *(ptr++) = a8; *(ptr++) = a9; *(ptr++) = a10;
@@ -16953,7 +16982,7 @@ namespace cimg_library_suffixed {
     static CImg<T> vector(const T& a0, const T& a1, const T& a2, const T& a3,
                           const T& a4, const T& a5, const T& a6, const T& a7,
                           const T& a8, const T& a9, const T& a10, const T& a11) {
-      _cimg_static CImg<T> r(1,12); T *ptr = r._data;
+      CImg<T> r(1,12); T *ptr = r._data;
       *(ptr++) = a0; *(ptr++) = a1; *(ptr++) = a2; *(ptr++) = a3;
       *(ptr++) = a4; *(ptr++) = a5; *(ptr++) = a6; *(ptr++) = a7;
       *(ptr++) = a8; *(ptr++) = a9; *(ptr++) = a10; *(ptr++) = a11;
@@ -16965,7 +16994,7 @@ namespace cimg_library_suffixed {
                           const T& a4, const T& a5, const T& a6, const T& a7,
                           const T& a8, const T& a9, const T& a10, const T& a11,
                           const T& a12) {
-      _cimg_static CImg<T> r(1,13); T *ptr = r._data;
+      CImg<T> r(1,13); T *ptr = r._data;
       *(ptr++) = a0; *(ptr++) = a1; *(ptr++) = a2; *(ptr++) = a3;
       *(ptr++) = a4; *(ptr++) = a5; *(ptr++) = a6; *(ptr++) = a7;
       *(ptr++) = a8; *(ptr++) = a9; *(ptr++) = a10; *(ptr++) = a11;
@@ -16978,7 +17007,7 @@ namespace cimg_library_suffixed {
                           const T& a4, const T& a5, const T& a6, const T& a7,
                           const T& a8, const T& a9, const T& a10, const T& a11,
                           const T& a12, const T& a13) {
-      _cimg_static CImg<T> r(1,14); T *ptr = r._data;
+      CImg<T> r(1,14); T *ptr = r._data;
       *(ptr++) = a0; *(ptr++) = a1; *(ptr++) = a2; *(ptr++) = a3;
       *(ptr++) = a4; *(ptr++) = a5; *(ptr++) = a6; *(ptr++) = a7;
       *(ptr++) = a8; *(ptr++) = a9; *(ptr++) = a10; *(ptr++) = a11;
@@ -16991,7 +17020,7 @@ namespace cimg_library_suffixed {
                           const T& a4, const T& a5, const T& a6, const T& a7,
                           const T& a8, const T& a9, const T& a10, const T& a11,
                           const T& a12, const T& a13, const T& a14) {
-      _cimg_static CImg<T> r(1,15); T *ptr = r._data;
+      CImg<T> r(1,15); T *ptr = r._data;
       *(ptr++) = a0; *(ptr++) = a1; *(ptr++) = a2; *(ptr++) = a3;
       *(ptr++) = a4; *(ptr++) = a5; *(ptr++) = a6; *(ptr++) = a7;
       *(ptr++) = a8; *(ptr++) = a9; *(ptr++) = a10; *(ptr++) = a11;
@@ -17004,7 +17033,7 @@ namespace cimg_library_suffixed {
                           const T& a4, const T& a5, const T& a6, const T& a7,
                           const T& a8, const T& a9, const T& a10, const T& a11,
                           const T& a12, const T& a13, const T& a14, const T& a15) {
-      _cimg_static CImg<T> r(1,16); T *ptr = r._data;
+      CImg<T> r(1,16); T *ptr = r._data;
       *(ptr++) = a0; *(ptr++) = a1; *(ptr++) = a2; *(ptr++) = a3;
       *(ptr++) = a4; *(ptr++) = a5; *(ptr++) = a6; *(ptr++) = a7;
       *(ptr++) = a8; *(ptr++) = a9; *(ptr++) = a10; *(ptr++) = a11;
@@ -17030,7 +17059,7 @@ namespace cimg_library_suffixed {
     **/
     static CImg<T> matrix(const T& a0, const T& a1,
                           const T& a2, const T& a3) {
-      _cimg_static CImg<T> r(2,2); T *ptr = r._data;
+      CImg<T> r(2,2); T *ptr = r._data;
       *(ptr++) = a0; *(ptr++) = a1;
       *(ptr++) = a2; *(ptr++) = a3;
       return r;
@@ -17051,7 +17080,7 @@ namespace cimg_library_suffixed {
     static CImg<T> matrix(const T& a0, const T& a1, const T& a2,
                           const T& a3, const T& a4, const T& a5,
                           const T& a6, const T& a7, const T& a8) {
-      _cimg_static CImg<T> r(3,3); T *ptr = r._data;
+      CImg<T> r(3,3); T *ptr = r._data;
       *(ptr++) = a0; *(ptr++) = a1; *(ptr++) = a2;
       *(ptr++) = a3; *(ptr++) = a4; *(ptr++) = a5;
       *(ptr++) = a6; *(ptr++) = a7; *(ptr++) = a8;
@@ -17063,7 +17092,7 @@ namespace cimg_library_suffixed {
                           const T& a4, const T& a5, const T& a6, const T& a7,
                           const T& a8, const T& a9, const T& a10, const T& a11,
                           const T& a12, const T& a13, const T& a14, const T& a15) {
-      _cimg_static CImg<T> r(4,4); T *ptr = r._data;
+      CImg<T> r(4,4); T *ptr = r._data;
       *(ptr++) = a0; *(ptr++) = a1; *(ptr++) = a2; *(ptr++) = a3;
       *(ptr++) = a4; *(ptr++) = a5; *(ptr++) = a6; *(ptr++) = a7;
       *(ptr++) = a8; *(ptr++) = a9; *(ptr++) = a10; *(ptr++) = a11;
@@ -17077,7 +17106,7 @@ namespace cimg_library_suffixed {
                           const T& a10, const T& a11, const T& a12, const T& a13, const T& a14,
                           const T& a15, const T& a16, const T& a17, const T& a18, const T& a19,
                           const T& a20, const T& a21, const T& a22, const T& a23, const T& a24) {
-      _cimg_static CImg<T> r(5,5); T *ptr = r._data;
+      CImg<T> r(5,5); T *ptr = r._data;
       *(ptr++) = a0; *(ptr++) = a1; *(ptr++) = a2; *(ptr++) = a3; *(ptr++) = a4;
       *(ptr++) = a5; *(ptr++) = a6; *(ptr++) = a7; *(ptr++) = a8; *(ptr++) = a9;
       *(ptr++) = a10; *(ptr++) = a11; *(ptr++) = a12; *(ptr++) = a13; *(ptr++) = a14;
@@ -17642,10 +17671,11 @@ namespace cimg_library_suffixed {
       const unsigned int omode = cimg::exception_mode();
       cimg::exception_mode() = 0;
       try { // Try to fill values according to a formula.
-        const CImg<T> _base = std::strstr(expression,"i(")?+*this:CImg<T>(), &base = _base?_base:*this;
-        _cimg_math_parser mp(base,expression,"fill");
-        T *ptrd = _data;
-        cimg_forXYZC(*this,x,y,z,c) *(ptrd++) = (T)mp.eval((double)x,(double)y,(double)z,(double)c);
+        const CImg<T> _base = cimg::_is_self_expr(expression)?+*this:CImg<T>(), &base = _base?_base:*this;
+        _cimg_math_parser mp(base,expression+(*expression=='>' || *expression=='<'?1:0),"fill");
+        T *ptrd = *expression=='<'?end()-1:_data;
+        if (*expression=='<') cimg_rofXYZC(*this,x,y,z,c) *(ptrd--) = (T)mp.eval((double)x,(double)y,(double)z,(double)c);
+        else cimg_forXYZC(*this,x,y,z,c) *(ptrd++) = (T)mp.eval((double)x,(double)y,(double)z,(double)c);
       } catch (CImgException& e) { // If failed, try to recognize a list of values.
         char item[16384] = { 0 }, sep = 0;
         const char *nexpression = expression;
@@ -18155,8 +18185,6 @@ namespace cimg_library_suffixed {
        \param max_value Maximum pixel value considered for the histogram computation. All pixel values higher than \p max_value will not be counted.
        \note
        - The histogram H of an image I is the 1d function where H(x) counts the number of occurences of the value x in the image I.
-       - If \p min_value==max_value==0 (default behavior), the function first estimates the whole range of pixel values
-       then uses it to compute the histogram.
        - The resulting histogram is always defined in 1d. Histograms of multi-valued images are not multi-dimensional.
        \par Example
        \code
@@ -18165,15 +18193,19 @@ namespace cimg_library_suffixed {
        \endcode
        \image html ref_histogram.jpg
     **/
-    CImg<T>& histogram(const unsigned int nb_levels, const T min_value=(T)0, const T max_value=(T)0) {
+    CImg<T>& histogram(const unsigned int nb_levels, const T min_value, const T max_value) {
       return get_histogram(nb_levels,min_value,max_value).move_to(*this);
     }
 
+    //! Compute the histogram of pixel values \overloading.
+    CImg<T>& histogram(const unsigned int nb_levels) {
+      return get_histogram(nb_levels).move_to(*this);
+    }
+
     //! Compute the histogram of pixel values \newinstance.
-    CImg<ulongT> get_histogram(const unsigned int nb_levels, const T min_value=(T)0, const T max_value=(T)0) const {
+    CImg<ulongT> get_histogram(const unsigned int nb_levels, const T min_value, const T max_value) const {
       if (!nb_levels || is_empty()) return CImg<ulongT>();
       T vmin = min_value<max_value?min_value:max_value, vmax = min_value<max_value?max_value:min_value;
-      if (vmin==vmax && vmin==0) vmin = min_max(vmax);
       CImg<ulongT> res(nb_levels,1,1,1,0);
       cimg_for(*this,ptrs,T) {
         const T val = *ptrs;
@@ -18182,14 +18214,18 @@ namespace cimg_library_suffixed {
       return res;
     }
 
+    //! Compute the histogram of pixel values \newinstance.
+    CImg<ulongT> get_histogram(const unsigned int nb_levels) const {
+      if (!nb_levels || is_empty()) return CImg<ulongT>();
+      T vmax = 0, vmin = min_max(vmax);
+      return get_histogram(nb_levels,vmin,vmax);
+    }
+
     //! Equalize histogram of pixel values.
     /**
        \param nb_levels Number of histogram levels used for the equalization.
        \param min_value Minimum pixel value considered for the histogram computation. All pixel values lower than \p min_value will not be counted.
        \param max_value Maximum pixel value considered for the histogram computation. All pixel values higher than \p max_value will not be counted.
-       \note
-       - If \p min_value==max_value==0 (default behavior), the function first estimates the whole range of pixel values
-       then uses it to equalize the histogram.
        \par Example
        \code
        const CImg<float> img("reference.jpg"), res = img.get_equalize(256);
@@ -18197,25 +18233,34 @@ namespace cimg_library_suffixed {
        \endcode
        \image html ref_equalize.jpg
     **/
-    CImg<T>& equalize(const unsigned int nb_levels, const T min_value=(T)0, const T max_value=(T)0) {
-      if (is_empty()) return *this;
-      T vmin = min_value, vmax = max_value;
-      if (vmin==vmax && vmin==0) vmin = min_max(vmax);
-      if (vmin<vmax) {
-        CImg<ulongT> hist = get_histogram(nb_levels,vmin,vmax);
-        unsigned long cumul = 0;
-        cimg_forX(hist,pos) { cumul+=hist[pos]; hist[pos] = cumul; }
-        cimg_for(*this,ptrd,T) {
-          const int pos = (int)((*ptrd-vmin)*(nb_levels-1)/(vmax-vmin));
-          if (pos>=0 && pos<(int)nb_levels) *ptrd = (T)(vmin + (vmax-vmin)*hist[pos]/size());
-        }
+    CImg<T>& equalize(const unsigned int nb_levels, const T min_value, const T max_value) {
+      if (!nb_levels || is_empty()) return *this;
+      T vmin = min_value<max_value?min_value:max_value, vmax = min_value<max_value?max_value:min_value;
+      CImg<ulongT> hist = get_histogram(nb_levels,vmin,vmax);
+      unsigned long cumul = 0;
+      cimg_forX(hist,pos) { cumul+=hist[pos]; hist[pos] = cumul; }
+      cimg_for(*this,ptrd,T) {
+        const int pos = (int)((*ptrd-vmin)*(nb_levels-1)/(vmax-vmin));
+        if (pos>=0 && pos<(int)nb_levels) *ptrd = (T)(vmin + (vmax-vmin)*hist[pos]/size());
       }
       return *this;
     }
 
+    //! Equalize histogram of pixel values \overloading.
+    CImg<T>& equalize(const unsigned int nb_levels) {
+      if (!nb_levels || is_empty()) return *this;
+      T vmax = 0, vmin = min_max(vmax);
+      return equalize(nb_levels,vmin,vmax);
+    }
+
     //! Equalize histogram of pixel values \newinstance.
-    CImg<T> get_equalize(const unsigned int nblevels, const T val_min=(T)0, const T val_max=(T)0) const {
+    CImg<T> get_equalize(const unsigned int nblevels, const T val_min, const T val_max) const {
       return (+*this).equalize(nblevels,val_min,val_max);
+    }
+
+    //! Equalize histogram of pixel values \newinstance.
+    CImg<T> get_equalize(const unsigned int nblevels) const {
+      return (+*this).equalize(nblevels);
     }
 
     //! Index multi-valued pixels regarding to a specified colormap.
@@ -18643,8 +18688,8 @@ namespace cimg_library_suffixed {
 
     // [internal] Replace possibly malicious characters for commands to be called by system() by their escaped version.
     CImg<T>& _system_strescape() {
-#define cimg_system_strescape(c,s) case c : if (p!=ptrs) CImg<T>(ptrs,p-ptrs,1,1,1,false).move_to(list); \
-      CImg<T>(s,std::strlen(s),1,1,1,false).move_to(list); ptrs = p+1; break
+#define cimg_system_strescape(c,s) case c : if (p!=ptrs) CImg<T>(ptrs,(unsigned int)(p-ptrs),1,1,1,false).move_to(list); \
+      CImg<T>(s,(unsigned int)std::strlen(s),1,1,1,false).move_to(list); ptrs = p+1; break
       CImgList<T> list;
       const T *ptrs = _data;
       cimg_for(*this,p,T) switch ((int)*p) {
@@ -18654,7 +18699,7 @@ namespace cimg_library_suffixed {
         cimg_system_strescape('`',"\\`");
         cimg_system_strescape('$',"\\$");
       }
-      if (ptrs<end()) CImg<T>(ptrs,end()-ptrs,1,1,1,false).move_to(list);
+      if (ptrs<end()) CImg<T>(ptrs,(unsigned int)(end()-ptrs),1,1,1,false).move_to(list);
       return (list>'x').move_to(*this);
     }
 
@@ -18672,6 +18717,7 @@ namespace cimg_library_suffixed {
     **/
     static const CImg<Tuchar>& default_LUT256() {
       static CImg<Tuchar> colormap;
+      cimg::mutex(8);
       if (!colormap) {
         colormap.assign(1,256,1,3);
         for (unsigned int index = 0, r = 16; r<256; r+=32)
@@ -18682,6 +18728,7 @@ namespace cimg_library_suffixed {
               colormap(0,index++,2) = (Tuchar)b;
             }
       }
+      cimg::mutex(8,0);
       return colormap;
     }
 
@@ -18692,11 +18739,13 @@ namespace cimg_library_suffixed {
     **/
     static const CImg<Tuchar>& HSV_LUT256() {
       static CImg<Tuchar> colormap;
+      cimg::mutex(8);
       if (!colormap) {
         CImg<Tint> tmp(1,256,1,3,1);
         tmp.get_shared_channel(0).sequence(0,359);
         colormap = tmp.HSVtoRGB();
       }
+      cimg::mutex(8,0);
       return colormap;
     }
 
@@ -18742,11 +18791,13 @@ namespace cimg_library_suffixed {
     **/
     static const CImg<Tuchar>& hot_LUT256() {
       static CImg<Tuchar> colormap;
+      cimg::mutex(8);
       if (!colormap) {
         colormap.assign(1,4,1,3,0);
         colormap[1] = colormap[2] = colormap[3] = colormap[6] = colormap[7] = colormap[11] = 255;
         colormap.resize(1,256,1,3,3);
       }
+      cimg::mutex(8,0);
       return colormap;
     }
 
@@ -18757,7 +18808,9 @@ namespace cimg_library_suffixed {
     **/
     static const CImg<Tuchar>& cool_LUT256() {
       static CImg<Tuchar> colormap;
+      cimg::mutex(8);
       if (!colormap) colormap.assign(1,2,1,3).fill(0,255,255,0,255,255).resize(1,256,1,3,3);
+      cimg::mutex(8,0);
       return colormap;
     }
 
@@ -18768,11 +18821,13 @@ namespace cimg_library_suffixed {
     **/
     static const CImg<Tuchar>& jet_LUT256() {
       static CImg<Tuchar> colormap;
+      cimg::mutex(8);
       if (!colormap) {
         colormap.assign(1,4,1,3,0);
         colormap[2] = colormap[3] = colormap[5] = colormap[6] = colormap[8] = colormap[9] = 255;
         colormap.resize(1,256,1,3,3);
       }
+      cimg::mutex(8,0);
       return colormap;
     }
 
@@ -18783,11 +18838,13 @@ namespace cimg_library_suffixed {
     **/
     static const CImg<Tuchar>& flag_LUT256() {
       static CImg<Tuchar> colormap;
+      cimg::mutex(8);
       if (!colormap) {
         colormap.assign(1,4,1,3,0);
         colormap[0] = colormap[1] = colormap[5] = colormap[9] = colormap[10] = 255;
         colormap.resize(1,256,1,3,0,2);
       }
+      cimg::mutex(8,0);
       return colormap;
     }
 
@@ -18798,6 +18855,7 @@ namespace cimg_library_suffixed {
     **/
     static const CImg<Tuchar>& cube_LUT256() {
       static CImg<Tuchar> colormap;
+      cimg::mutex(8);
       if (!colormap) {
         colormap.assign(1,8,1,3,0);
         colormap[1] = colormap[3] = colormap[5] = colormap[7] =
@@ -18805,6 +18863,7 @@ namespace cimg_library_suffixed {
           colormap[20] = colormap[21] = colormap[22] = colormap[23] = 255;
         colormap.resize(1,256,1,3,3);
       }
+      cimg::mutex(8,0);
       return colormap;
     }
 
@@ -19747,7 +19806,7 @@ namespace cimg_library_suffixed {
         _sc = (unsigned int)(size_c<0?-size_c*spectrum()/100:size_c),
         sx = _sx?_sx:1, sy = _sy?_sy:1, sz = _sz?_sz:1, sc = _sc?_sc:1;
       if (sx==_width && sy==_height && sz==_depth && sc==_spectrum) return *this;
-      if (is_empty()) return assign(sx,sy,sz,sc,0);
+      if (is_empty()) return assign(sx,sy,sz,sc,(T)0);
       if (interpolation_type==-1 && sx*sy*sz*sc==size()) {
         _width = sx; _height = sy; _depth = sz; _spectrum = sc;
         return *this;
@@ -19797,7 +19856,7 @@ namespace cimg_library_suffixed {
           cc = (int)(centering_c*((int)sc - spectrum()));
 
         switch (boundary_conditions) {
-        case 2 : { // Cyclic borders.
+        case 2 : { // Periodic borders.
           res.assign(sx,sy,sz,sc);
           const int
             x0 = ((int)xc%width()) - width(),
@@ -21201,10 +21260,12 @@ namespace cimg_library_suffixed {
     /**
        \param angle Rotation angle, in degrees.
        \param interpolation Type of interpolation. Can be <tt>{ 0=nearest | 1=linear | 2=cubic }</tt>.
-       \param boundary Boundary conditions. Can be <tt>{  0=dirichlet | 1=neumann | 2=cyclic }</tt>.
+       \param boundary Boundary conditions. Can be <tt>{  0=dirichlet | 1=neumann | 2=periodic }</tt>.
        \note Most of the time, size of the image is modified.
     **/
     CImg<T>& rotate(const float angle, const unsigned int interpolation=1, const unsigned int boundary=0) {
+      const float nangle = cimg::mod(angle,360.0f);
+      if (nangle==0.0f) return *this;
       return get_rotate(angle,interpolation,boundary).move_to(*this);
     }
 
@@ -21283,7 +21344,7 @@ namespace cimg_library_suffixed {
           }
           }
         } break;
-        case 2 : { // Cyclic boundaries.
+        case 2 : { // Periodic boundaries.
           switch (interpolation) {
           case 2 : { // Cubic interpolation.
             cimg_forXY(res,x,y) cimg_forZC(*this,z,c) {
@@ -21307,7 +21368,7 @@ namespace cimg_library_suffixed {
         default :
           throw CImgArgumentException(_cimg_instance
                                       "rotate(): Invalid specified border conditions %d "
-                                      "(should be { 0=dirichlet | 1=neumann | 2=cyclic }).",
+                                      "(should be { 0=dirichlet | 1=neumann | 2=periodic }).",
                                       cimg_instance,
                                       boundary);
         }
@@ -21321,7 +21382,7 @@ namespace cimg_library_suffixed {
        \param cx X-coordinate of the rotation center.
        \param cy Y-coordinate of the rotation center.
        \param zoom Zoom factor.
-       \param boundary_conditions Boundary conditions. Can be <tt>{ 0=dirichlet | 1=neumann | 2=cyclic }</tt>.
+       \param boundary_conditions Boundary conditions. Can be <tt>{ 0=dirichlet | 1=neumann | 2=periodic }</tt>.
        \param interpolation_type Type of interpolation. Can be <tt>{ 0=nearest | 1=linear | 2=cubic }</tt>.
     **/
     CImg<T>& rotate(const float angle, const float cx, const float cy, const float zoom,
@@ -21406,7 +21467,7 @@ namespace cimg_library_suffixed {
       default :
         throw CImgArgumentException(_cimg_instance
                                     "rotate(): Invalid specified border conditions %d "
-                                    "(should be { 0=dirichlet | 1=neumann | 2=cyclic }).",
+                                    "(should be { 0=dirichlet | 1=neumann | 2=periodic }).",
                                     cimg_instance,
                                     boundary);
       }
@@ -21418,7 +21479,7 @@ namespace cimg_library_suffixed {
        \param warp Warping field.
        \param is_relative Tells if warping field gives absolute or relative warping coordinates.
        \param interpolation Can be <tt>{ 0=nearest | 1=linear | 2=cubic }</tt>.
-       \param boundary_conditions Boundary conditions. Can be <tt>{ 0=dirichlet | 1=neumann | 2=cyclic }</tt>.
+       \param boundary_conditions Boundary conditions. Can be <tt>{ 0=dirichlet | 1=neumann | 2=periodic }</tt>.
      **/
     template<typename t>
     CImg<T>& warp(const CImg<t>& warp, const bool is_relative=false,
@@ -21444,7 +21505,7 @@ namespace cimg_library_suffixed {
       if (warp._spectrum==1) { // 1d warping.
         if (is_relative) { // Relative warp.
           if (interpolation==2) { // Cubic interpolation.
-            if (boundary_conditions==2) // Cyclic boundaries.
+            if (boundary_conditions==2) // Periodic boundaries.
               cimg_forC(res,c) {
                 const t *ptrs0 = warp._data;
                 cimg_forXYZ(res,x,y,z)
@@ -21463,7 +21524,7 @@ namespace cimg_library_suffixed {
                   *(ptrd++) = (T)cubic_atX(x - (float)*(ptrs0++),y,z,c,0);
               }
           } else if (interpolation==1) { // Linear interpolation.
-            if (boundary_conditions==2) // Cyclic boundaries.
+            if (boundary_conditions==2) // Periodic boundaries.
               cimg_forC(res,c) {
                 const t *ptrs0 = warp._data;
                 cimg_forXYZ(res,x,y,z)
@@ -21482,7 +21543,7 @@ namespace cimg_library_suffixed {
                   *(ptrd++) = (T)linear_atX(x - (float)*(ptrs0++),y,z,c,0);
               }
           } else { // Nearest-neighbor interpolation.
-            if (boundary_conditions==2) // Cyclic boundaries.
+            if (boundary_conditions==2) // Periodic boundaries.
               cimg_forC(res,c) {
                 const t *ptrs0 = warp._data;
                 cimg_forXYZ(res,x,y,z)
@@ -21503,7 +21564,7 @@ namespace cimg_library_suffixed {
           }
         } else { // Absolute warp.
           if (interpolation==2) { // Cubic interpolation.
-            if (boundary_conditions==2) // Cyclic boundaries.
+            if (boundary_conditions==2) // Periodic boundaries.
               cimg_forC(res,c) {
                 const t *ptrs0 = warp._data;
                 cimg_forXYZ(res,x,y,z)
@@ -21522,7 +21583,7 @@ namespace cimg_library_suffixed {
                   *(ptrd++) = (T)cubic_atX((float)*(ptrs0++),0,0,c,0);
               }
           } else if (interpolation==1) { // Linear interpolation.
-            if (boundary_conditions==2) // Cyclic boundaries.
+            if (boundary_conditions==2) // Periodic boundaries.
               cimg_forC(res,c) {
                 const t *ptrs0 = warp._data;
                 cimg_forXYZ(res,x,y,z)
@@ -21541,7 +21602,7 @@ namespace cimg_library_suffixed {
                   *(ptrd++) = (T)linear_atX((float)*(ptrs0++),0,0,c,0);
               }
           } else { // Nearest-neighbor interpolation.
-            if (boundary_conditions==2) // Cyclic boundaries.
+            if (boundary_conditions==2) // Periodic boundaries.
               cimg_forC(res,c) {
                 const t *ptrs0 = warp._data;
                 cimg_forXYZ(res,x,y,z)
@@ -21565,7 +21626,7 @@ namespace cimg_library_suffixed {
       } else if (warp._spectrum==2) { // 2d warping.
         if (is_relative) { // Relative warp.
           if (interpolation==2) { // Cubic interpolation.
-            if (boundary_conditions==2) // Cyclic boundaries.
+            if (boundary_conditions==2) // Periodic boundaries.
               cimg_forC(res,c) {
                 const t *ptrs0 = warp.data(0,0,0,0), *ptrs1 = warp.data(0,0,0,1);
                 cimg_forXYZ(res,x,y,z)
@@ -21585,7 +21646,7 @@ namespace cimg_library_suffixed {
                   *(ptrd++) = (T)cubic_atXY(x - (float)*(ptrs0++),y - (float)*(ptrs1++),z,c,0);
               }
           } else if (interpolation==1) { // Linear interpolation.
-            if (boundary_conditions==2) // Cyclic boundaries.
+            if (boundary_conditions==2) // Periodic boundaries.
               cimg_forC(res,c) {
                 const t *ptrs0 = warp.data(0,0,0,0), *ptrs1 = warp.data(0,0,0,1);
                 cimg_forXYZ(res,x,y,z)
@@ -21605,7 +21666,7 @@ namespace cimg_library_suffixed {
                   *(ptrd++) = (T)linear_atXY(x - (float)*(ptrs0++),y - (float)*(ptrs1++),z,c,0);
               }
           } else { // Nearest-neighbor interpolation.
-            if (boundary_conditions==2) // Cyclic boundaries.
+            if (boundary_conditions==2) // Periodic boundaries.
               cimg_forC(res,c) {
                 const t *ptrs0 = warp.data(0,0,0,0), *ptrs1 = warp.data(0,0,0,1);
                 cimg_forXYZ(res,x,y,z)
@@ -21627,7 +21688,7 @@ namespace cimg_library_suffixed {
           }
         } else { // Absolute warp.
           if (interpolation==2) { // Cubic interpolation.
-            if (boundary_conditions==2) // Cyclic boundaries.
+            if (boundary_conditions==2) // Periodic boundaries.
               cimg_forC(res,c) {
                 const t *ptrs0 = warp.data(0,0,0,0), *ptrs1 = warp.data(0,0,0,1);
                 cimg_forXYZ(res,x,y,z)
@@ -21647,7 +21708,7 @@ namespace cimg_library_suffixed {
                   *(ptrd++) = (T)cubic_atXY((float)*(ptrs0++),(float)*(ptrs1++),0,c,0);
               }
           } else if (interpolation==1) { // Linear interpolation.
-            if (boundary_conditions==2) // Cyclic boundaries.
+            if (boundary_conditions==2) // Periodic boundaries.
               cimg_forC(res,c) {
                 const t *ptrs0 = warp.data(0,0,0,0), *ptrs1 = warp.data(0,0,0,1);
                 cimg_forXYZ(res,x,y,z)
@@ -21667,7 +21728,7 @@ namespace cimg_library_suffixed {
                   *(ptrd++) = (T)linear_atXY((float)*(ptrs0++),(float)*(ptrs1++),0,c,0);
               }
           } else { // Nearest-neighbor interpolation.
-            if (boundary_conditions==2) // Cyclic boundaries.
+            if (boundary_conditions==2) // Periodic boundaries.
               cimg_forC(res,c) {
                 const t *ptrs0 = warp.data(0,0,0,0), *ptrs1 = warp.data(0,0,0,1);
                 cimg_forXYZ(res,x,y,z)
@@ -21692,7 +21753,7 @@ namespace cimg_library_suffixed {
       } else if (warp._spectrum==3) { // 3d warping.
         if (is_relative) { // Relative warp.
           if (interpolation==2) { // Cubic interpolation.
-            if (boundary_conditions==2) // Cyclic boundaries.
+            if (boundary_conditions==2) // Periodic boundaries.
               cimg_forC(res,c) {
                 const t *ptrs0 = warp.data(0,0,0,0), *ptrs1 = warp.data(0,0,0,1), *ptrs2 = warp.data(0,0,0,2);
                 cimg_forXYZ(res,x,y,z)
@@ -21713,7 +21774,7 @@ namespace cimg_library_suffixed {
                   *(ptrd++) = (T)cubic_atXYZ(x - (float)*(ptrs0++),y - (float)*(ptrs1++),z - (float)*(ptrs2++),c,0);
               }
           } else if (interpolation==1) { // Linear interpolation.
-            if (boundary_conditions==2) // Cyclic boundaries.
+            if (boundary_conditions==2) // Periodic boundaries.
               cimg_forC(res,c) {
                 const t *ptrs0 = warp.data(0,0,0,0), *ptrs1 = warp.data(0,0,0,1), *ptrs2 = warp.data(0,0,0,2);
                 cimg_forXYZ(res,x,y,z)
@@ -21734,7 +21795,7 @@ namespace cimg_library_suffixed {
                   *(ptrd++) = (T)linear_atXYZ(x - (float)*(ptrs0++),y - (float)*(ptrs1++),z - (float)*(ptrs2++),c,0);
               }
           } else { // Nearest neighbor interpolation.
-            if (boundary_conditions==2) // Cyclic boundaries.
+            if (boundary_conditions==2) // Periodic boundaries.
               cimg_forC(res,c) {
                 const t *ptrs0 = warp.data(0,0,0,0), *ptrs1 = warp.data(0,0,0,1), *ptrs2 = warp.data(0,0,0,2);
                 cimg_forXYZ(res,x,y,z)
@@ -21757,7 +21818,7 @@ namespace cimg_library_suffixed {
           }
         } else { // Absolute warp.
           if (interpolation==2) { // Cubic interpolation.
-            if (boundary_conditions==2) // Cyclic boundaries.
+            if (boundary_conditions==2) // Periodic boundaries.
               cimg_forC(res,c) {
                 const t *ptrs0 = warp.data(0,0,0,0), *ptrs1 = warp.data(0,0,0,1), *ptrs2 = warp.data(0,0,0,2);
                 cimg_forXYZ(res,x,y,z)
@@ -21778,7 +21839,7 @@ namespace cimg_library_suffixed {
                   *(ptrd++) = (T)cubic_atXYZ((float)*(ptrs0++),(float)*(ptrs1++),(float)*(ptrs2++),c,0);
               }
           } else if (interpolation==1) { // Linear interpolation.
-            if (boundary_conditions==2) // Cyclic boundaries.
+            if (boundary_conditions==2) // Periodic boundaries.
               cimg_forC(res,c) {
                 const t *ptrs0 = warp.data(0,0,0,0), *ptrs1 = warp.data(0,0,0,1), *ptrs2 = warp.data(0,0,0,2);
                 cimg_forXYZ(res,x,y,z)
@@ -21799,7 +21860,7 @@ namespace cimg_library_suffixed {
                   *(ptrd++) = (T)linear_atXYZ((float)*(ptrs0++),(float)*(ptrs1++),(float)*(ptrs2++),c,0);
               }
           } else { // Nearest-neighbor interpolation.
-            if (boundary_conditions==2) // Cyclic boundaries.
+            if (boundary_conditions==2) // Periodic boundaries.
               cimg_forC(res,c) {
                 const t *ptrs0 = warp.data(0,0,0,0), *ptrs1 = warp.data(0,0,0,1), *ptrs2 = warp.data(0,0,0,2);
                 cimg_forXYZ(res,x,y,z)
@@ -22387,10 +22448,10 @@ namespace cimg_library_suffixed {
           if (xi>=ref.width()) xi = ref.width()-1; if (nxi>=ref.width()) nxi = ref.width()-1;
           if (yi<0) yi = 0; if (nyi<0) nyi = 0;
           if (yi>=ref.height()) yi = ref.height()-1; if (nyi>=ref.height()) nyi = ref.height()-1;
-          I(0,0,0) = (float)ref(xi,yi,zi,0); I(0,0,1) = (float)ref(xi,yi,zi,1);
-          I(1,0,0) = (float)ref(nxi,yi,zi,0); I(1,0,1) = (float)ref(nxi,yi,zi,1);
+          I(0,0,0) = (float)ref(xi,yi,zi,0);   I(0,0,1) = (float)ref(xi,yi,zi,1);
+          I(1,0,0) = (float)ref(nxi,yi,zi,0);  I(1,0,1) = (float)ref(nxi,yi,zi,1);
           I(1,1,0) = (float)ref(nxi,nyi,zi,0); I(1,1,1) = (float)ref(nxi,nyi,zi,1);
-          I(0,1,0) = (float)ref(xi,nyi,zi,0); I(0,1,1) = (float)ref(xi,nyi,zi,1);
+          I(0,1,0) = (float)ref(xi,nyi,zi,0);  I(0,1,1) = (float)ref(xi,nyi,zi,1);
           _cimg_vecalign2d(1,0); _cimg_vecalign2d(1,1); _cimg_vecalign2d(0,1);
         }
         return c<2?(float)pI->_linear_atXY(dx,dy,0,c):0;
@@ -22421,14 +22482,14 @@ namespace cimg_library_suffixed {
           if (yi>=ref.height()) yi = ref.height()-1; if (nyi>=ref.height()) nyi = ref.height()-1;
           if (zi<0) zi = 0; if (nzi<0) nzi = 0;
           if (zi>=ref.depth()) zi = ref.depth()-1; if (nzi>=ref.depth()) nzi = ref.depth()-1;
-          I(0,0,0,0) = (float)ref(xi,yi,zi,0); I(0,0,0,1) = (float)ref(xi,yi,zi,1); I(0,0,0,2) = (float)ref(xi,yi,zi,2);
-          I(1,0,0,0) = (float)ref(nxi,yi,zi,0); I(1,0,0,1) = (float)ref(nxi,yi,zi,1); I(1,0,0,2) = (float)ref(nxi,yi,zi,2);
+          I(0,0,0,0) = (float)ref(xi,yi,zi,0);   I(0,0,0,1) = (float)ref(xi,yi,zi,1);   I(0,0,0,2) = (float)ref(xi,yi,zi,2);
+          I(1,0,0,0) = (float)ref(nxi,yi,zi,0);  I(1,0,0,1) = (float)ref(nxi,yi,zi,1);  I(1,0,0,2) = (float)ref(nxi,yi,zi,2);
           I(1,1,0,0) = (float)ref(nxi,nyi,zi,0); I(1,1,0,1) = (float)ref(nxi,nyi,zi,1); I(1,1,0,2) = (float)ref(nxi,nyi,zi,2);
-          I(0,1,0,0) = (float)ref(xi,nyi,zi,0); I(0,1,0,1) = (float)ref(xi,nyi,zi,1); I(0,1,0,2) = (float)ref(xi,yi,zi,2);
-          I(0,0,0,1) = (float)ref(xi,yi,nzi,0); I(0,0,0,1) = (float)ref(xi,yi,nzi,1); I(0,0,0,2) = (float)ref(xi,yi,nzi,2);
-          I(1,0,0,1) = (float)ref(nxi,yi,nzi,0); I(1,0,0,1) = (float)ref(nxi,yi,nzi,1); I(1,0,0,2) = (float)ref(nxi,yi,nzi,2);
-          I(1,1,0,1) = (float)ref(nxi,nyi,nzi,0); I(1,1,0,1) = (float)ref(nxi,nyi,nzi,1); I(1,1,0,2) = (float)ref(nxi,nyi,nzi,2);
-          I(0,1,0,1) = (float)ref(xi,nyi,nzi,0); I(0,1,0,1) = (float)ref(xi,nyi,nzi,1); I(0,1,0,2) = (float)ref(xi,yi,nzi,2);
+          I(0,1,0,0) = (float)ref(xi,nyi,zi,0);  I(0,1,0,1) = (float)ref(xi,nyi,zi,1);  I(0,1,0,2) = (float)ref(xi,nyi,zi,2);
+          I(0,0,1,0) = (float)ref(xi,yi,nzi,0);   I(0,0,1,1) = (float)ref(xi,yi,nzi,1);   I(0,0,1,2) = (float)ref(xi,yi,nzi,2);
+          I(1,0,1,0) = (float)ref(nxi,yi,nzi,0);  I(1,0,1,1) = (float)ref(nxi,yi,nzi,1);  I(1,0,1,2) = (float)ref(nxi,yi,nzi,2);
+          I(1,1,1,0) = (float)ref(nxi,nyi,nzi,0); I(1,1,1,1) = (float)ref(nxi,nyi,nzi,1); I(1,1,1,2) = (float)ref(nxi,nyi,nzi,2);
+          I(0,1,1,0) = (float)ref(xi,nyi,nzi,0);  I(0,1,1,1) = (float)ref(xi,nyi,nzi,1);  I(0,1,1,2) = (float)ref(xi,nyi,nzi,2);
           _cimg_vecalign3d(1,0,0); _cimg_vecalign3d(1,1,0); _cimg_vecalign3d(0,1,0);
           _cimg_vecalign3d(0,0,1); _cimg_vecalign3d(1,0,1); _cimg_vecalign3d(1,1,1); _cimg_vecalign3d(0,1,1);
         }
@@ -22630,6 +22691,7 @@ namespace cimg_library_suffixed {
     **/
     CImgList<T> get_split(const char axis, const int nb=0) const {
       CImgList<T> res;
+      if (is_empty()) return res;
       const char _axis = cimg::uncase(axis);
 
       if (nb<=0) { // Split by bloc size.
@@ -22705,6 +22767,7 @@ namespace cimg_library_suffixed {
     **/
     CImgList<T> get_split(const T value, const bool keep_values, const bool is_shared) const {
       CImgList<T> res;
+      if (is_empty()) return res;
       for (const T *ps = _data, *_ps = ps, *const pe = end(); ps<pe; ) {
         while (_ps<pe && *_ps==value) ++_ps;
         unsigned int siz = _ps - ps;
@@ -22726,9 +22789,10 @@ namespace cimg_library_suffixed {
      **/
     template<typename t>
     CImgList<T> get_split(const CImg<t>& values, const bool keep_values, const bool is_shared) const {
+      CImgList<T> res;
+      if (is_empty()) return res;
       if (!values) return CImgList<T>(*this);
       if (values.size()==1) return get_split(*values,keep_values,is_shared);
-      CImgList<T> res;
       const t *pve = values.end();
       for (const T *ps = _data, *_ps = ps, *const pe = end(); ps<pe; ) {
 
@@ -22761,6 +22825,16 @@ namespace cimg_library_suffixed {
         if (siz) res.insert(CImg<T>(ps,1,siz,1,1,is_shared),~0U,is_shared);
         ps = _ps;
       }
+      return res;
+    }
+
+    //! Split the image into a list of one-column vectors each having same values.
+    CImgList<T> get_split(const bool is_shared) const {
+      CImgList<T> res;
+      if (is_empty()) return res;
+      T *p0 = _data, current = *p0;
+      cimg_for(*this,p,T) if (*p!=current) { res.insert(CImg<T>(p0,1,p-p0,1,1,is_shared),~0U,is_shared); p0 = p; current = *p; }
+      res.insert(CImg<T>(p0,1,end()-p0,1,1,is_shared),~0U,is_shared);
       return res;
     }
 
@@ -23577,19 +23651,19 @@ namespace cimg_library_suffixed {
                                     cimg_instance,priority._width,priority._height,priority._depth,priority._spectrum,priority._data);
       if (_spectrum!=1) { cimg_forC(*this,c) get_shared_channel(c).watershed(priority.get_shared_channel(c%priority._spectrum),fill_lines); return *this; }
 
-      CImg<boolT> in_queue(_width,_height,_depth,1,0);
+      CImg<boolT> is_queued(_width,_height,_depth,1,0);
       CImg<typename cimg::superset2<T,t,int>::type> Q;
       unsigned int sizeQ = 0;
 
       // Find seed points and insert them in priority queue.
       const T *ptrs = _data;
       cimg_forXYZ(*this,x,y,z) if (*(ptrs++)) {
-        if (x-1>=0 && !(*this)(x-1,y,z))       Q._priority_queue_insert(in_queue,sizeQ,priority(x-1,y,z),x-1,y,z);
-        if (x+1<width() && !(*this)(x+1,y,z))  Q._priority_queue_insert(in_queue,sizeQ,priority(x+1,y,z),x+1,y,z);
-        if (y-1>=0 && !(*this)(x,y-1,z))       Q._priority_queue_insert(in_queue,sizeQ,priority(x,y-1,z),x,y-1,z);
-        if (y+1<height() && !(*this)(x,y+1,z)) Q._priority_queue_insert(in_queue,sizeQ,priority(x,y+1,z),x,y+1,z);
-        if (z-1>=0 && !(*this)(x,y,z-1))       Q._priority_queue_insert(in_queue,sizeQ,priority(x,y,z-1),x,y,z-1);
-        if (z+1<depth() && !(*this)(x,y,z+1))  Q._priority_queue_insert(in_queue,sizeQ,priority(x,y,z+1),x,y,z+1);
+        if (x-1>=0 && !(*this)(x-1,y,z))       Q._priority_queue_insert(is_queued,sizeQ,priority(x-1,y,z),x-1,y,z);
+        if (x+1<width() && !(*this)(x+1,y,z))  Q._priority_queue_insert(is_queued,sizeQ,priority(x+1,y,z),x+1,y,z);
+        if (y-1>=0 && !(*this)(x,y-1,z))       Q._priority_queue_insert(is_queued,sizeQ,priority(x,y-1,z),x,y-1,z);
+        if (y+1<height() && !(*this)(x,y+1,z)) Q._priority_queue_insert(is_queued,sizeQ,priority(x,y+1,z),x,y+1,z);
+        if (z-1>=0 && !(*this)(x,y,z-1))       Q._priority_queue_insert(is_queued,sizeQ,priority(x,y,z-1),x,y,z-1);
+        if (z+1<depth() && !(*this)(x,y,z+1))  Q._priority_queue_insert(is_queued,sizeQ,priority(x,y,z+1),x,y,z+1);
       }
 
       // Start watershed computation.
@@ -23604,42 +23678,42 @@ namespace cimg_library_suffixed {
         unsigned int label = 0;
         if (x-1>=0) {
           if ((*this)(x-1,y,z)) { if (!label) label = (unsigned int)(*this)(x-1,y,z); else if (label!=(*this)(x-1,y,z)) is_same_label = false; }
-          else Q._priority_queue_insert(in_queue,sizeQ,priority(x-1,y,z),x-1,y,z);
+          else Q._priority_queue_insert(is_queued,sizeQ,priority(x-1,y,z),x-1,y,z);
         }
         if (x+1<width()) {
           if ((*this)(x+1,y,z)) { if (!label) label = (unsigned int)(*this)(x+1,y,z); else if (label!=(*this)(x+1,y,z)) is_same_label = false; }
-          else Q._priority_queue_insert(in_queue,sizeQ,priority(x+1,y,z),x+1,y,z);
+          else Q._priority_queue_insert(is_queued,sizeQ,priority(x+1,y,z),x+1,y,z);
         }
         if (y-1>=0) {
           if ((*this)(x,y-1,z)) { if (!label) label = (unsigned int)(*this)(x,y-1,z); else if (label!=(*this)(x,y-1,z)) is_same_label = false; }
-          else Q._priority_queue_insert(in_queue,sizeQ,priority(x,y-1,z),x,y-1,z);
+          else Q._priority_queue_insert(is_queued,sizeQ,priority(x,y-1,z),x,y-1,z);
         }
         if (y+1<height()) {
           if ((*this)(x,y+1,z)) { if (!label) label = (unsigned int)(*this)(x,y+1,z); else if (label!=(*this)(x,y+1,z)) is_same_label = false; }
-          else Q._priority_queue_insert(in_queue,sizeQ,priority(x,y+1,z),x,y+1,z);
+          else Q._priority_queue_insert(is_queued,sizeQ,priority(x,y+1,z),x,y+1,z);
         }
         if (z-1>=0) {
           if ((*this)(x,y,z-1)) { if (!label) label = (unsigned int)(*this)(x,y,z-1); else if (label!=(*this)(x,y,z-1)) is_same_label = false; }
-          else Q._priority_queue_insert(in_queue,sizeQ,priority(x,y,z-1),x,y,z-1);
+          else Q._priority_queue_insert(is_queued,sizeQ,priority(x,y,z-1),x,y,z-1);
         }
         if (z+1<depth()) {
           if ((*this)(x,y,z+1)) { if (!label) label = (unsigned int)(*this)(x,y,z+1); else if (label!=(*this)(x,y,z+1)) is_same_label = false; }
-          else Q._priority_queue_insert(in_queue,sizeQ,priority(x,y,z+1),x,y,z+1);
+          else Q._priority_queue_insert(is_queued,sizeQ,priority(x,y,z+1),x,y,z+1);
         }
-        if (is_same_label) (*this)(x,y,z) = label;
+        if (is_same_label) (*this)(x,y,z) = (T)label;
       }
 
       // Fill lines.
       if (fill_lines) {
 
         // Sort all non-labeled pixels with labeled neighbors.
-        in_queue = false;
+        is_queued = false;
         const T *ptrs = _data;
         cimg_forXYZ(*this,x,y,z) if (!*(ptrs++) &&
                                      ((x-1>=0 && (*this)(x-1,y,z)) || (x+1<width() && (*this)(x+1,y,z)) ||
                                       (y-1>=0 && (*this)(x,y-1,z)) || (y+1<height() && (*this)(x,y+1,z)) ||
                                       (z-1>=0 && (*this)(x,y,z-1)) || (z+1>depth() && (*this)(x,y,z+1))))
-          Q._priority_queue_insert(in_queue,sizeQ,priority(x,y,z),x,y,z);
+          Q._priority_queue_insert(is_queued,sizeQ,priority(x,y,z),x,y,z);
 
         // Start line filling process.
         while (sizeQ) {
@@ -23649,27 +23723,27 @@ namespace cimg_library_suffixed {
           int xmax = 0, ymax = 0, zmax = 0;
           if (x-1>=0) {
             if ((*this)(x-1,y,z)) { if (priority(x-1,y,z)>pmax) { pmax = priority(x-1,y,z); xmax = x-1; ymax = y; zmax = z; }}
-            else Q._priority_queue_insert(in_queue,sizeQ,priority(x-1,y,z),x-1,y,z);
+            else Q._priority_queue_insert(is_queued,sizeQ,priority(x-1,y,z),x-1,y,z);
           }
           if (x+1<width()) {
             if ((*this)(x+1,y,z)) { if (priority(x+1,y,z)>pmax) { pmax = priority(x+1,y,z); xmax = x+1; ymax = y; zmax = z; }}
-            else Q._priority_queue_insert(in_queue,sizeQ,priority(x+1,y,z),x+1,y,z);
+            else Q._priority_queue_insert(is_queued,sizeQ,priority(x+1,y,z),x+1,y,z);
           }
           if (y-1>=0) {
             if ((*this)(x,y-1,z)) { if (priority(x,y-1,z)>pmax) { pmax = priority(x,y-1,z); xmax = x; ymax = y-1; zmax = z; }}
-            else Q._priority_queue_insert(in_queue,sizeQ,priority(x,y-1,z),x,y-1,z);
+            else Q._priority_queue_insert(is_queued,sizeQ,priority(x,y-1,z),x,y-1,z);
           }
           if (y+1<height()) {
             if ((*this)(x,y+1,z)) { if (priority(x,y+1,z)>pmax) { pmax = priority(x,y+1,z); xmax = x; ymax = y+1; zmax = z; }}
-            else Q._priority_queue_insert(in_queue,sizeQ,priority(x,y+1,z),x,y+1,z);
+            else Q._priority_queue_insert(is_queued,sizeQ,priority(x,y+1,z),x,y+1,z);
           }
           if (z-1>=0) {
             if ((*this)(x,y,z-1)) { if (priority(x,y,z-1)>pmax) { pmax = priority(x,y,z-1); xmax = x; ymax = y; zmax = z-1; }}
-            else Q._priority_queue_insert(in_queue,sizeQ,priority(x,y,z-1),x,y,z-1);
+            else Q._priority_queue_insert(is_queued,sizeQ,priority(x,y,z-1),x,y,z-1);
           }
           if (z+1<depth()) {
             if ((*this)(x,y,z+1)) { if (priority(x,y,z+1)>pmax) { pmax = priority(x,y,z+1); xmax = x; ymax = y; zmax = z+1; }}
-            else Q._priority_queue_insert(in_queue,sizeQ,priority(x,y,z+1),x,y,z+1);
+            else Q._priority_queue_insert(is_queued,sizeQ,priority(x,y,z+1),x,y,z+1);
           }
           (*this)(x,y,z) = (*this)(xmax,ymax,zmax);
         }
@@ -23685,9 +23759,9 @@ namespace cimg_library_suffixed {
 
     // [internal] Insert/Remove items in priority queue, for watershed/distance transforms.
     template<typename t>
-    bool _priority_queue_insert(CImg<boolT>& in_queue, unsigned int& siz, const t value, const unsigned int x, const unsigned int y, const unsigned int z) {
-      if (in_queue(x,y,z)) return false;
-      in_queue(x,y,z) = true;
+    bool _priority_queue_insert(CImg<boolT>& is_queued, unsigned int& siz, const t value, const unsigned int x, const unsigned int y, const unsigned int z) {
+      if (is_queued(x,y,z)) return false;
+      is_queued(x,y,z) = true;
       if (++siz>=_width) { if (!is_empty()) resize(_width*2,4,1,1,0); else assign(64,4); }
       (*this)(siz-1,0) = (T)value; (*this)(siz-1,1) = (T)x; (*this)(siz-1,2) = (T)y; (*this)(siz-1,3) = (T)z;
       for (unsigned int pos = siz - 1, par = 0; pos && value>(*this)(par=(pos+1)/2-1,0); pos = par) {
@@ -23929,7 +24003,7 @@ namespace cimg_library_suffixed {
       const float nsigma = sigma>=0?sigma:-sigma*(naxis=='x'?_width:naxis=='y'?_height:naxis=='z'?_depth:_spectrum)/100;
       if (is_empty() || (nsigma<0.1f && !order)) return *this;
       const Tfloat
-        nnsigma = nsigma<0.1f?0.1:nsigma,
+        nnsigma = nsigma<0.1f?0.1f:nsigma,
         q = (Tfloat)(nnsigma<2.5?3.97156-4.14554*std::sqrt(1-0.2689*nnsigma):0.98711*nnsigma-0.96330),
         b0 = 1.57825f + 2.44413f*q + 1.4281f*q*q + 0.4222205f*q*q*q,
         b1 = (2.44413f*q + 2.85619f*q*q + 1.26661f*q*q*q),
@@ -24315,8 +24389,9 @@ namespace cimg_library_suffixed {
       return (+*this).blur_anisotropic(amplitude,sharpness,anisotropy,alpha,sigma,dl,da,gauss_prec,interpolation_type,is_fast_approx);
     }
 
-    //! Blur image, with the bilateral filter.
+    //! Blur image, with the joint bilateral filter.
     /**
+       \param guide Image used to model the smoothing weights.
        \param sigma_x Amount of blur along the X-axis.
        \param sigma_y Amount of blur along the Y-axis.
        \param sigma_z Amount of blur along the Z-axis.
@@ -24329,16 +24404,23 @@ namespace cimg_library_suffixed {
        \note This algorithm uses the optimisation technique proposed by S. Paris and F. Durand, in ECCV'2006
        (extended for 3d volumetric images).
     **/
-    CImg<T>& blur_bilateral(const float sigma_x, const float sigma_y, const float sigma_z, const float sigma_r,
+    template<typename t>
+    CImg<T>& blur_bilateral(const CImg<t>& guide, const float sigma_x, const float sigma_y, const float sigma_z, const float sigma_r,
                             const int bgrid_x, const int bgrid_y, const int bgrid_z, const int bgrid_r,
                             const bool interpolation_type=true) {
+      if (!is_sameXYZ(guide))
+        throw CImgArgumentException(_cimg_instance
+                                    "blur_bilateral(): Invalid size for specified guide image (%u,%u,%u,%u,%p).",
+                                    cimg_instance,
+                                    guide._width,guide._height,guide._depth,guide._spectrum,guide._data);
       if (is_empty()) return *this;
-      T m, M = max_min(m);
-      const float range = (float)(1.0f + M - m);
+      T m, M = guide.max_min(m);
+      if (m==M) return *this;
+      const float range = (float)(M - m);
       const unsigned int
-        bx0 = bgrid_x>=0?bgrid_x:_width*(-bgrid_x)/100,
-        by0 = bgrid_y>=0?bgrid_y:_height*(-bgrid_y)/100,
-        bz0 = bgrid_z>=0?bgrid_z:_depth*(-bgrid_z)/100,
+        bx0 = bgrid_x>=0?bgrid_x:_width*-bgrid_x/100,
+        by0 = bgrid_y>=0?bgrid_y:_height*-bgrid_y/100,
+        bz0 = bgrid_z>=0?bgrid_z:_depth*-bgrid_z/100,
         br0 = bgrid_r>=0?bgrid_r:(int)(-range*bgrid_r/100),
         bx = bx0>0?bx0:1,
         by = by0>0?by0:1,
@@ -24348,32 +24430,35 @@ namespace cimg_library_suffixed {
         _sigma_x = sigma_x>=0?sigma_x:-sigma_x*_width/100,
         _sigma_y = sigma_y>=0?sigma_y:-sigma_y*_height/100,
         _sigma_z = sigma_z>=0?sigma_z:-sigma_z*_depth/100,
+        _sigma_r = sigma_r>=0?sigma_r:-sigma_r*range/100,
         nsigma_x = _sigma_x*bx/_width,
         nsigma_y = _sigma_y*by/_height,
         nsigma_z = _sigma_z*bz/_depth,
-        nsigma_r = sigma_r*br/range;
+        nsigma_r = _sigma_r*br/range;
       if (nsigma_x>0 || nsigma_y>0 || nsigma_z>0 || nsigma_r>0) {
         const bool is_3d = (_depth>1);
         if (is_3d) { // 3d version of the algorithm
           CImg<floatT> bgrid(bx,by,bz,br), bgridw(bx,by,bz,br);
           cimg_forC(*this,c) {
+            const CImg<t> _guide = guide.get_shared_channel(c%guide._spectrum);
             bgrid.fill(0); bgridw.fill(0);
             cimg_forXYZ(*this,x,y,z) {
               const T val = (*this)(x,y,z,c);
-              const int X = x*bx/_width, Y = y*by/_height, Z = z*bz/_depth, R = (int)((val-m)*br/range);
+              const float gval = (float)_guide(x,y,z);
+              const int X = x*bx/_width, Y = y*by/_height, Z = z*bz/_depth, R = (int)cimg::min(br-1.0f,(gval-m)*br/range);
               bgrid(X,Y,Z,R) += (float)val;
               bgridw(X,Y,Z,R) += 1;
             }
             bgrid.blur(nsigma_x,nsigma_y,nsigma_z,true).deriche(nsigma_r,0,'c',false);
             bgridw.blur(nsigma_x,nsigma_y,nsigma_z,true).deriche(nsigma_r,0,'c',false);
             if (interpolation_type) cimg_forXYZ(*this,x,y,z) {
-              const T val = (*this)(x,y,z,c);
-              const float X = (float)x*bx/_width, Y = (float)y*by/_height, Z = (float)z*bz/_depth, R = (float)((val-m)*br/range),
+              const float gval = (float)_guide(x,y,z),
+                X = (float)x*bx/_width, Y = (float)y*by/_height, Z = (float)z*bz/_depth, R = (float)cimg::min(br-1.0f,(gval-m)*br/range),
                 bval0 = bgrid._linear_atXYZC(X,Y,Z,R), bval1 = bgridw._linear_atXYZC(X,Y,Z,R);
               (*this)(x,y,z,c) = (T)(bval0/bval1);
             } else cimg_forXYZ(*this,x,y,z) {
-              const T val = (*this)(x,y,z,c);
-              const int X = x*bx/_width, Y = y*by/_height, Z = z*bz/_depth, R = (int)((val-m)*br/range);
+              const float gval = (float)_guide(x,y,z);
+              const int X = x*bx/_width, Y = y*by/_height, Z = z*bz/_depth, R = (int)cimg::min(br-1.0f,(gval-m)*br/range);
               const float bval0 = bgrid(X,Y,Z,R), bval1 = bgridw(X,Y,Z,R);
               (*this)(x,y,z,c) = (T)(bval0/bval1);
             }
@@ -24381,22 +24466,24 @@ namespace cimg_library_suffixed {
         } else { // 2d version of the algorithm
           CImg<floatT> bgrid(bx,by,br,2);
           cimg_forC(*this,c) {
+            const CImg<t> _guide = guide.get_shared_channel(c%guide._spectrum);
             bgrid.fill(0);
             cimg_forXY(*this,x,y) {
               const T val = (*this)(x,y,c);
-              const int X = x*bx/_width, Y = y*by/_height, R = (int)((val-m)*br/range);
+              const float gval = (float)_guide(x,y);
+              const int X = x*bx/_width, Y = y*by/_height, R = (int)cimg::min(br-1.0f,(gval-m)*br/range);
               bgrid(X,Y,R,0) += (float)val;
               bgrid(X,Y,R,1) += 1;
             }
             bgrid.blur(nsigma_x,nsigma_y,0,true).blur(0,0,nsigma_r,false);
             if (interpolation_type) cimg_forXY(*this,x,y) {
-              const T val = (*this)(x,y,c);
-              const float X = (float)x*bx/_width, Y = (float)y*by/_height, R = (float)((val-m)*br/range),
+              const float gval = (float)_guide(x,y),
+                X = (float)x*bx/_width, Y = (float)y*by/_height, R = (float)cimg::min(br-1.0f,(gval-m)*br/range),
                 bval0 = bgrid._linear_atXYZ(X,Y,R,0), bval1 = bgrid._linear_atXYZ(X,Y,R,1);
               (*this)(x,y,c) = (T)(bval0/bval1);
             } else cimg_forXY(*this,x,y) {
-              const T val = (*this)(x,y,c);
-              const int X = x*bx/_width, Y = y*by/_height, R = (int)((val-m)*br/range);
+              const float gval = (float)_guide(x,y);
+              const int X = x*bx/_width, Y = y*by/_height, R = (int)cimg::min(br-1.0f,(gval-m)*br/range);
               const float bval0 = bgrid(X,Y,R,0), bval1 = bgrid(X,Y,R,1);
               (*this)(x,y,c) = (T)(bval0/bval1);
             }
@@ -24406,31 +24493,35 @@ namespace cimg_library_suffixed {
       return *this;
     }
 
-    //! Blur image, with the bilateral filter \newinstance.
-    CImg<T> get_blur_bilateral(const float sigma_x, const float sigma_y, const float sigma_z, const float sigma_r,
+    //! Blur image, with the joint bilateral filter \newinstance.
+    template<typename t>
+    CImg<T> get_blur_bilateral(const CImg<t>& guide, const float sigma_x, const float sigma_y, const float sigma_z, const float sigma_r,
                                const int bgrid_x, const int bgrid_y, const int bgrid_z, const int bgrid_r,
                                const bool interpolation_type=true) const {
-      return (+*this).blur_bilateral(sigma_x,sigma_y,sigma_z,sigma_r,bgrid_x,bgrid_y,bgrid_z,bgrid_r,interpolation_type);
+      return (+*this).blur_bilateral(guide,sigma_x,sigma_y,sigma_z,sigma_r,bgrid_x,bgrid_y,bgrid_z,bgrid_r,interpolation_type);
     }
 
-    //! Blur image using the bilateral filter.
+    //! Blur image using the joint bilateral filter.
     /**
+       \param guide Image used to model the smoothing weights.
        \param sigma_s Amount of blur along the XYZ-axes.
        \param sigma_r Amount of blur along the value axis.
        \param bgrid_s Size of the bilateral grid along the XYZ-axes.
        \param bgrid_r Size of the bilateral grid along the value axis.
        \param interpolation_type Use interpolation for image slicing.
     **/
-    CImg<T>& blur_bilateral(const float sigma_s, const float sigma_r, const int bgrid_s=-33, const int bgrid_r=32,
+    template<typename t>
+    CImg<T>& blur_bilateral(const CImg<t>& guide, const float sigma_s, const float sigma_r, const int bgrid_s=-33, const int bgrid_r=32,
                             const bool interpolation_type=true) {
       const float nsigma_s = sigma_s>=0?sigma_s:-sigma_s*cimg::max(_width,_height,_depth)/100;
-      return blur_bilateral(nsigma_s,nsigma_s,nsigma_s,sigma_r,bgrid_s,bgrid_s,bgrid_s,bgrid_r,interpolation_type);
+      return blur_bilateral(guide,nsigma_s,nsigma_s,nsigma_s,sigma_r,bgrid_s,bgrid_s,bgrid_s,bgrid_r,interpolation_type);
     }
 
     //! Blur image using the bilateral filter \newinstance.
-    CImg<T> get_blur_bilateral(const float sigma_s, const float sigma_r, const int bgrid_s=-33, const int bgrid_r=32,
+    template<typename t>
+    CImg<T> get_blur_bilateral(const CImg<t>& guide, const float sigma_s, const float sigma_r, const int bgrid_s=-33, const int bgrid_r=32,
                                const bool interpolation_type=true) const {
-      return (+*this).blur_bilateral(sigma_s,sigma_s,sigma_s,sigma_r,bgrid_s,bgrid_s,bgrid_s,bgrid_r,interpolation_type);
+      return (+*this).blur_bilateral(guide,sigma_s,sigma_s,sigma_s,sigma_r,bgrid_s,bgrid_s,bgrid_s,bgrid_r,interpolation_type);
     }
 
     //! Blur image using patch-based space.
@@ -25352,7 +25443,7 @@ namespace cimg_library_suffixed {
                     Uz = 0.5f*(U(x,y,_n1z,c) - U(x,y,_p1z,c)),
                     N2 = Ux*Ux + Uy*Uy + Uz*Uz,
                     N = std::sqrt(N2),
-                    N3 = 1e-5 + N2*N,
+                    N3 = 1e-5f + N2*N,
                     coef_a = (1 - Ux*Ux/N2)/N,
                     coef_b = -2*Ux*Uy/N3,
                     coef_c = -2*Ux*Uz/N3,
@@ -25406,7 +25497,7 @@ namespace cimg_library_suffixed {
                     Uy = 0.5f*(U(x,_n1y,c) - U(x,_p1y,c)),
                     N2 = Ux*Ux + Uy*Uy,
                     N = std::sqrt(N2),
-                    N3 = 1e-5 + N2*N,
+                    N3 = 1e-5f + N2*N,
                     coef_a = Uy*Uy/N3,
                     coef_b = -2*Ux*Uy/N3,
                     coef_c = Ux*Ux/N3,
@@ -25429,7 +25520,7 @@ namespace cimg_library_suffixed {
       return U;
     }
 
-    //! Compute distance to a specified value.
+    //! Compute Euclidean distance function to a specified value.
     /**
         \param value Reference value.
         \param metric Type of metric. Can be <tt>{ 0=Chebyshev | 1=Manhattan | 2=Euclidean | 3=Squared-euclidean }</tt>.
@@ -25578,68 +25669,313 @@ namespace cimg_library_suffixed {
       return CImg<Tfloat>(*this,false).distance(value,metric_mask);
     }
 
-    //! Compute distance map to one source point.
+    //! Compute distance to a specified value, according to a custom metric (use dijkstra algorithm).
     /**
-       \param x X-coordinate of the source point.
-       \param y Y-coordinate of the source point.
-       \param z Z-coordinate of the source point.
-       \note At input, image instance represents a field of potentials.
-    **/
-    CImg<T>& distance_dijkstra(const unsigned int x=0, const unsigned int y=0, const unsigned int z=0) {
-      return get_distance_dijkstra(x,y,z).move_to(*this);
+       \param value Reference value.
+       \param metric Field of distance potentials.
+       \param is_high_connectivity Tells if the algorithm uses low or high connectivity.
+     **/
+    template<typename t, typename to>
+    CImg<T>& distance_dijkstra(const T value, const CImg<t>& metric, const bool is_high_connectivity, CImg<to>& return_path) {
+      return get_distance_dijkstra(value,metric,is_high_connectivity,return_path).move_to(*this);
     }
 
-    //! Compute distance map to one source point \newinstance.
-    CImg<Tfloat> get_distance_dijkstra(const unsigned int x=0, const unsigned int y=0, const unsigned int z=0) const {
-      if (is_empty()) return *this;
-      if (!containsXYZC(x,y,z,0))
+    //! Compute distance map to a specified value, according to a custom metric (use dijkstra algorithm). \newinstance.
+    template<typename t, typename to>
+    CImg<typename cimg::superset<t,long>::type> get_distance_dijkstra(const T value, const CImg<t>& metric, const bool is_high_connectivity, CImg<to>& return_path) const {
+      if (is_empty()) return return_path.assign();
+      if (!is_sameXYZ(metric))
         throw CImgArgumentException(_cimg_instance
-                                    "distance_dijkstra(): image instance does not contain specified starting point (%u,%u,%u).",
+                                    "distance_dijkstra(): image instance and metric map (%u,%u,%u,%u) have incompatible dimensions.",
                                     cimg_instance,
-                                    x,y,z);
-      if (_spectrum!=1)
-        throw CImgInstanceException(_cimg_instance
-                                    "distance_dijkstra(): image instance is not a scalar image.",
-                                    cimg_instance);
-      CImg<Tfloat> res(_width,_height,_depth,2);
-      CImg<boolT> in_queue(_width,_height,_depth,1,0);
-      CImg<Tint> Q;
-      unsigned int sizeQ = 0;
+                                    metric._width,metric._height,metric._depth,metric._spectrum);
+      typedef typename cimg::superset<t,long>::type td;  // Type used for computing cumulative distances.
+      CImg<td> result(_width,_height,_depth,_spectrum), Q;
+      CImg<boolT> is_queued(_width,_height,_depth,1);
+      if (return_path) return_path.assign(_width,_height,_depth,_spectrum);
 
-      // Put specified point in priority queue.
-      Q._priority_queue_insert(in_queue,sizeQ,0,x,y,z);
-      res(x,y,z) = 0; res(x,y,z,1) = 0;
+      cimg_forC(*this,c) {
+        const CImg<T> img = get_shared_channel(c);
+        const CImg<t> met = metric.get_shared_channel(c%metric._spectrum);
+        CImg<td> res = result.get_shared_channel(c);
+        CImg<to> path = return_path?return_path.get_shared_channel(c):CImg<to>();
+        unsigned int sizeQ = 0;
 
-      // Start distance propagation.
-      while (sizeQ) {
+        // Detect initial seeds.
+        is_queued.fill(0);
+        cimg_forXYZ(img,x,y,z) if (img(x,y,z)==value) {
+          Q._priority_queue_insert(is_queued,sizeQ,0,x,y,z);
+          res(x,y,z) = 0;
+          if (path) path(x,y,z) = (to)0;
+        }
 
-        // Get and remove point with minimal potential from the queue.
-        const int x = (int)Q(0,1), y = (int)Q(0,2), z = (int)Q(0,3);
-        const Tfloat potential = (Tfloat)-Q(0,0);
-        Q._priority_queue_remove(sizeQ);
+        // Start distance propagation.
+        while (sizeQ) {
 
-        // Update neighbors.
-        Tfloat npot = 0;
-        if (x-1>=0 && Q._priority_queue_insert(in_queue,sizeQ,-(npot=(*this)(x-1,y,z)+potential),x-1,y,z)) {
-          res(x-1,y,z) = npot; res(x-1,y,z,1) = 2;
-        }
-        if (x+1<width() && Q._priority_queue_insert(in_queue,sizeQ,-(npot=(*this)(x+1,y,z)+potential),x+1,y,z)) {
-          res(x+1,y,z) = npot; res(x+1,y,z,1) = 1;
-        }
-        if (y-1>=0 && Q._priority_queue_insert(in_queue,sizeQ,-(npot=(*this)(x,y-1,z)+potential),x,y-1,z)) {
-          res(x,y-1,z) = npot; res(x,y-1,z,1) = 4;
-        }
-        if (y+1<height() && Q._priority_queue_insert(in_queue,sizeQ,-(npot=(*this)(x,y+1,z)+potential),x,y+1,z)) {
-          res(x,y+1,z) = npot; res(x,y+1,z,1) = 3;
-        }
-        if (z-1>=0 && Q._priority_queue_insert(in_queue,sizeQ,-(npot=(*this)(x,y,z-1)+potential),x,y,z-1)) {
-          res(x,y,z-1) = npot; res(x,y,z-1,1) = 6;
-        }
-        if (z+1<depth() && Q._priority_queue_insert(in_queue,sizeQ,-(npot=(*this)(x,y,z+1)+potential),x,y,z+1)) {
-          res(x,y,z+1) = npot; res(x,y,z+1,1) = 5;
+          // Get and remove point with minimal potential from the queue.
+          const int x = (int)Q(0,1), y = (int)Q(0,2), z = (int)Q(0,3);
+          const td P = (td)-Q(0,0);
+          Q._priority_queue_remove(sizeQ);
+
+          // Update neighbors.
+          td npot = 0;
+          if (x-1>=0 && Q._priority_queue_insert(is_queued,sizeQ,-(npot=met(x-1,y,z)+P),x-1,y,z)) {
+            res(x-1,y,z) = npot; if (path) path(x-1,y,z) = (to)2;
+          }
+          if (x+1<width() && Q._priority_queue_insert(is_queued,sizeQ,-(npot=met(x+1,y,z)+P),x+1,y,z)) {
+            res(x+1,y,z) = npot; if (path) path(x+1,y,z) = (to)1;
+          }
+          if (y-1>=0 && Q._priority_queue_insert(is_queued,sizeQ,-(npot=met(x,y-1,z)+P),x,y-1,z)) {
+            res(x,y-1,z) = npot; if (path) path(x,y-1,z) = (to)8;
+          }
+          if (y+1<height() && Q._priority_queue_insert(is_queued,sizeQ,-(npot=met(x,y+1,z)+P),x,y+1,z)) {
+            res(x,y+1,z) = npot; if (path) path(x,y+1,z) = (to)4;
+          }
+          if (z-1>=0 && Q._priority_queue_insert(is_queued,sizeQ,-(npot=met(x,y,z-1)+P),x,y,z-1)) {
+            res(x,y,z-1) = npot; if (path) path(x,y,z-1) = (to)32;
+          }
+          if (z+1<depth() && Q._priority_queue_insert(is_queued,sizeQ,-(npot=met(x,y,z+1)+P),x,y,z+1)) {
+            res(x,y,z+1) = npot; if (path) path(x,y,z+1) = (to)16;
+          }
+
+          if (is_high_connectivity) {
+            const float sqrt2 = std::sqrt(2.0f), sqrt3 = std::sqrt(3.0f);
+
+            // Diagonal neighbors on slice z.
+            if (x-1>=0 && y-1>=0 && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt2*met(x-1,y-1,z)+P)),x-1,y-1,z)) {
+              res(x-1,y-1,z) = npot; if (path) path(x-1,y-1,z) = (to)10;
+            }
+            if (x+1<width() && y-1>=0 && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt2*met(x+1,y-1,z)+P)),x+1,y-1,z)) {
+              res(x+1,y-1,z) = npot; if (path) path(x+1,y-1,z) = (to)9;
+            }
+            if (x-1>=0 && y+1<height() && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt2*met(x-1,y+1,z)+P)),x-1,y+1,z)) {
+              res(x-1,y+1,z) = npot; if (path) path(x-1,y+1,z) = (to)6;
+            }
+            if (x+1<width() && y+1<height() && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt2*met(x+1,y+1,z)+P)),x+1,y+1,z)) {
+              res(x+1,y+1,z) = npot; if (path) path(x+1,y+1,z) = (to)5;
+            }
+
+            if (z-1>=0) { // Diagonal neighbors on slice z-1.
+              if (x-1>=0 && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt2*met(x-1,y,z-1)+P)),x-1,y,z-1)) {
+                res(x-1,y,z-1) = npot; if (path) path(x-1,y,z-1) = (to)34;
+              }
+              if (x+1<width() && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt2*met(x+1,y,z-1)+P)),x+1,y,z-1)) {
+                res(x+1,y,z-1) = npot; if (path) path(x+1,y,z-1) = (to)33;
+              }
+              if (y-1>=0 && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt2*met(x,y-1,z-1)+P)),x,y-1,z-1)) {
+                res(x,y-1,z-1) = npot; if (path) path(x,y-1,z-1) = (to)40;
+              }
+              if (y+1<height() && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt2*met(x,y+1,z-1)+P)),x,y+1,z-1)) {
+                res(x,y+1,z-1) = npot; if (path) path(x,y+1,z-1) = (to)36;
+              }
+              if (x-1>=0 && y-1>=0 && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt3*met(x-1,y-1,z-1)+P)),x-1,y-1,z-1)) {
+                res(x-1,y-1,z-1) = npot; if (path) path(x-1,y-1,z-1) = (to)42;
+              }
+              if (x+1<width() && y-1>=0 && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt3*met(x+1,y-1,z-1)+P)),x+1,y-1,z-1)) {
+                res(x+1,y-1,z-1) = npot; if (path) path(x+1,y-1,z-1) = (to)41;
+              }
+              if (x-1>=0 && y+1<height() && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt3*met(x-1,y+1,z-1)+P)),x-1,y+1,z-1)) {
+                res(x-1,y+1,z-1) = npot; if (path) path(x-1,y+1,z-1) = (to)38;
+              }
+              if (x+1<width() && y+1<height() && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt3*met(x+1,y+1,z-1)+P)),x+1,y+1,z-1)) {
+                res(x+1,y+1,z-1) = npot; if (path) path(x+1,y+1,z-1) = (to)37;
+              }
+            }
+
+            if (z+1<depth()) { // Diagonal neighbors on slice z+1.
+              if (x-1>=0 && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt2*met(x-1,y,z+1)+P)),x-1,y,z+1)) {
+                res(x-1,y,z+1) = npot; if (path) path(x-1,y,z+1) = (to)18;
+              }
+              if (x+1<width() && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt2*met(x+1,y,z+1)+P)),x+1,y,z+1)) {
+                res(x+1,y,z+1) = npot; if (path) path(x+1,y,z+1) = (to)17;
+              }
+              if (y-1>=0 && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt2*met(x,y-1,z+1)+P)),x,y-1,z+1)) {
+                res(x,y-1,z+1) = npot; if (path) path(x,y-1,z+1) = (to)24;
+              }
+              if (y+1<height() && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt2*met(x,y+1,z+1)+P)),x,y+1,z+1)) {
+                res(x,y+1,z+1) = npot; if (path) path(x,y+1,z+1) = (to)20;
+              }
+              if (x-1>=0 && y-1>=0 && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt3*met(x-1,y-1,z+1)+P)),x-1,y-1,z+1)) {
+                res(x-1,y-1,z+1) = npot; if (path) path(x-1,y-1,z+1) = (to)26;
+              }
+              if (x+1<width() && y-1>=0 && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt3*met(x+1,y-1,z+1)+P)),x+1,y-1,z+1)) {
+                res(x+1,y-1,z+1) = npot; if (path) path(x+1,y-1,z+1) = (to)25;
+              }
+              if (x-1>=0 && y+1<height() && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt3*met(x-1,y+1,z+1)+P)),x-1,y+1,z+1)) {
+                res(x-1,y+1,z+1) = npot; if (path) path(x-1,y+1,z+1) = (to)22;
+              }
+              if (x+1<width() && y+1<height() && Q._priority_queue_insert(is_queued,sizeQ,-(npot=(td)(sqrt3*met(x+1,y+1,z+1)+P)),x+1,y+1,z+1)) {
+                res(x+1,y+1,z+1) = npot; if (path) path(x+1,y+1,z+1) = (to)21;
+              }
+            }
+          }
         }
       }
-      return res;
+      return result;
+    }
+
+    //! Compute distance map to a specified value, according to a custom metric (use dijkstra algorithm). \overloading.
+    template<typename t>
+    CImg<T>& distance_dijkstra(const T value, const CImg<t>& metric, const bool is_high_connectivity=false) {
+      return get_distance_dijkstra(value,metric,is_high_connectivity).move_to(*this);
+    }
+
+    //! Compute distance map to a specified value, according to a custom metric (use dijkstra algorithm). \newinstance.
+    template<typename t>
+    CImg<Tfloat> get_distance_dijkstra(const T value, const CImg<t>& metric, const bool is_high_connectivity=false) const {
+      CImg<T> return_path;
+      return get_distance_dijkstra(value,metric,is_high_connectivity,return_path);
+    }
+
+    //! Compute distance map to one source point, according to a custom metric (use fast marching algorithm).
+    /**
+       \param value Reference value.
+       \param metric Field of distance potentials.
+     **/
+    template<typename t>
+    CImg& distance_eikonal(const T value, const CImg<t>& metric) {
+      return get_distance_eikonal(value,metric).move_to(*this);
+    }
+
+    //! Compute distance map to one source point, according to a custom metric (use fast marching algorithm).
+    template<typename t>
+    CImg<Tfloat> get_distance_eikonal(const T value, const CImg<t>& metric) const {
+      if (is_empty()) return *this;
+      if (!is_sameXYZ(metric))
+        throw CImgArgumentException(_cimg_instance
+                                    "distance_eikonal(): image instance and metric map (%u,%u,%u,%u) have incompatible dimensions.",
+                                    cimg_instance,
+                                    metric._width,metric._height,metric._depth,metric._spectrum);
+      CImg<Tfloat> result(_width,_height,_depth,_spectrum,cimg::type<Tfloat>::max()),Q;
+      CImg<charT> state(_width,_height,_depth); // -1=far away, 0=narrow, 1=frozen.
+
+      cimg_forC(*this,c) {
+        const CImg<T> img = get_shared_channel(c);
+        const CImg<t> met = metric.get_shared_channel(c%metric._spectrum);
+        CImg<Tfloat> res = result.get_shared_channel(c);
+        unsigned int sizeQ = 0;
+        state.fill(-1);
+
+        // Detect initial seeds.
+        Tfloat *ptr1 = res._data; char *ptr2 = state._data;
+        cimg_for(img,ptr0,T) { if (*ptr0==value) { *ptr1 = 0; *ptr2 = 1; } ++ptr1; ++ptr2; }
+
+        // Initialize seeds neighbors.
+        ptr2 = state._data;
+        cimg_forXYZ(img,x,y,z) if (*(ptr2++)==1) {
+          if (x-1>=0 && state(x-1,y,z)==-1) {
+            const Tfloat dist = res(x-1,y,z) = __distance_eikonal(res,met(x-1,y,z),x-1,y,z);
+            Q._eik_priority_queue_insert(state,sizeQ,-dist,x-1,y,z);
+          }
+          if (x+1<width() && state(x+1,y,z)==-1) {
+            const Tfloat dist = res(x+1,y,z) = __distance_eikonal(res,met(x+1,y,z),x+1,y,z);
+            Q._eik_priority_queue_insert(state,sizeQ,-dist,x+1,y,z);
+          }
+          if (y-1>=0 && state(x,y-1,z)==-1) {
+            const Tfloat dist = res(x,y-1,z) = __distance_eikonal(res,met(x,y-1,z),x,y-1,z);
+            Q._eik_priority_queue_insert(state,sizeQ,-dist,x,y-1,z);
+          }
+          if (y+1<height() && state(x,y+1,z)==-1) {
+            const Tfloat dist = res(x,y+1,z) = __distance_eikonal(res,met(x,y+1,z),x,y+1,z);
+            Q._eik_priority_queue_insert(state,sizeQ,-dist,x,y+1,z);
+          }
+          if (z-1>=0 && state(x,y,z-1)==-1) {
+            const Tfloat dist = res(x,y,z-1) = __distance_eikonal(res,met(x,y,z-1),x,y,z-1);
+            Q._eik_priority_queue_insert(state,sizeQ,-dist,x,y,z-1);
+          }
+          if (z+1<depth() && state(x,y,z+1)==-1) {
+            const Tfloat dist = res(x,y,z+1) = __distance_eikonal(res,met(x,y,z+1),x,y,z+1);
+            Q._eik_priority_queue_insert(state,sizeQ,-dist,x,y,z+1);
+          }
+        }
+
+        // Propagate front.
+        while (sizeQ) {
+          int x = -1, y = -1, z = -1;
+          while (sizeQ && x<0) {
+            x = (int)Q(0,1); y = (int)Q(0,2); z = (int)Q(0,3);
+            Q._priority_queue_remove(sizeQ);
+            if (state(x,y,z)==1) x = -1; else state(x,y,z) = 1;
+          }
+          if (x>=0) {
+            if (x-1>=0 && state(x-1,y,z)!=1) {
+              const Tfloat dist = __distance_eikonal(res,met(x-1,y,z),x-1,y,z);
+              if (dist<res(x-1,y,z)) { res(x-1,y,z) = dist; Q._eik_priority_queue_insert(state,sizeQ,-dist,x-1,y,z); }
+            }
+            if (x+1<width() && state(x+1,y,z)!=1) {
+              const Tfloat dist = __distance_eikonal(res,met(x+1,y,z),x+1,y,z);
+              if (dist<res(x+1,y,z)) { res(x+1,y,z) = dist; Q._eik_priority_queue_insert(state,sizeQ,-dist,x+1,y,z); }
+            }
+            if (y-1>=0 && state(x,y-1,z)!=1) {
+              const Tfloat dist = __distance_eikonal(res,met(x,y-1,z),x,y-1,z);
+              if (dist<res(x,y-1,z)) { res(x,y-1,z) = dist; Q._eik_priority_queue_insert(state,sizeQ,-dist,x,y-1,z); }
+            }
+            if (y+1<height() && state(x,y+1,z)!=1) {
+              const Tfloat dist = __distance_eikonal(res,met(x,y+1,z),x,y+1,z);
+              if (dist<res(x,y+1,z)) { res(x,y+1,z) = dist; Q._eik_priority_queue_insert(state,sizeQ,-dist,x,y+1,z); }
+            }
+            if (z-1>=0 && state(x,y,z-1)!=1) {
+              const Tfloat dist = __distance_eikonal(res,met(x,y,z-1),x,y,z-1);
+              if (dist<res(x,y,z-1)) { res(x,y,z-1) = dist; Q._eik_priority_queue_insert(state,sizeQ,-dist,x,y,z-1); }
+            }
+            if (z+1<depth() && state(x,y,z+1)!=1) {
+              const Tfloat dist = __distance_eikonal(res,met(x,y,z+1),x,y,z+1);
+              if (dist<res(x,y,z+1)) { res(x,y,z+1) = dist; Q._eik_priority_queue_insert(state,sizeQ,-dist,x,y,z+1); }
+            }
+          }
+        }
+      }
+      return result;
+    }
+
+    // Locally solve eikonal equation.
+    Tfloat __distance_eikonal(const CImg<Tfloat>& res, const Tfloat P, const int x=0, const int y=0, const int z=0) const {
+      const T M = cimg::type<T>::max();
+      T T1 = cimg::min(x-1>=0?res(x-1,y,z):M,x+1<width()?res(x+1,y,z):M);
+      Tfloat root = 0;
+      if (_depth>1) { // 3d.
+        T
+          T2 = cimg::min(y-1>=0?res(x,y-1,z):M,y+1<height()?res(x,y+1,z):M),
+          T3 = cimg::min(z-1>=0?res(x,y,z-1):M,z+1<depth()?res(x,y,z+1):M);
+        if (T1>T2) cimg::swap(T1,T2);
+        if (T2>T3) cimg::swap(T2,T3);
+        if (T1>T2) cimg::swap(T1,T2);
+        if (P<=0) return (Tfloat)T1;
+        if (T3<M && ___distance_eikonal(3,-2*(T1+T2+T3),T1*T1+T2*T2+T3*T3-P*P,root)) return cimg::max((Tfloat)T3,root);
+        if (T2<M && ___distance_eikonal(2,-2*(T1+T2),T1*T1+T2*T2-P*P,root)) return cimg::max((Tfloat)T2,root);
+        return P + T1;
+      } else if (_height>1) { // 2d.
+        T T2 = cimg::min(y-1>=0?res(x,y-1,z):M,y+1<height()?res(x,y+1,z):M);
+        if (T1>T2) cimg::swap(T1,T2);
+        if (P<=0) return (Tfloat)T1;
+        if (T2<M && ___distance_eikonal(2,-2*(T1+T2),T1*T1+T2*T2-P*P,root)) return cimg::max((Tfloat)T2,root);
+        return P + T1;
+      } else { // 1d.
+        if (P<=0) return (Tfloat)T1;
+        return P + T1;
+      }
+      return 0;
+    }
+
+    // Find max root of a 2nd-order polynomial.
+    static bool ___distance_eikonal(const Tfloat a, const Tfloat b, const Tfloat c, Tfloat &root) {
+      const Tfloat delta = b*b - 4*a*c;
+      if (delta<0) return false;
+      root = 0.5f*(-b + std::sqrt(delta))/a;
+      return true;
+    }
+
+    // Insert new point in heap.
+    template<typename t>
+    void _eik_priority_queue_insert(CImg<charT>& state, unsigned int& siz, const t value, const unsigned int x, const unsigned int y, const unsigned int z) {
+      if (state(x,y,z)>0) return;
+      state(x,y,z) = 0;
+      if (++siz>=_width) { if (!is_empty()) resize(_width*2,4,1,1,0); else assign(64,4); }
+      (*this)(siz-1,0) = (T)value; (*this)(siz-1,1) = (T)x; (*this)(siz-1,2) = (T)y; (*this)(siz-1,3) = (T)z;
+      for (unsigned int pos = siz - 1, par = 0; pos && value>(*this)(par=(pos+1)/2-1,0); pos = par) {
+        cimg::swap((*this)(pos,0),(*this)(par,0)); cimg::swap((*this)(pos,1),(*this)(par,1));
+        cimg::swap((*this)(pos,2),(*this)(par,2)); cimg::swap((*this)(pos,3),(*this)(par,3));
+      }
     }
 
     //! Compute distance function to 0-valued isophotes, using the Eikonal PDE.
@@ -25721,7 +26057,7 @@ namespace cimg_library_suffixed {
           if (w) {
             if ((w%2) && w!=1)
               throw CImgInstanceException(_cimg_instance
-                                          "haar(): Sub-image width %u is not even at scale %u.",
+                                          "haar(): Sub-image width %u is not even.",
                                           cimg_instance,
                                           w);
 
@@ -25729,14 +26065,14 @@ namespace cimg_library_suffixed {
             if (invert) cimg_forYZC(*this,y,z,c) { // Inverse transform along X
               for (unsigned int x = 0, xw = w, x2 = 0; x<w; ++x, ++xw) {
                 const Tfloat val0 = (Tfloat)(*this)(x,y,z,c), val1 = (Tfloat)(*this)(xw,y,z,c);
-                res(x2++,y,z,c) = val0 - val1;
-                res(x2++,y,z,c) = val0 + val1;
+                res(x2++,y,z,c) = (val0 - val1)/sqrt2;
+                res(x2++,y,z,c) = (val0 + val1)/sqrt2;
               }
             } else cimg_forYZC(*this,y,z,c) { // Direct transform along X
               for (unsigned int x = 0, xw = w, x2 = 0; x<w; ++x, ++xw) {
                 const Tfloat val0 = (Tfloat)(*this)(x2++,y,z,c), val1 = (Tfloat)(*this)(x2++,y,z,c);
-                res(x,y,z,c) = (val0 + val1)/2;
-                res(xw,y,z,c) = (val1 - val0)/2;
+                res(x,y,z,c) = (val0 + val1)/sqrt2;
+                res(xw,y,z,c) = (val1 - val0)/sqrt2;
               }
             }
           } else return *this;
@@ -25746,7 +26082,7 @@ namespace cimg_library_suffixed {
           if (h) {
             if ((h%2) && h!=1)
               throw CImgInstanceException(_cimg_instance
-                                          "haar(): Sub-image height %u is not even at scale %u.",
+                                          "haar(): Sub-image height %u is not even.",
                                           cimg_instance,
                                           h);
 
@@ -25771,7 +26107,7 @@ namespace cimg_library_suffixed {
           if (d) {
             if ((d%2) && d!=1)
               throw CImgInstanceException(_cimg_instance
-                                          "haar(): Sub-image depth %u is not even at scale %u.",
+                                          "haar(): Sub-image depth %u is not even.",
                                           cimg_instance,
                                           d);
 
@@ -25860,7 +26196,6 @@ namespace cimg_library_suffixed {
     //! Compute Haar multiscale wavelet transform \newinstance.
     CImg<Tfloat> get_haar(const bool invert=false, const unsigned int nb_scales=1) const {
       CImg<Tfloat> res;
-
       if (nb_scales==1) { // Single scale transform
         if (_width>1) get_haar('x',invert,1).move_to(res);
         if (_height>1) { if (res) res.haar('y',invert,1); else get_haar('y',invert,1).move_to(res); }
@@ -25982,6 +26317,7 @@ namespace cimg_library_suffixed {
                                     real._width,real._height,real._depth,real._spectrum,real._data,
                                     imag._width,imag._height,imag._depth,imag._spectrum,imag._data);
 #ifdef cimg_use_fftw3
+      cimg::mutex(12);
       fftw_complex *data_in;
       fftw_plan data_plan;
 
@@ -26064,6 +26400,7 @@ namespace cimg_library_suffixed {
       }
       fftw_destroy_plan(data_plan);
       fftw_free(data_in);
+      cimg::mutex(12,0);
 #else
       switch (cimg::uncase(axis)) {
       case 'x' : { // Fourier along X, using built-in functions.
@@ -26204,8 +26541,9 @@ namespace cimg_library_suffixed {
        \param[in,out] real Real part of the pixel values.
        \param[in,out] imag Imaginary part of the pixel values.
        \param is_invert Tells if the forward (\c false) or inverse (\c true) FFT is computed.
+       \param nb_threads Number of parallel threads used for the computation. Use \c 0 to set this to the number of available cpus.
     **/
-    static void FFT(CImg<T>& real, CImg<T>& imag, const bool is_invert=false) {
+    static void FFT(CImg<T>& real, CImg<T>& imag, const bool is_invert=false, const unsigned int nb_threads=0) {
       if (!real)
         throw CImgInstanceException("CImgList<%s>::FFT(): Empty specified real part.",
                                     pixel_type());
@@ -26218,6 +26556,15 @@ namespace cimg_library_suffixed {
                                     imag._width,imag._height,imag._depth,imag._spectrum,imag._data);
 
 #ifdef cimg_use_fftw3
+      cimg::mutex(12);
+#ifndef cimg_use_fftw3_singlethread
+      const unsigned int _nb_threads = nb_threads?nb_threads:cimg::nb_cpus();
+      static int fftw_st = fftw_init_threads();
+      cimg::unused(fftw_st);
+      fftw_plan_with_nthreads(_nb_threads);
+#else
+      cimg::unused(nb_threads);
+#endif
       fftw_complex *data_in = (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*real._width*real._height*real._depth);
       if (!data_in) throw CImgInstanceException("CImgList<%s>::FFT(): Failed to allocate memory (%s) for computing FFT of image (%u,%u,%u,%u).",
                                                 pixel_type(),
@@ -26252,7 +26599,12 @@ namespace cimg_library_suffixed {
       }
       fftw_destroy_plan(data_plan);
       fftw_free(data_in);
+#ifndef cimg_use_fftw3_singlethread
+      fftw_cleanup_threads();
+#endif
+      cimg::mutex(12,0);
 #else
+      cimg::unused(nb_threads);
       if (real._depth>1) FFT(real,imag,'z',is_invert);
       if (real._height>1) FFT(real,imag,'y',is_invert);
       if (real._width>1) FFT(real,imag,'x',is_invert);
@@ -26826,7 +27178,7 @@ namespace cimg_library_suffixed {
                                      const float x0, const float y0, const float z0,
                                      const float x1, const float y1, const float z1,
                                      const int size_x=32, const int size_y=32, const int size_z=32) {
-      static unsigned int edges[256] = {
+      static const unsigned int edges[256] = {
         0x000, 0x109, 0x203, 0x30a, 0x406, 0x50f, 0x605, 0x70c, 0x80c, 0x905, 0xa0f, 0xb06, 0xc0a, 0xd03, 0xe09, 0xf00,
         0x190, 0x99 , 0x393, 0x29a, 0x596, 0x49f, 0x795, 0x69c, 0x99c, 0x895, 0xb9f, 0xa96, 0xd9a, 0xc93, 0xf99, 0xe90,
         0x230, 0x339, 0x33 , 0x13a, 0x636, 0x73f, 0x435, 0x53c, 0xa3c, 0xb35, 0x83f, 0x936, 0xe3a, 0xf33, 0xc39, 0xd30,
@@ -26844,7 +27196,7 @@ namespace cimg_library_suffixed {
         0xe90, 0xf99, 0xc93, 0xd9a, 0xa96, 0xb9f, 0x895, 0x99c, 0x69c, 0x795, 0x49f, 0x596, 0x29a, 0x393, 0x99 , 0x190,
         0xf00, 0xe09, 0xd03, 0xc0a, 0xb06, 0xa0f, 0x905, 0x80c, 0x70c, 0x605, 0x50f, 0x406, 0x30a, 0x203, 0x109, 0x000 };
 
-      static int triangles[256][16] = {
+      static const int triangles[256][16] = {
         { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 }, { 0, 8, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 },
         { 0, 1, 9, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 }, { 1, 8, 3, 9, 8, 1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 },
         { 1, 2, 10, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 }, { 0, 8, 3, 1, 2, 10, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 },
@@ -27490,39 +27842,44 @@ namespace cimg_library_suffixed {
        \param primitives Primitives data of the 3d object.
        \param colors Colors data of the 3d object.
        \param opacities Opacities data of the 3d object.
+       \param full_check Tells if full checking of the 3d object must be performed.
     **/
     template<typename tp, typename tc, typename to>
     CImg<T>& object3dtoCImg3d(const CImgList<tp>& primitives,
                               const CImgList<tc>& colors,
-                              const to& opacities) {
-      return get_object3dtoCImg3d(primitives,colors,opacities).move_to(*this);
+                              const to& opacities,
+                              const bool full_check=true) {
+      return get_object3dtoCImg3d(primitives,colors,opacities,full_check).move_to(*this);
     }
 
     //! Convert 3d object into a CImg3d representation \overloading.
     template<typename tp, typename tc>
     CImg<T>& object3dtoCImg3d(const CImgList<tp>& primitives,
-                              const CImgList<tc>& colors) {
-      return get_object3dtoCImg3d(primitives,colors).move_to(*this);
+                              const CImgList<tc>& colors,
+                              const bool full_check=true) {
+      return get_object3dtoCImg3d(primitives,colors,full_check).move_to(*this);
     }
 
     //! Convert 3d object into a CImg3d representation \overloading.
     template<typename tp>
-    CImg<T>& object3dtoCImg3d(const CImgList<tp>& primitives) {
-      return get_object3dtoCImg3d(primitives).move_to(*this);
+    CImg<T>& object3dtoCImg3d(const CImgList<tp>& primitives,
+                              const bool full_check=true) {
+      return get_object3dtoCImg3d(primitives,full_check).move_to(*this);
     }
 
     //! Convert 3d object into a CImg3d representation \overloading.
-    CImg<T>& object3dtoCImg3d() {
-      return get_object3dtoCImg3d().move_to(*this);
+    CImg<T>& object3dtoCImg3d(const bool full_check=true) {
+      return get_object3dtoCImg3d(full_check).move_to(*this);
     }
 
     //! Convert 3d object into a CImg3d representation \newinstance.
     template<typename tp, typename tc, typename to>
     CImg<floatT> get_object3dtoCImg3d(const CImgList<tp>& primitives,
                                       const CImgList<tc>& colors,
-                                      const to& opacities) const {
+                                      const to& opacities,
+                                      const bool full_check=true) const {
       char error_message[1024] = { 0 };
-      if (!is_object3d(primitives,colors,opacities,true,error_message))
+      if (!is_object3d(primitives,colors,opacities,full_check,error_message))
         throw CImgInstanceException(_cimg_instance
                                     "object3dtoCImg3d(): Invalid specified 3d object (%u,%u) (%s).",
                                     cimg_instance,_width,primitives._width,error_message);
@@ -27654,24 +28011,26 @@ namespace cimg_library_suffixed {
     //! Convert 3d object into a CImg3d representation \overloading.
     template<typename tp, typename tc>
     CImg<floatT> get_object3dtoCImg3d(const CImgList<tp>& primitives,
-                                      const CImgList<tc>& colors) const {
+                                      const CImgList<tc>& colors,
+                                      const bool full_check=true) const {
       CImgList<T> opacities;
-      return get_object3dtoCImg3d(primitives,colors,opacities);
+      return get_object3dtoCImg3d(primitives,colors,opacities,full_check);
     }
 
     //! Convert 3d object into a CImg3d representation \overloading.
     template<typename tp>
-    CImg<floatT> get_object3dtoCImg3d(const CImgList<tp>& primitives) const {
+    CImg<floatT> get_object3dtoCImg3d(const CImgList<tp>& primitives,
+                                      const bool full_check=true) const {
       CImgList<T> colors, opacities;
-      return get_object3dtoCImg3d(primitives,colors,opacities);
+      return get_object3dtoCImg3d(primitives,colors,opacities,full_check);
     }
 
     //! Convert 3d object into a CImg3d representation \overloading.
-    CImg<floatT> get_object3dtoCImg3d() const {
+    CImg<floatT> get_object3dtoCImg3d(const bool full_check=true) const {
       CImgList<T> opacities, colors;
       CImgList<uintT> primitives(width(),1,1,1,1);
       cimglist_for(primitives,p) primitives(p,0) = p;
-      return get_object3dtoCImg3d(primitives,colors,opacities);
+      return get_object3dtoCImg3d(primitives,colors,opacities,full_check);
     }
 
     //! Convert CImg3d representation into a 3d object.
@@ -27679,17 +28038,24 @@ namespace cimg_library_suffixed {
        \param[out] primitives Primitives data of the 3d object.
        \param[out] colors Colors data of the 3d object.
        \param[out] opacities Opacities data of the 3d object.
+       \param full_check Tells if full checking of the 3d object must be performed.
     **/
     template<typename tp, typename tc, typename to>
-    CImg<T>& CImg3dtoobject3d(CImgList<tp>& primitives, CImgList<tc>& colors, CImgList<to>& opacities) {
-      return get_CImg3dtoobject3d(primitives,colors,opacities).move_to(*this);
+    CImg<T>& CImg3dtoobject3d(CImgList<tp>& primitives,
+                              CImgList<tc>& colors,
+                              CImgList<to>& opacities,
+                              const bool full_check=true) {
+      return get_CImg3dtoobject3d(primitives,colors,opacities,full_check).move_to(*this);
     }
 
     //! Convert CImg3d representation into a 3d object \newinstance.
     template<typename tp, typename tc, typename to>
-    CImg<T> get_CImg3dtoobject3d(CImgList<tp>& primitives, CImgList<tc>& colors, CImgList<to>& opacities) const {
+    CImg<T> get_CImg3dtoobject3d(CImgList<tp>& primitives,
+                                 CImgList<tc>& colors,
+                                 CImgList<to>& opacities,
+                                 const bool full_check=true) const {
       char error_message[1024] = { 0 };
-      if (!is_CImg3d(true,error_message))
+      if (!is_CImg3d(full_check,error_message))
         throw CImgInstanceException(_cimg_instance
                                     "CImg3dtoobject3d(): image instance is not a CImg3d (%s).",
                                     cimg_instance,error_message);
@@ -27734,29 +28100,28 @@ namespace cimg_library_suffixed {
     //@{
     //---------------------------
 
+#define cimg_init_scanline(color,opacity) \
+    const float _sc_nopacity = cimg::abs((float)opacity), _sc_copacity = 1 - cimg::max((float)opacity,0); \
+  const unsigned long _sc_whd = (unsigned long)_width*_height*_depth
+
+#define cimg_draw_scanline(x0,x1,y,color,opacity,brightness) _draw_scanline(x0,x1,y,color,opacity,brightness,_sc_nopacity,_sc_copacity,_sc_whd)
+
     // [internal] The following _draw_scanline() routines are *non user-friendly functions*, used only for internal purpose.
     // Pre-requisites: x0<x1, y-coordinate is valid, col is valid.
     template<typename tc>
     CImg<T>& _draw_scanline(const int x0, const int x1, const int y,
-                            const tc *const color, const float opacity=1,
-                            const float brightness=1, const bool init=false) {
+                            const tc *const color, const float opacity,
+                            const float brightness,
+                            const float nopacity, const float copacity, const unsigned long whd) {
       static const T maxval = (T)cimg::min(cimg::type<T>::max(),cimg::type<tc>::max());
-      static float nopacity = 0, copacity = 0;
-      static unsigned long whd = 0;
-      static const tc *col = 0;
-      if (init) {
-        nopacity = cimg::abs(opacity);
-        copacity = 1 - cimg::max(opacity,0);
-        whd = (unsigned long)_width*_height*_depth;
-      } else {
-        const int nx0 = x0>0?x0:0, nx1 = x1<width()?x1:width()-1, dx = nx1 - nx0;
-        if (dx>=0) {
-          col = color;
-          const unsigned long off = whd - dx - 1;
-          T *ptrd = data(nx0,y);
-          if (opacity>=1) { // ** Opaque drawing **
-            if (brightness==1) { // Brightness==1
-              if (sizeof(T)!=1) cimg_forC(*this,c) {
+      const int nx0 = x0>0?x0:0, nx1 = x1<width()?x1:width()-1, dx = nx1 - nx0;
+      if (dx>=0) {
+        const tc *col = color;
+        const unsigned long off = whd - dx - 1;
+        T *ptrd = data(nx0,y);
+        if (opacity>=1) { // ** Opaque drawing **
+          if (brightness==1) { // Brightness==1
+            if (sizeof(T)!=1) cimg_forC(*this,c) {
                 const T val = (T)*(col++);
                 for (int x = dx; x>=0; --x) *(ptrd++) = val;
                 ptrd+=off;
@@ -27765,8 +28130,8 @@ namespace cimg_library_suffixed {
                 std::memset(ptrd,(int)val,dx+1);
                 ptrd+=whd;
               }
-            } else if (brightness<1) { // Brightness<1
-              if (sizeof(T)!=1) cimg_forC(*this,c) {
+          } else if (brightness<1) { // Brightness<1
+            if (sizeof(T)!=1) cimg_forC(*this,c) {
                 const T val = (T)(*(col++)*brightness);
                 for (int x = dx; x>=0; --x) *(ptrd++) = val;
                 ptrd+=off;
@@ -27775,8 +28140,8 @@ namespace cimg_library_suffixed {
                 std::memset(ptrd,(int)val,dx+1);
                 ptrd+=whd;
               }
-            } else { // Brightness>1
-              if (sizeof(T)!=1) cimg_forC(*this,c) {
+          } else { // Brightness>1
+            if (sizeof(T)!=1) cimg_forC(*this,c) {
                 const T val = (T)((2-brightness)**(col++) + (brightness-1)*maxval);
                 for (int x = dx; x>=0; --x) *(ptrd++) = val;
                 ptrd+=off;
@@ -27785,36 +28150,30 @@ namespace cimg_library_suffixed {
                 std::memset(ptrd,(int)val,dx+1);
                 ptrd+=whd;
               }
+          }
+        } else { // ** Transparent drawing **
+          if (brightness==1) { // Brightness==1
+            cimg_forC(*this,c) {
+              const T val = (T)*(col++);
+              for (int x = dx; x>=0; --x) { *ptrd = (T)(val*nopacity + *ptrd*copacity); ++ptrd; }
+              ptrd+=off;
             }
-          } else { // ** Transparent drawing **
-            if (brightness==1) { // Brightness==1
-              cimg_forC(*this,c) {
-                const T val = (T)*(col++);
-                for (int x = dx; x>=0; --x) { *ptrd = (T)(val*nopacity + *ptrd*copacity); ++ptrd; }
-                ptrd+=off;
-              }
-            } else if (brightness<=1) { // Brightness<1
-              cimg_forC(*this,c) {
-                const T val = (T)(*(col++)*brightness);
-                for (int x = dx; x>=0; --x) { *ptrd = (T)(val*nopacity + *ptrd*copacity); ++ptrd; }
-                ptrd+=off;
-              }
-            } else { // Brightness>1
-              cimg_forC(*this,c) {
-                const T val = (T)((2-brightness)**(col++) + (brightness-1)*maxval);
-                for (int x = dx; x>=0; --x) { *ptrd = (T)(val*nopacity + *ptrd*copacity); ++ptrd; }
-                ptrd+=off;
-              }
+          } else if (brightness<=1) { // Brightness<1
+            cimg_forC(*this,c) {
+              const T val = (T)(*(col++)*brightness);
+              for (int x = dx; x>=0; --x) { *ptrd = (T)(val*nopacity + *ptrd*copacity); ++ptrd; }
+              ptrd+=off;
+            }
+          } else { // Brightness>1
+            cimg_forC(*this,c) {
+              const T val = (T)((2-brightness)**(col++) + (brightness-1)*maxval);
+              for (int x = dx; x>=0; --x) { *ptrd = (T)(val*nopacity + *ptrd*copacity); ++ptrd; }
+              ptrd+=off;
             }
           }
         }
       }
       return *this;
-    }
-
-    template<typename tc>
-    CImg<T>& _draw_scanline(const tc *const color, const float opacity=1) {
-      return _draw_scanline(0,0,0,color,opacity,0,true);
     }
 
     //! Draw a 3d point.
@@ -29265,7 +29624,7 @@ namespace cimg_library_suffixed {
                             const int x2, const int y2,
                             const tc *const color, const float opacity,
                             const float brightness) {
-      _draw_scanline(color,opacity);
+      cimg_init_scanline(color,opacity);
       const float nbrightness = brightness<0?0:(brightness>2?2:brightness);
       int nx0 = x0, ny0 = y0, nx1 = x1, ny1 = y1, nx2 = x2, ny2 = y2;
       if (ny0>ny1) cimg::swap(nx0,nx1,ny0,ny1);
@@ -29273,9 +29632,9 @@ namespace cimg_library_suffixed {
       if (ny1>ny2) cimg::swap(nx1,nx2,ny1,ny2);
       if (ny0<height() && ny2>=0) {
         if ((nx1 - nx0)*(ny2 - ny0) - (nx2 - nx0)*(ny1 - ny0)<0)
-          _cimg_for_triangle1(*this,xl,xr,y,nx0,ny0,nx1,ny1,nx2,ny2) _draw_scanline(xl,xr,y,color,opacity,nbrightness);
+          _cimg_for_triangle1(*this,xl,xr,y,nx0,ny0,nx1,ny1,nx2,ny2) cimg_draw_scanline(xl,xr,y,color,opacity,nbrightness);
         else
-          _cimg_for_triangle1(*this,xl,xr,y,nx0,ny0,nx1,ny1,nx2,ny2) _draw_scanline(xr,xl,y,color,opacity,nbrightness);
+          _cimg_for_triangle1(*this,xl,xr,y,nx0,ny0,nx1,ny1,nx2,ny2) cimg_draw_scanline(xr,xl,y,color,opacity,nbrightness);
       }
       return *this;
     }
@@ -31149,31 +31508,36 @@ namespace cimg_library_suffixed {
 
       // Normalize 2d input coordinates (remove adjacent duplicates).
       CImg<intT> npoints(points._width,2);
-      unsigned int nb_points = 0;
-      int cx = (int)points(points._width-1,0), cy = (int)points(points._width-1,1);
-      cimg_forX(points,p) {
+      unsigned int nb_points = 1, p = 0;
+      int cx = npoints(0,0) = (int)points(0,0), cy = npoints(0,1) = (int)points(0,1);
+      const int cx0 = cx, cy0 = cy;
+      for (p = 1; p<points._width; ++p) {
         const int nx = (int)points(p,0), ny = (int)points(p,1);
-        if (nx!=cx || ny!=cy) { npoints(nb_points,0) = cx; npoints(nb_points++,1) = cy; cx = nx; cy = ny; }
+        if (nx!=cx || ny!=cy) { npoints(nb_points,0) = nx; npoints(nb_points++,1) = ny; cx = nx; cy = ny; }
       }
-      if (nb_points==1) return draw_point((int)npoints(0,0),(int)npoints(0,1),color,opacity);
+      --p;
+      if ((int)points(p,0)==cx0 && (int)points(p,1)==cy0) --nb_points;
+
+      if (nb_points<=1) return draw_point((int)npoints(0,0),(int)npoints(0,1),color,opacity);
       if (nb_points==2) return draw_line((int)npoints(0,0),(int)npoints(0,1),
                                          (int)npoints(1,0),(int)npoints(1,1),color,opacity);
       if (nb_points==3) return draw_triangle((int)npoints(0,0),(int)npoints(0,1),
                                              (int)npoints(1,0),(int)npoints(1,1),
                                              (int)npoints(2,0),(int)npoints(2,1),color,opacity);
-      if (opacity<1) { // For semi-transparent polygons, do a little trick to avoid horizontal lines artefacts.
-        int
-          xmax = 0, xmin = (int)npoints.get_shared_points(0,nb_points-1,0).min_max(xmax),
-          ymax = 0, ymin = (int)npoints.get_shared_points(0,nb_points-1,1).min_max(ymax);
+      cimg_init_scanline(color,1);
+
+      if (opacity!=1) { // For non-opaque polygons, do a little trick to avoid horizontal lines artefacts.
+        npoints.resize(nb_points,2,1,1,0);
+        CImg<intT> npoints_x = npoints.get_shared_row(0), npoints_y = npoints.get_shared_row(1);
+        int xmax = 0, xmin = (int)npoints_x.min_max(xmax), ymax = 0, ymin = (int)npoints_y.min_max(ymax);
         if (xmax<0 || xmin>=width() || ymax<0 || ymin>=height()) return *this;
-        if (ymin==ymax) return _draw_scanline(xmin,xmax,ymin,color,opacity);
+        if (ymin==ymax) return cimg_draw_scanline(xmin,xmax,ymin,color,opacity,1);
         const unsigned int
           nxmin = xmin<0?0:(unsigned int)xmin, nxmax = xmax>=width()?_width-1:(unsigned int)xmax,
           nymin = ymin<0?0:(unsigned int)ymin, nymax = ymax>=height()?_height-1:(unsigned int)ymax,
           dx = 1 + nxmax - nxmin,
           dy = 1 + nymax - nymin;
-        npoints.get_shared_row(0)-=nxmin;
-        npoints.get_shared_row(1)-=nymin;
+        npoints_x-=nxmin; npoints_y-=nymin;
         unsigned char one = 1;
         const CImg<unsigned char> mask = CImg<unsigned char>(dx,dy,1,1,0).draw_polygon(npoints,&one,1);
         CImg<T> _color(dx,dy,1,spectrum());
@@ -31182,12 +31546,11 @@ namespace cimg_library_suffixed {
       }
 
       // Draw polygon segments.
-      _draw_scanline(color,opacity);
       int
         xmax = 0, xmin = (int)npoints.get_shared_points(0,nb_points-1,0).min_max(xmax),
         ymax = 0, ymin = (int)npoints.get_shared_points(0,nb_points-1,1).min_max(ymax);
       if (xmax<0 || xmin>=width() || ymax<0 || ymin>=height()) return *this;
-      if (ymin==ymax) return _draw_scanline(xmin,xmax,ymin,color,opacity);
+      if (ymin==ymax) return cimg_draw_scanline(xmin,xmax,ymin,color,1,1);
       const unsigned int
         nymin = ymin<0?0:(unsigned int)ymin,
         nymax = ymax>=height()?_height-1:(unsigned int)ymax,
@@ -31215,7 +31578,7 @@ namespace cimg_library_suffixed {
         } else {
           const int pp = (cp?cp-1:nb_points-1), py = (int)npoints(pp,1);
           if (y0>=0 && y0<(int)dy) {
-            _draw_scanline(cx<nx?cx:nx,cx<nx?nx:cx,y0+nymin,color,opacity);
+            cimg_draw_scanline(cx<nx?cx:nx,cx<nx?nx:cx,y0+nymin,color,1,1);
             if ((cy>py && ay>cy) || (cy<py && ay<cy)) X(++X(0,y0),y0) = cx;
           }
           if (cy!=ay) { cp = np; cx = nx; cy = ny; }
@@ -31227,7 +31590,7 @@ namespace cimg_library_suffixed {
         tmp.assign(X.data(1,y),X(0,y),1,1,1,true).sort();
         for (int i = 1; i<=X(0,y); ) {
           const int xb = X(i++,y), xe = X(i++,y);
-          _draw_scanline(xb,xe,nymin+y,color,opacity);
+          cimg_draw_scanline(xb,xe,nymin+y,color,1,1);
         }
       }
       return *this;
@@ -31366,7 +31729,7 @@ namespace cimg_library_suffixed {
                                     "draw_ellipse(): Specified color is (null).",
                                     cimg_instance);
       if (r1<=0 || r2<=0) return draw_point(x0,y0,color,opacity);
-      _draw_scanline(color,opacity);
+      cimg_init_scanline(color,opacity);
       const float
         nr1 = cimg::abs(r1), nr2 = cimg::abs(r2),
         nangle = (float)(angle*cimg::PI/180),
@@ -31395,18 +31758,18 @@ namespace cimg_library_suffixed {
           fxmin = x0 - 0.5f - bY - sdelta,
           fxmax = x0 + 0.5f - bY + sdelta;
         const int xmin = (int)fxmin, xmax = (int)fxmax;
-        if (!pattern) _draw_scanline(xmin,xmax,y,color,opacity);
+        if (!pattern) cimg_draw_scanline(xmin,xmax,y,color,opacity,1);
         else {
           if (first_line) {
-            if (y0-yb>=0) _draw_scanline(xmin,xmax,y,color,opacity);
+            if (y0-yb>=0) cimg_draw_scanline(xmin,xmax,y,color,opacity,1);
             else draw_point(xmin,y,color,opacity).draw_point(xmax,y,color,opacity);
             first_line = false;
           } else {
-            if (xmin<oxmin) _draw_scanline(xmin,oxmin-1,y,color,opacity);
-            else _draw_scanline(oxmin+(oxmin==xmin?0:1),xmin,y,color,opacity);
-            if (xmax<oxmax) _draw_scanline(xmax,oxmax-1,y,color,opacity);
-            else _draw_scanline(oxmax+(oxmax==xmax?0:1),xmax,y,color,opacity);
-            if (y==tymax) _draw_scanline(xmin+1,xmax-1,y,color,opacity);
+            if (xmin<oxmin) cimg_draw_scanline(xmin,oxmin-1,y,color,opacity,1);
+            else cimg_draw_scanline(oxmin+(oxmin==xmin?0:1),xmin,y,color,opacity,1);
+            if (xmax<oxmax) cimg_draw_scanline(xmax,oxmax-1,y,color,opacity,1);
+            else cimg_draw_scanline(oxmax+(oxmax==xmax?0:1),xmax,y,color,opacity,1);
+            if (y==tymax) cimg_draw_scanline(xmin+1,xmax-1,y,color,opacity,1);
           }
         }
         oxmin = xmin; oxmax = xmax;
@@ -31432,22 +31795,22 @@ namespace cimg_library_suffixed {
         throw CImgArgumentException(_cimg_instance
                                     "draw_circle(): Specified color is (null).",
                                     cimg_instance);
-      _draw_scanline(color,opacity);
+      cimg_init_scanline(color,opacity);
       if (radius<0 || x0-radius>=width() || y0+radius<0 || y0-radius>=height()) return *this;
-      if (y0>=0 && y0<height()) _draw_scanline(x0-radius,x0+radius,y0,color,opacity);
+      if (y0>=0 && y0<height()) cimg_draw_scanline(x0-radius,x0+radius,y0,color,opacity,1);
       for (int f = 1-radius, ddFx = 0, ddFy = -(radius<<1), x = 0, y = radius; x<y; ) {
         if (f>=0) {
           const int x1 = x0-x, x2 = x0+x, y1 = y0-y, y2 = y0+y;
-          if (y1>=0 && y1<height()) _draw_scanline(x1,x2,y1,color,opacity);
-          if (y2>=0 && y2<height()) _draw_scanline(x1,x2,y2,color,opacity);
+          if (y1>=0 && y1<height()) cimg_draw_scanline(x1,x2,y1,color,opacity,1);
+          if (y2>=0 && y2<height()) cimg_draw_scanline(x1,x2,y2,color,opacity,1);
           f+=(ddFy+=2); --y;
         }
         const bool no_diag = y!=(x++);
         ++(f+=(ddFx+=2));
         const int x1 = x0-y, x2 = x0+y, y1 = y0-x, y2 = y0+x;
         if (no_diag) {
-          if (y1>=0 && y1<height()) _draw_scanline(x1,x2,y1,color,opacity);
-          if (y2>=0 && y2<height()) _draw_scanline(x1,x2,y2,color,opacity);
+          if (y1>=0 && y1<height()) cimg_draw_scanline(x1,x2,y1,color,opacity,1);
+          if (y2>=0 && y2<height()) cimg_draw_scanline(x1,x2,y2,color,opacity,1);
         }
       }
       return *this;
@@ -31732,7 +32095,7 @@ namespace cimg_library_suffixed {
       if (!font) return *this;
       char tmp[2048] = { 0 }; std::va_list ap; va_start(ap,font);
       cimg_vsnprintf(tmp,sizeof(tmp),text,ap); va_end(ap);
-      return _draw_text(x0,y0,tmp,foreground_color,background_color,opacity,font);
+      return _draw_text(x0,y0,tmp,foreground_color,background_color,opacity,font,false);
     }
 
     //! Draw a text string \overloading.
@@ -31747,7 +32110,7 @@ namespace cimg_library_suffixed {
       if (!font) return *this;
       char tmp[2048] = { 0 }; std::va_list ap; va_start(ap,font);
       cimg_vsnprintf(tmp,sizeof(tmp),text,ap); va_end(ap);
-      return _draw_text(x0,y0,tmp,foreground_color,(tc*)0,opacity,font);
+      return _draw_text(x0,y0,tmp,foreground_color,(tc*)0,opacity,font,false);
     }
 
     //! Draw a text string \overloading.
@@ -31762,7 +32125,7 @@ namespace cimg_library_suffixed {
       if (!font) return *this;
       char tmp[2048] = { 0 }; std::va_list ap; va_start(ap,font);
       cimg_vsnprintf(tmp,sizeof(tmp),text,ap); va_end(ap);
-      return _draw_text(x0,y0,tmp,(tc*)0,background_color,opacity,font);
+      return _draw_text(x0,y0,tmp,(tc*)0,background_color,opacity,font,false);
     }
 
     //! Draw a text string \overloading.
@@ -31773,7 +32136,7 @@ namespace cimg_library_suffixed {
        \param foreground_color Array of spectrum() values of type \c T, defining the foreground color (0 means 'transparent').
        \param background_color Array of spectrum() values of type \c T, defining the background color (0 means 'transparent').
        \param opacity Drawing opacity.
-       \param font_height Height of the text font (exact match for 13,24,32,57, interpolated otherwise).
+       \param font_height Height of the text font (exact match for 13,23,53,103, interpolated otherwise).
     **/
     template<typename tc1, typename tc2>
     CImg<T>& draw_text(const int x0, const int y0,
@@ -31782,36 +32145,9 @@ namespace cimg_library_suffixed {
                        const float opacity=1, const unsigned int font_height=13, ...) {
       if (!font_height) return *this;
       char tmp[2048] = { 0 }; std::va_list ap; va_start(ap,font_height); cimg_vsnprintf(tmp,sizeof(tmp),text,ap); va_end(ap);
-      static CImgList<floatT> font;
-      const unsigned int
-        ref_height = font_height<=13?13:font_height<=28?24:font_height<=32?32:57,
-        padding_x = font_height<=18?1:font_height<=32?2:3;
-      if (!font || font[0]._height!=font_height) {
-        font = CImgList<floatT>::font(ref_height,true);
-        font[0].assign(1,font_height);
-        if (ref_height==font_height) cimglist_for(font,l) font[l].resize(font[l]._width + padding_x,-100,-100,-100,0);
-      }
-      if (is_empty()) {
-        if (font[0]._spectrum!=1) cimglist_for_in(font,0,255,l) font[l].channel(0);
-      } else if (font[0]._spectrum<_spectrum) cimglist_for_in(font,0,255,l) font[l].resize(-100,-100,1,_spectrum);
-      if (ref_height!=font_height) for (const char *ptrs = tmp; *ptrs; ++ptrs) {
-          const unsigned int __c = (unsigned int)(unsigned char)*ptrs, _c = (__c=='\t')?' ':__c;
-          if (_c<font._width) {
-            CImg<floatT> &c = font[_c];
-            if (c._height!=font_height) {
-              c.resize(cimg::max(1U,c._width*font_height/c._height),font_height,-100,-100,c._height>font_height?2:3);
-              c.resize(c._width + padding_x,-100,-100,-100,0);
-            }
-          }
-          if (_c+256U<font._width) {
-            CImg<floatT> &c = font[_c+256];
-            if (c._height!=font_height) {
-              c.resize(cimg::max(1U,c._width*font_height/c._height),font_height,-100,-100,c._height>font_height?2:3);
-              c.resize(c._width + padding_x,-100,-100,-100,0);
-            }
-          }
-        }
-      return _draw_text(x0,y0,tmp,foreground_color,background_color,opacity,font);
+      const CImgList<ucharT>& font = CImgList<ucharT>::font(font_height,true);
+      _draw_text(x0,y0,tmp,foreground_color,background_color,opacity,font,true);
+      return *this;
     }
 
     //! Draw a text string \overloading.
@@ -31841,14 +32177,17 @@ namespace cimg_library_suffixed {
     CImg<T>& _draw_text(const int x0, const int y0,
                         const char *const text,
                         const tc1 *const foreground_color, const tc2 *const background_color,
-                        const float opacity, const CImgList<t>& font) {
+                        const float opacity, const CImgList<t>& font,
+                        const bool is_native_font) {
       if (!text) return *this;
       if (!font)
         throw CImgArgumentException(_cimg_instance
                                     "draw_text(): Empty specified font.",
                                     cimg_instance);
+
       const unsigned int text_length = (unsigned int)std::strlen(text);
-      if (is_empty()) {
+      const bool _is_empty = is_empty();
+      if (_is_empty) {
         // If needed, pre-compute necessary size of the image
         int x = 0, y = 0, w = 0;
         unsigned char c = 0;
@@ -31864,30 +32203,27 @@ namespace cimg_library_suffixed {
           if (x>w) w=x;
           y+=font[0]._height;
         }
-        assign(x0+w,y0+y,1,font[0]._spectrum,0);
-        if (background_color) cimg_forC(*this,c) get_shared_channel(c).fill((T)background_color[c]);
+        assign(x0+w,y0+y,1,is_native_font?1:font[0]._spectrum,0);
       }
 
       int x = x0, y = y0;
-      CImg<t> letter;
       for (unsigned int i = 0; i<text_length; ++i) {
         const unsigned char c = text[i];
         switch (c) {
         case '\n' : y+=font[0]._height; x = x0; break;
         case '\t' : x+=4*font[' ']._width; break;
         default : if (c<font._width) {
-          letter = font[c];
-          const unsigned int cmin = cimg::min(_spectrum,letter._spectrum);
-          const CImg<t>& mask = (c+256)<(int)font._width?font[c+256]:font[c];
-          if (foreground_color)
-            for (unsigned long p = 0; p<(unsigned long)letter._width*letter._height; ++p)
-              if (mask(p)) for (unsigned int c = 0; c<cmin; ++c) letter(p,0,0,c) = (t)(letter(p,0,0,c)*foreground_color[c]);
-          if (background_color)
-            for (unsigned long p = 0; p<(unsigned long)letter._width*letter._height; ++p)
-              if (!mask(p)) for (unsigned int c = 0; c<cmin; ++c) letter(p,0,0,c) = (t)background_color[c];
-          if (!background_color && font._width>=512) draw_image(x,y,letter,mask,opacity,(T)1);
-          else draw_image(x,y,letter,opacity);
-          x+=letter._width;
+            CImg<T> letter = font[c];
+            if (letter) {
+              if (is_native_font && _spectrum>letter._spectrum) letter.resize(-100,-100,1,_spectrum,0,2);
+              const unsigned int cmin = cimg::min(_spectrum,letter._spectrum);
+              if (foreground_color) for (unsigned int c = 0; c<cmin; ++c) if (foreground_color[c]!=1) letter.get_shared_channel(c)*=foreground_color[c];
+              if (c+256<font.width()) { // Letter has mask.
+                if (background_color) for (unsigned int c = 0; c<cmin; ++c) draw_rectangle(x,y,0,c,x+letter._width-1,y+letter._height-1,0,c,background_color[c],opacity);
+                draw_image(x,y,letter,font[c+256],opacity,(T)255);
+              } else draw_image(x,y,letter,opacity); // Letter has no mask.
+              x+=letter._width;
+            }
           }
         }
       }
@@ -31975,7 +32311,7 @@ namespace cimg_library_suffixed {
        \param color Pointer to \c spectrum() consecutive values, defining the drawing color.
        \param opacity Drawing opacity.
        \param pattern Drawing pattern.
-       \param font_height Height of the labels (exact match for 13,24,32,57, interpolated otherwise).
+       \param font_height Height of the labels (exact match for 13,23,53,103, interpolated otherwise).
        \param allow_zero Enable/disable the drawing of label '0' if found.
     **/
     template<typename t, typename tc>
@@ -32025,7 +32361,7 @@ namespace cimg_library_suffixed {
        \param color Pointer to \c spectrum() consecutive values, defining the drawing color.
        \param opacity Drawing opacity.
        \param pattern Drawing pattern.
-       \param font_height Height of the labels (exact match for 13,24,32,57, interpolated otherwise).
+       \param font_height Height of the labels (exact match for 13,23,53,103, interpolated otherwise).
        \param allow_zero Enable/disable the drawing of label '0' if found.
     **/
     template<typename t, typename tc>
@@ -32079,7 +32415,7 @@ namespace cimg_library_suffixed {
        \param opacity Drawing opacity.
        \param pattern_x Drawing pattern for the X-axis.
        \param pattern_y Drawing pattern for the Y-axis.
-       \param font_height Height of the labels (exact match for 13,24,32,57, interpolated otherwise).
+       \param font_height Height of the labels (exact match for 13,23,53,103, interpolated otherwise).
        \param allow_zero Enable/disable the drawing of label '0' if found.
     **/
     template<typename tx, typename ty, typename tc>
@@ -32251,12 +32587,13 @@ namespace cimg_library_suffixed {
       switch (plot_type%4) {
       case 1 : { // Segments
         int oX = 0, oY = (int)((data[0]-m)/ca);
+        const float fx = (float)_width1/siz1;
         if (siz==1) {
           const int Y = (int)((*data-m)/ca);
           draw_line(0,Y,width()-1,Y,color,opacity,pattern);
         } else for (unsigned long off = 1; off<siz; ++off) {
             const int
-              X = off*_width1/siz1,
+              X = (int)(off*fx),
               Y = (int)((data[off]-m)/ca);
             draw_line(oX,oY,X,Y,color,opacity,pattern,init_hatch);
             oX = X; oY = Y;
@@ -32275,10 +32612,11 @@ namespace cimg_library_suffixed {
       } break;
       case 3 : { // Bars
         const int Y0 = (int)(-m/ca);
+        const float fx = (float)_width/(siz-1);
         int oX = 0;
         cimg_foroff(data,off) {
           const int
-            X = (off+1)*_width/siz-1,
+            X = (int)((off+1)*fx),
             Y = (int)((data[off]-m)/ca);
           draw_rectangle(oX,Y0,X,Y,color,opacity).
             draw_line(oX,Y,oX,Y0,color2.data(),opacity).
@@ -32293,11 +32631,12 @@ namespace cimg_library_suffixed {
 
       // Draw graph points
       const unsigned int wb2 = plot_type==3?_width1/(2*siz):0;
+      const float fx = (float)_width1/siz1;
       switch (vertex_type%8) {
       case 1 : { // Point
         cimg_foroff(data,off) {
           const int
-            X = off*_width1/siz1 + wb2,
+            X = (int)(off*fx) + wb2,
             Y = (int)((data[off]-m)/ca);
           draw_point(X,Y,color,opacity);
         }
@@ -32305,7 +32644,7 @@ namespace cimg_library_suffixed {
       case 2 : { // Straight Cross
         cimg_foroff(data,off) {
           const int
-            X = off*_width1/siz1 + wb2,
+            X = (int)(off*fx) + wb2,
             Y = (int)((data[off]-m)/ca);
           draw_line(X-3,Y,X+3,Y,color,opacity).draw_line(X,Y-3,X,Y+3,color,opacity);
         }
@@ -32313,7 +32652,7 @@ namespace cimg_library_suffixed {
       case 3 : { // Diagonal Cross
         cimg_foroff(data,off) {
           const int
-            X = off*_width1/siz1 + wb2,
+            X = (int)(off*fx) + wb2,
             Y = (int)((data[off]-m)/ca);
           draw_line(X-3,Y-3,X+3,Y+3,color,opacity).draw_line(X-3,Y+3,X+3,Y-3,color,opacity);
         }
@@ -32321,7 +32660,7 @@ namespace cimg_library_suffixed {
       case 4 : { // Filled Circle
         cimg_foroff(data,off) {
           const int
-            X = off*_width1/siz1 + wb2,
+            X = (int)(off*fx) + wb2,
             Y = (int)((data[off]-m)/ca);
           draw_circle(X,Y,3,color,opacity);
         }
@@ -32329,7 +32668,7 @@ namespace cimg_library_suffixed {
       case 5 : { // Outlined circle
         cimg_foroff(data,off) {
           const int
-            X = off*_width1/siz1 + wb2,
+            X = (int)(off*fx) + wb2,
             Y = (int)((data[off]-m)/ca);
           draw_circle(X,Y,3,color,opacity,0U);
         }
@@ -32337,7 +32676,7 @@ namespace cimg_library_suffixed {
       case 6 : { // Square
         cimg_foroff(data,off) {
           const int
-            X = off*_width1/siz1 + wb2,
+            X = (int)(off*fx) + wb2,
             Y = (int)((data[off]-m)/ca);
           draw_rectangle(X-3,Y-3,X+3,Y+3,color,opacity,~0U);
         }
@@ -32345,7 +32684,7 @@ namespace cimg_library_suffixed {
       case 7 : { // Diamond
         cimg_foroff(data,off) {
           const int
-            X = off*_width1/siz1 + wb2,
+            X = (int)(off*fx) + wb2,
             Y = (int)((data[off]-m)/ca);
           draw_line(X,Y-4,X+4,Y,color,opacity).
             draw_line(X+4,Y,X,Y+4,color,opacity).
@@ -32586,32 +32925,36 @@ namespace cimg_library_suffixed {
       const Tfloat m = (Tfloat)cimg::type<T>::min(), M = (Tfloat)cimg::type<T>::max();
       cimg_forZC(*this,z,c) {
         CImg<T> ref = get_shared_slice(z,c);
-        for (int d=1<<cimg::min(scale,31U); d>1; d>>=1) {
-          const int d2 = d>>1;
-          const float r = alpha*d + beta;
-          for (int y0=0; y0<h; y0+=d)
-            for (int x0=0; x0<w; x0+=d) {
-              const int x1 = (x0 + d)%w, y1 = (y0 + d)%h, xc = (x0 + d2)%w, yc = (y0 + d2)%h;
+        for (int delta = 1<<cimg::min(scale,31U); delta>1; delta>>=1) {
+          const int delta2 = delta>>1;
+          const float r = alpha*delta + beta;
+
+          // Square step.
+          for (int y0 = 0; y0<h; y0+=delta)
+            for (int x0 = 0; x0<w; x0+=delta) {
+              const int x1 = (x0 + delta)%w, y1 = (y0 + delta)%h, xc = (x0 + delta2)%w, yc = (y0 + delta2)%h;
               const Tfloat val = (Tfloat)(0.25f*(ref(x0,y0) + ref(x0,y1) + ref(x0,y1) + ref(x1,y1)) + r*cimg::crand());
               ref(xc,yc) = (T)(val<m?m:val>M?M:val);
             }
-          for (int y=-d2; y<h; y+=d)
-            for (int x0=0; x0<w; x0+=d) {
-              const int y0 = cimg::mod(y,h), x1 = (x0 + d)%w, y1 = (y + d)%h, xc = (x0 + d2)%w, yc = (y + d2)%h;
+
+          // Diamond steps.
+          for (int y = -delta2; y<h; y+=delta)
+            for (int x0=0; x0<w; x0+=delta) {
+              const int y0 = cimg::mod(y,h), x1 = (x0 + delta)%w, y1 = (y + delta)%h, xc = (x0 + delta2)%w, yc = (y + delta2)%h;
               const Tfloat val = (Tfloat)(0.25f*(ref(xc,y0) + ref(x0,yc) + ref(xc,y1) + ref(x1,yc)) + r*cimg::crand());
               ref(xc,yc) = (T)(val<m?m:val>M?M:val);
             }
-          for (int y0=0; y0<h; y0+=d)
-            for (int x=-d2; x<w; x+=d) {
-              const int x0 = cimg::mod(x,w), x1 = (x + d)%w, y1 = (y0 + d)%h, xc = (x + d2)%w, yc = (y0 + d2)%h;
+          for (int y0 = 0; y0<h; y0+=delta)
+            for (int x = -delta2; x<w; x+=delta) {
+              const int x0 = cimg::mod(x,w), x1 = (x + delta)%w, y1 = (y0 + delta)%h, xc = (x + delta2)%w, yc = (y0 + delta2)%h;
               const Tfloat val = (Tfloat)(0.25f*(ref(xc,y0) + ref(x0,yc) + ref(xc,y1) + ref(x1,yc)) + r*cimg::crand());
               ref(xc,yc) = (T)(val<m?m:val>M?M:val);
             }
-          for (int y=-d2; y<h; y+=d)
-            for (int x=-d2; x<w; x+=d) {
-              const int x0 = cimg::mod(x,w), y0 = cimg::mod(y,h), x1 = (x + d)%w, y1 = (y + d)%h, xc = (x + d2)%w, yc = (y + d2)%h;
+          for (int y = -delta2; y<h; y+=delta)
+            for (int x = -delta2; x<w; x+=delta) {
+              const int x0 = cimg::mod(x,w), y0 = cimg::mod(y,h), x1 = (x + delta)%w, y1 = (y + delta)%h, xc = (x + delta2)%w, yc = (y + delta2)%h;
               const Tfloat val = (Tfloat)(0.25f*(ref(xc,y0) + ref(x0,yc) + ref(xc,y1) + ref(x1,yc)) + r*cimg::crand());
-              ref(xc,yc) = (T)(val<m?m:val>M?M:val);
+                ref(xc,yc) = (T)(val<m?m:val>M?M:val);
             }
         }
       }
@@ -32859,7 +33202,7 @@ namespace cimg_library_suffixed {
                            const CImg<tp>& vertices, const CImgList<tf>& primitives,
                            const CImgList<tc>& colors, const CImg<to>& opacities,
                            const unsigned int render_type=4,
-                           const bool is_double_sided=false, const float focale=500,
+                           const bool is_double_sided=false, const float focale=700,
                            const float lightx=0, const float lighty=0, const float lightz=-5e8,
                            const float specular_lightness=0.2f, const float specular_shininess=0.1f) {
       return draw_object3d(x0,y0,z0,vertices,primitives,colors,opacities,render_type,is_double_sided,focale,lightx,lighty,lightz,
@@ -32887,7 +33230,7 @@ namespace cimg_library_suffixed {
                            const CImg<tp>& vertices, const CImgList<tf>& primitives,
                            const CImgList<tc>& colors, const CImg<to>& opacities,
                            const unsigned int render_type=4,
-                           const bool is_double_sided=false, const float focale=500,
+                           const bool is_double_sided=false, const float focale=700,
                            const float lightx=0, const float lighty=0, const float lightz=-5e8,
                            const float specular_lightness=0.2f, const float specular_shininess=0.1f) {
       return draw_object3d(board,x0,y0,z0,vertices,primitives,colors,opacities,render_type,is_double_sided,focale,lightx,lighty,lightz,
@@ -32915,7 +33258,7 @@ namespace cimg_library_suffixed {
                            const CImg<tp>& vertices, const CImgList<tf>& primitives,
                            const CImgList<tc>& colors, const CImgList<to>& opacities,
                            const unsigned int render_type=4,
-                           const bool is_double_sided=false, const float focale=500,
+                           const bool is_double_sided=false, const float focale=700,
                            const float lightx=0, const float lighty=0, const float lightz=-5e8,
                            const float specular_lightness=0.2f, const float specular_shininess=0.1f) {
       return draw_object3d(x0,y0,z0,vertices,primitives,colors,opacities,render_type,is_double_sided,focale,lightx,lighty,lightz,
@@ -32943,7 +33286,7 @@ namespace cimg_library_suffixed {
                            const CImg<tp>& vertices, const CImgList<tf>& primitives,
                            const CImgList<tc>& colors, const CImgList<to>& opacities,
                            const unsigned int render_type=4,
-                           const bool is_double_sided=false, const float focale=500,
+                           const bool is_double_sided=false, const float focale=700,
                            const float lightx=0, const float lighty=0, const float lightz=-5e8,
                            const float specular_lightness=0.2f, const float specular_shininess=0.1f) {
       return draw_object3d(board,x0,y0,z0,vertices,primitives,colors,opacities,render_type,is_double_sided,focale,lightx,lighty,lightz,
@@ -32971,7 +33314,7 @@ namespace cimg_library_suffixed {
                            const CImg<tp>& vertices, const CImgList<tf>& primitives,
                            const CImgList<tc>& colors,
                            const unsigned int render_type=4,
-                           const bool is_double_sided=false, const float focale=500,
+                           const bool is_double_sided=false, const float focale=700,
                            const float lightx=0, const float lighty=0, const float lightz=-5e8,
                            const float specular_lightness=0.2f, const float specular_shininess=0.1f) {
       return draw_object3d(x0,y0,z0,vertices,primitives,colors,CImg<floatT>::empty(),
@@ -32999,7 +33342,7 @@ namespace cimg_library_suffixed {
                            const CImg<tp>& vertices, const CImgList<tf>& primitives,
                            const CImgList<tc>& colors,
                            const unsigned int render_type=4,
-                           const bool is_double_sided=false, const float focale=500,
+                           const bool is_double_sided=false, const float focale=700,
                            const float lightx=0, const float lighty=0, const float lightz=-5e8,
                            const float specular_lightness=0.2f, const float specular_shininess=0.1f) {
       return draw_object3d(x0,y0,z0,vertices,primitives,colors,CImg<floatT>::empty(),
@@ -33054,6 +33397,8 @@ namespace cimg_library_suffixed {
         throw CImgArgumentException(_cimg_instance
                                     "draw_object3d(): Invalid specified 3d object (%u,%u) (%s).",
                                     cimg_instance,vertices._width,primitives._width,error_message);
+      if (render_type==5) cimg::mutex(10);  // Static variable used in this case, breaks thread-safety.
+
 #ifndef cimg_use_board
       if (pboard) return *this;
 #endif
@@ -33097,8 +33442,8 @@ namespace cimg_library_suffixed {
               dly = lighty - Y,
               dlz = lightz - Z,
               nl = (float)std::sqrt(dlx*dlx + dly*dly + dlz*dlz),
-              nlx = default_light_texture._width/2*(1 + dlx/nl),
-              nly = default_light_texture._height/2*(1 + dly/nl),
+              nlx = (default_light_texture._width - 1)/2*(1 + dlx/nl),
+              nly = (default_light_texture._height - 1)/2*(1 + dly/nl),
               white[] = { 1 };
             default_light_texture.draw_gaussian(nlx,nly,default_light_texture._width/3.0f,white);
             cimg_forXY(default_light_texture,x,y) {
@@ -33115,9 +33460,7 @@ namespace cimg_library_suffixed {
       // Compute 3d to 2d projection.
       CImg<tpfloat> projections(vertices._width,2);
       tpfloat parallzmin = cimg::type<tpfloat>::max();
-      const float
-        absfocale = focale?cimg::abs(focale):0,
-        _focale = absfocale?absfocale:(1-parallzmin);
+      const float absfocale = focale?cimg::abs(focale):0;
       if (absfocale) cimg_forX(projections,l) { // Perspective projection
           const tpfloat
             x = (tpfloat)vertices(l,0),
@@ -33135,6 +33478,7 @@ namespace cimg_library_suffixed {
           projections(l,1) = Y + y;
           projections(l,0) = X + x;
         }
+      const float _focale = absfocale?absfocale:(1e5f-parallzmin);
 
       // Compute and sort visible primitives.
       CImg<uintT> visibles(primitives._width);
@@ -33256,6 +33600,7 @@ namespace cimg_library_suffixed {
                                       l,primitive.size());
         }
       }
+
       if (nb_visibles<=0) return *this;
       CImg<uintT> permutations;
       CImg<tpfloat>(zrange._data,nb_visibles,1,1,1,true).sort(permutations,false);
@@ -33426,7 +33771,6 @@ namespace cimg_library_suffixed {
               }
             }
           } else { // Opacity mask.
-
             const tpfloat z = Z + vertices(n0,2);
             const float factor = focale<0?1:sprite_scale*(absfocale?absfocale/(z + absfocale):1);
             const unsigned int
@@ -33687,6 +34031,7 @@ namespace cimg_library_suffixed {
             z1 = vertices(n1,2) + Z + _focale,
             z2 = vertices(n2,2) + Z + _focale,
             z3 = vertices(n3,2) + Z + _focale;
+
           switch (render_type) {
           case 0 :
             draw_point(x0,y0,pcolor,opacity).draw_point(x1,y1,pcolor,opacity).
@@ -34082,6 +34427,8 @@ namespace cimg_library_suffixed {
         } break;
         }
       }
+
+      if (render_type==5) cimg::mutex(10,0);
       return *this;
     }
 
@@ -34112,20 +34459,21 @@ namespace cimg_library_suffixed {
     //! Simple interface to select a shape from an image \newinstance.
     CImg<intT> get_select(CImgDisplay &disp,
                           const unsigned int feature_type=2, unsigned int *const XYZ=0) const {
-      return _get_select(disp,0,feature_type,XYZ,0,0,0,true);
+      return _get_select(disp,0,feature_type,XYZ,0,0,0,true,false);
     }
 
     //! Simple interface to select a shape from an image \newinstance.
     CImg<intT> get_select(const char *const title,
                           const unsigned int feature_type=2, unsigned int *const XYZ=0) const {
       CImgDisplay disp;
-      return _get_select(disp,title,feature_type,XYZ,0,0,0,true);
+      return _get_select(disp,title,feature_type,XYZ,0,0,0,true,false);
     }
 
     CImg<intT> _get_select(CImgDisplay &disp, const char *const title,
                            const unsigned int feature_type, unsigned int *const XYZ,
                            const int origX, const int origY, const int origZ,
-                           const bool reset_view3d=true) const {
+                           const bool reset_view3d,
+                           const bool force_display_z_coord) const {
       if (is_empty()) return CImg<intT>(1,feature_type==0?3:6,1,1,-1);
       if (!disp) {
         disp.assign(cimg_fitscreen(_width,_height,_depth),title?title:0,1);
@@ -34135,20 +34483,24 @@ namespace cimg_library_suffixed {
       const unsigned int old_normalization = disp.normalization();
       bool old_is_resized = disp.is_resized();
       disp._normalization = 0;
-      disp.show().set_key(0).set_wheel();
+      disp.show().set_key(0).set_wheel().show_mouse();
 
       unsigned char foreground_color[] = { 255,255,255 }, background_color[] = { 0,0,0 };
 
       int area = 0, starting_area = 0, clicked_area = 0, phase = 0,
-        X0 = (int)((XYZ?XYZ[0]:_width/2)%_width), Y0 = (int)((XYZ?XYZ[1]:_height/2)%_height), Z0 = (int)((XYZ?XYZ[2]:_depth/2)%_depth),
+        X0 = (int)((XYZ?XYZ[0]:(_width-1)/2)%_width),
+        Y0 = (int)((XYZ?XYZ[1]:(_height-1)/2)%_height),
+        Z0 = (int)((XYZ?XYZ[2]:(_depth-1)/2)%_depth),
         X1 =-1, Y1 = -1, Z1 = -1,
-        X = -1, Y = -1, Z = -1, X3d = -1, Y3d = -1,
-        oX = X, oY = Y, oZ = Z, oX3d = X3d, oY3d = -1;
+        X3d = -1, Y3d = -1,
+        oX3d = X3d, oY3d = -1,
+        omx = -1, omy = -1;
+      float X = -1, Y = -1, Z = -1;
       unsigned int old_button = 0, key = 0;
 
-      bool shape_selected = false, text_down = false;
+      bool shape_selected = false, text_down = false, visible_cursor = true;
       static CImg<floatT> pose3d;
-      static bool is_view3d = false;
+      static bool is_view3d = false, is_axes = true;
       if (reset_view3d) { pose3d.assign(); is_view3d = false; }
       CImg<floatT> points3d, opacities3d, sel_opacities3d;
       CImgList<uintT> primitives3d, sel_primitives3d;
@@ -34159,17 +34511,18 @@ namespace cimg_library_suffixed {
       while (!key && !disp.is_closed() && !shape_selected) {
 
         // Handle mouse motion and selection
-        oX = X; oY = Y; oZ = Z;
         int
           mx = disp.mouse_x(),
           my = disp.mouse_y();
-        const int
-          mX = mx<0?-1:mx*(width()+(depth()>1?depth():0))/disp.width(),
-          mY = my<0?-1:my*(height()+(depth()>1?depth():0))/disp.height();
+
+        const float
+          mX = mx<0?-1.0f:(float)mx*(width()+(depth()>1?depth():0))/disp.width(),
+          mY = my<0?-1.0f:(float)my*(height()+(depth()>1?depth():0))/disp.height();
+
         area = 0;
-        if (mX>=0 && mY>=0 && mX<width() && mY<height())  { area = 1; X = mX; Y = mY; Z = phase?Z1:Z0; }
-        if (mX>=0 && mX<width() && mY>=height()) { area = 2; X = mX; Z = mY - _height; Y = phase?Y1:Y0; }
-        if (mY>=0 && mX>=width() && mY<height()) { area = 3; Y = mY; Z = mX - _width; X = phase?X1:X0; }
+        if (mX>=0 && mY>=0 && mX<width() && mY<height())  { area = 1; X = mX; Y = mY; Z = (float)(phase?Z1:Z0); }
+        if (mX>=0 && mX<width() && mY>=height()) { area = 2; X = mX; Z = mY - _height; Y = (float)(phase?Y1:Y0); }
+        if (mY>=0 && mX>=width() && mY<height()) { area = 3; Y = mY; Z = mX - _width; X = (float)(phase?X1:X0); }
         if (mX>=width() && mY>=height()) area = 4;
         if (disp.button()) { if (!clicked_area) clicked_area = area; } else clicked_area = 0;
 
@@ -34180,42 +34533,46 @@ namespace cimg_library_suffixed {
         case 0 : case cimg::keyCTRLLEFT : key = 0; break;
         case cimg::keyPAGEUP : if (disp.is_keyCTRLLEFT() || disp.is_keyCTRLRIGHT()) { disp.set_wheel(1); key = 0; } break;
         case cimg::keyPAGEDOWN : if (disp.is_keyCTRLLEFT() || disp.is_keyCTRLRIGHT()) { disp.set_wheel(-1); key = 0; } break;
+        case cimg::keyA : if (disp.is_keyCTRLLEFT() || disp.is_keyCTRLRIGHT()) {
+            is_axes = !is_axes; disp.set_key(key,false); key = 0; visu0.assign();
+          } break;
         case cimg::keyD : if (disp.is_keyCTRLLEFT() || disp.is_keyCTRLRIGHT()) {
-          disp.set_fullscreen(false).resize(CImgDisplay::_fitscreen(3*disp.width()/2,3*disp.height()/2,1,128,-100,false),
-                                            CImgDisplay::_fitscreen(3*disp.width()/2,3*disp.height()/2,1,128,-100,true),false).
-            _is_resized = true;
-          disp.set_key(key,false); key = 0; visu0.assign();
-        } break;
+            disp.set_fullscreen(false).resize(CImgDisplay::_fitscreen(3*disp.width()/2,3*disp.height()/2,1,128,-100,false),
+                                              CImgDisplay::_fitscreen(3*disp.width()/2,3*disp.height()/2,1,128,-100,true),false).
+              _is_resized = true;
+            disp.set_key(key,false); key = 0; visu0.assign();
+          } break;
         case cimg::keyC : if (disp.is_keyCTRLLEFT() || disp.is_keyCTRLRIGHT()) {
-          disp.set_fullscreen(false).resize(cimg_fitscreen(2*disp.width()/3,2*disp.height()/3,1),false)._is_resized = true;
-          disp.set_key(key,false); key = 0; visu0.assign();
-        } break;
+            disp.set_fullscreen(false).resize(cimg_fitscreen(2*disp.width()/3,2*disp.height()/3,1),false)._is_resized = true;
+            disp.set_key(key,false); key = 0; visu0.assign();
+          } break;
         case cimg::keyR : if (disp.is_keyCTRLLEFT() || disp.is_keyCTRLRIGHT()) {
-          disp.set_fullscreen(false).resize(cimg_fitscreen(_width,_height,_depth),false)._is_resized = true;
-          disp.set_key(key,false); key = 0; visu0.assign();
-        } break;
+            disp.set_fullscreen(false).resize(cimg_fitscreen(_width,_height,_depth),false)._is_resized = true;
+            disp.set_key(key,false); key = 0; visu0.assign();
+          } break;
         case cimg::keyF : if (disp.is_keyCTRLLEFT() || disp.is_keyCTRLRIGHT()) {
-          disp.resize(disp.screen_width(),disp.screen_height(),false).toggle_fullscreen()._is_resized = true;
-          disp.set_key(key,false); key = 0; visu0.assign();
-        } break;
-        case cimg::keyV : is_view3d = !is_view3d; disp.set_key(key,false); key = 0; visu0.assign(); break;
+            disp.resize(disp.screen_width(),disp.screen_height(),false).toggle_fullscreen()._is_resized = true;
+            disp.set_key(key,false); key = 0; visu0.assign();
+          } break;
+        case cimg::keyV : if (disp.is_keyCTRLLEFT() || disp.is_keyCTRLRIGHT()) {
+            is_view3d = !is_view3d; disp.set_key(key,false); key = 0; visu0.assign();
+          } break;
         case cimg::keyS : if (disp.is_keyCTRLLEFT() || disp.is_keyCTRLRIGHT()) {
-          static unsigned int snap_number = 0;
-          char filename[32] = { 0 };
-          std::FILE *file;
-          do {
-            cimg_snprintf(filename,sizeof(filename),cimg_appname "_%.4u.bmp",snap_number++);
-            if ((file=std::fopen(filename,"r"))!=0) cimg::fclose(file);
-          } while (file);
-          if (visu0) {
-            visu.draw_text(0,0," Saving snapshot... ",foreground_color,background_color,1,13).display(disp);
-            visu0.save(filename);
-            visu.draw_text(0,0," Snapshot '%s' saved. ",foreground_color,background_color,1,13,filename).display(disp);
-          }
-          disp.set_key(key,false); key = 0;
-        } break;
-        case cimg::keyO :
-          if (disp.is_keyCTRLLEFT() || disp.is_keyCTRLRIGHT()) {
+            static unsigned int snap_number = 0;
+            char filename[32] = { 0 };
+            std::FILE *file;
+            do {
+              cimg_snprintf(filename,sizeof(filename),cimg_appname "_%.4u.bmp",snap_number++);
+              if ((file=std::fopen(filename,"r"))!=0) cimg::fclose(file);
+            } while (file);
+            if (visu0) {
+              (+visu0).draw_text(0,0," Saving snapshot... ",foreground_color,background_color,0.7f,13).display(disp);
+              visu0.save(filename);
+              (+visu0).draw_text(0,0," Snapshot '%s' saved. ",foreground_color,background_color,0.7f,13,filename).display(disp);
+            }
+            disp.set_key(key,false); key = 0;
+          } break;
+        case cimg::keyO : if (disp.is_keyCTRLLEFT() || disp.is_keyCTRLRIGHT()) {
             static unsigned int snap_number = 0;
             char filename[32] = { 0 };
             std::FILE *file;
@@ -34227,9 +34584,9 @@ namespace cimg_library_suffixed {
 #endif
               if ((file=std::fopen(filename,"r"))!=0) cimg::fclose(file);
             } while (file);
-            visu.draw_text(0,0," Saving instance... ",foreground_color,background_color,1,13).display(disp);
+            (+visu0).draw_text(0,0," Saving instance... ",foreground_color,background_color,0.7f,13).display(disp);
             save(filename);
-            visu.draw_text(0,0," Instance '%s' saved. ",foreground_color,background_color,1,13,filename).display(disp);
+            (+visu0).draw_text(0,0," Instance '%s' saved. ",foreground_color,background_color,0.7f,13,filename).display(disp);
             disp.set_key(key,false); key = 0;
           } break;
         }
@@ -34237,45 +34594,45 @@ namespace cimg_library_suffixed {
         switch (area) {
 
         case 0 : // When mouse is out of image range.
-          mx = my = X = Y = Z = -1;
+          mx = my = -1; X = Y = Z = -1;
           break;
 
         case 1 : case 2 : case 3 : // When mouse is over the XY,XZ or YZ projections.
           if (disp.button()&1 && phase<2 && clicked_area==area) { // When selection has been started (1st step).
-            if (_depth>1 && (X1!=X || Y1!=Y || Z1!=Z)) visu0.assign();
-            X1 = X; Y1 = Y; Z1 = Z;
+            if (_depth>1 && (X1!=(int)X || Y1!=(int)Y || Z1!=(int)Z)) visu0.assign();
+            X1 = (int)X; Y1 = (int)Y; Z1 = (int)Z;
           }
           if (!(disp.button()&1) && phase>=2 && clicked_area!=area) { // When selection is at 2nd step (for volumes).
             switch (starting_area) {
-            case 1 : if (Z1!=Z) visu0.assign(); Z1 = Z; break;
-            case 2 : if (Y1!=Y) visu0.assign(); Y1 = Y; break;
-            case 3 : if (X1!=X) visu0.assign(); X1 = X; break;
+            case 1 : if (Z1!=(int)Z) visu0.assign(); Z1 = (int)Z; break;
+            case 2 : if (Y1!=(int)Y) visu0.assign(); Y1 = (int)Y; break;
+            case 3 : if (X1!=(int)X) visu0.assign(); X1 = (int)X; break;
             }
           }
           if (disp.button()&2 && clicked_area==area) { // When moving through the image/volume.
             if (phase) {
-              if (_depth>1 && (X1!=X || Y1!=Y || Z1!=Z)) visu0.assign();
-              X1 = X; Y1 = Y; Z1 = Z;
+              if (_depth>1 && (X1!=(int)X || Y1!=(int)Y || Z1!=(int)Z)) visu0.assign();
+              X1 = (int)X; Y1 = (int)Y; Z1 = (int)Z;
             } else {
-              if (_depth>1 && (X0!=X || Y0!=Y || Z0!=Z)) visu0.assign();
-              X0 = X; Y0 = Y; Z0 = Z;
+              if (_depth>1 && (X0!=(int)X || Y0!=(int)Y || Z0!=(int)Z)) visu0.assign();
+              X0 = (int)X; Y0 = (int)Y; Z0 = (int)Z;
             }
           }
           if (disp.button()&4) { // Reset positions.
-            oX = X = X0; oY = Y = Y0; oZ = Z = Z0; phase = area = clicked_area = starting_area = 0; visu0.assign();
+            X = (float)X0; Y = (float)Y0; Z = (float)Z0; phase = area = clicked_area = starting_area = 0; visu0.assign();
           }
           if (disp.wheel()) { // When moving through the slices of the volume (with mouse wheel).
             if (_depth>1 && !disp.is_keyCTRLLEFT() && !disp.is_keyCTRLRIGHT() && !disp.is_keySHIFTLEFT() && !disp.is_keySHIFTRIGHT() &&
                 !disp.is_keyALT() && !disp.is_keyALTGR()) {
               switch (area) {
               case 1 :
-                if (phase) Z = (Z1+=disp.wheel()); else Z = (Z0+=disp.wheel());
+                if (phase) Z = (float)(Z1+=disp.wheel()); else Z = (float)(Z0+=disp.wheel());
                 visu0.assign(); break;
               case 2 :
-                if (phase) Y = (Y1+=disp.wheel()); else Y = (Y0+=disp.wheel());
+                if (phase) Y = (float)(Y1+=disp.wheel()); else Y = (float)(Y0+=disp.wheel());
                 visu0.assign(); break;
               case 3 :
-                if (phase) X = (X1+=disp.wheel()); else X = (X0+=disp.wheel());
+                if (phase) X = (float)(X1+=disp.wheel()); else X = (float)(X0+=disp.wheel());
                 visu0.assign(); break;
               }
               disp.set_wheel();
@@ -34285,12 +34642,12 @@ namespace cimg_library_suffixed {
             switch (phase) {
             case 0 :
               if (area==clicked_area) {
-                X0 = X1 = X; Y0 = Y1 = Y; Z0 = Z1 = Z; starting_area = area; ++phase;
+                X0 = X1 = (int)X; Y0 = Y1 = (int)Y; Z0 = Z1 = (int)Z; starting_area = area; ++phase;
               } break;
             case 1 :
               if (area==starting_area) {
-                X1 = X; Y1 = Y; Z1 = Z; ++phase;
-              } else if (!(disp.button()&1)) { oX = X = X0; oY = Y = Y0; oZ = Z = Z0; phase = 0; visu0.assign(); }
+                X1 = (int)X; Y1 = (int)Y; Z1 = (int)Z; ++phase;
+              } else if (!(disp.button()&1)) { X = (float)X0; Y = (float)Y0; Z = (float)Z0; phase = 0; visu0.assign(); }
               break;
             case 2 : ++phase; break;
             }
@@ -34338,7 +34695,7 @@ namespace cimg_library_suffixed {
             }
             oX3d = X3d; oY3d = Y3d;
           }
-          mx = my = X = Y = Z = -1;
+          mx = my = -1; X = Y = Z = -1;
           break;
         }
 
@@ -34358,45 +34715,10 @@ namespace cimg_library_suffixed {
         if (Z1<0) Z1 = 0; if (Z1>=depth()) Z1 = depth() - 1;
 
         // Draw visualization image on the display
-        if (oX!=X || oY!=Y || oZ!=Z || !visu0 || (_depth>1 && !view3d)) {
+        if (mx!=omx || my!=omy || !visu0 || (_depth>1 && !view3d)) {
 
           if (!visu0) { // Create image of projected planes.
-            CImg<Tuchar> tmp, tmp0;
-            if (_depth!=1) {
-              tmp0 = get_projections2d(phase?X1:X0,phase?Y1:Y0,phase?Z1:Z0);
-              tmp = tmp0.get_channels(0,cimg::min(2,spectrum() - 1));
-            } else tmp = get_channels(0,cimg::min(2,spectrum() - 1));
-
-            if (cimg::type<Tuchar>::is_float()) { // Replace +-inf values.
-              Tuchar m = cimg::type<Tuchar>::max(), M = cimg::type<Tuchar>::min();
-              bool is_inf = false;
-              cimg_for(tmp,ptr,Tuchar)
-                if (cimg::type<Tuchar>::is_inf(*ptr)) is_inf = true;
-                else if (*ptr<m) m = *ptr;
-                else if (*ptr>M) M = *ptr;
-              if (is_inf) {
-                const Tuchar
-                  minf = m - (M-m)*20 - 1,
-                  pinf = M + (M-m)*20 + 1;
-                cimg_for(tmp,ptr,Tuchar) if (cimg::type<Tuchar>::is_inf(*ptr)) *ptr = (float)*ptr<0?minf:pinf;
-              }
-            }
-
-            switch (old_normalization) {
-            case 0 : tmp.move_to(visu0); break;
-            case 1 : tmp.normalize(0,255).move_to(visu0); break;
-            case 2 : {
-              const float m = disp._min, M = disp._max;
-              ((tmp-=m)*=255.0f/(M-m>0?M-m:1)).move_to(visu0);
-            }
-            case 3 :
-              if (cimg::type<T>::is_float()) (tmp.normalize(0,255)).move_to(visu0);
-              else {
-                const float m = (float)cimg::type<T>::min(), M = (float)cimg::type<T>::max();
-                ((tmp-=m)*=255.0f/(M-m)).move_to(visu0);
-              } break;
-            }
-            visu0.resize(disp);
+            __get_select(disp,old_normalization,phase?X1:X0,phase?Y1:Y0,phase?Z1:Z0).move_to(visu0).resize(disp);
             view3d.assign();
             points3d.assign();
           }
@@ -34450,7 +34772,7 @@ namespace cimg_library_suffixed {
                 sel_colors3d.assign(sel_primitives3d._width,CImg<ucharT>::vector(255,255,255));
                 sel_opacities3d.assign(sel_primitives3d._width,1,1,1,0.8f);
               }
-              points3d.shift_object3d(-0.5f*_width,-0.5f*_height,-0.5f*_depth).resize_object3d();
+              points3d.shift_object3d(-0.5f*(_width-1),-0.5f*(_height-1),-0.5f*(_depth-1)).resize_object3d();
               points3d*=0.75f*cimg::min(view3d._width,view3d._height);
             }
 
@@ -34472,134 +34794,162 @@ namespace cimg_library_suffixed {
           }
           visu = visu0;
 
-          const int d = (_depth>1)?_depth:0;
-          if (phase) switch (feature_type) {
-          case 1 : {
-            const int
-              x0 = (int)((X0+0.5f)*disp.width()/(_width+d)),
-              y0 = (int)((Y0+0.5f)*disp.height()/(_height+d)),
-              x1 = (int)((X1+0.5f)*disp.width()/(_width+d)),
-              y1 = (int)((Y1+0.5f)*disp.height()/(_height+d));
-            visu.draw_arrow(x0,y0,x1,y1,background_color,0.9f,30,5,0x55555555).
-              draw_arrow(x0,y0,x1,y1,foreground_color,0.9f,30,5,0xAAAAAAAA);
-            if (d) {
-              const int
-                zx0 = (int)((_width+Z0+0.5f)*disp.width()/(_width+d)),
-                zx1 = (int)((_width+Z1+0.5f)*disp.width()/(_width+d)),
-                zy0 = (int)((_height+Z0+0.5f)*disp.height()/(_height+d)),
-                zy1 = (int)((_height+Z1+0.5f)*disp.height()/(_height+d));
-              visu.draw_arrow(zx0,y0,zx1,y1,foreground_color,0.9f,30,5,0x55555555).
-                draw_arrow(x0,zy0,x1,zy1,foreground_color,0.9f,30,5,0x55555555).
-                draw_arrow(zx0,y0,zx1,y1,foreground_color,0.9f,30,5,0xAAAAAAAA).
-                draw_arrow(x0,zy0,x1,zy1,foreground_color,0.9f,30,5,0xAAAAAAAA);
-            }
-          } break;
-          case 2 : {
-            const int
-              x0 = (X0<X1?X0:X1)*disp.width()/(_width+d),
-              y0 = (Y0<Y1?Y0:Y1)*disp.height()/(_height+d),
-              x1 = ((X0<X1?X1:X0)+1)*disp.width()/(_width+d)-1,
-              y1 = ((Y0<Y1?Y1:Y0)+1)*disp.height()/(_height+d)-1;
-            visu.draw_rectangle(x0,y0,x1,y1,background_color,0.2f).draw_rectangle(x0,y0,x1,y1,foreground_color,0.6f,0x55555555);
-            if (d) {
-              const int
-                zx0 = (int)((_width+(Z0<Z1?Z0:Z1))*disp.width()/(_width+d)),
-                zy0 = (int)((_height+(Z0<Z1?Z0:Z1))*disp.height()/(_height+d)),
-                zx1 = (int)((_width+(Z0<Z1?Z1:Z0)+1)*disp.width()/(_width+d))-1,
-                zy1 = (int)((_height+(Z0<Z1?Z1:Z0)+1)*disp.height()/(_height+d))-1;
-              visu.draw_rectangle(zx0,y0,zx1,y1,background_color,0.2f).draw_rectangle(zx0,y0,zx1,y1,foreground_color,0.6f,0x55555555).
-                draw_rectangle(x0,zy0,x1,zy1,background_color,0.2f).draw_rectangle(x0,zy0,x1,zy1,foreground_color,0.6f,0x55555555);
-            }
-          } break;
-          case 3 : {
-            const int
-              x0 = X0*disp.width()/(_width+d),
-              y0 = Y0*disp.height()/(_height+d),
-              x1 = X1*disp.width()/(_width+d)-1,
-              y1 = Y1*disp.height()/(_height+d)-1;
-            visu.draw_ellipse(x0,y0,(float)cimg::abs(x1-x0),(float)cimg::abs(y1-y0),0,background_color,0.2f).
-              draw_ellipse(x0,y0,(float)cimg::abs(x1-x0),(float)cimg::abs(y1-y0),0,foreground_color,0.6f,0x55555555).
-              draw_point(x0,y0,foreground_color,0.6f);
-            if (d) {
-              const int
-                zx0 = (int)((_width+Z0)*disp.width()/(_width+d)),
-                zy0 = (int)((_height+Z0)*disp.height()/(_height+d)),
-                zx1 = (int)((_width+Z1+1)*disp.width()/(_width+d))-1,
-                zy1 = (int)((_height+Z1+1)*disp.height()/(_height+d))-1;
-              visu.draw_ellipse(zx0,y0,(float)cimg::abs(zx1-zx0),(float)cimg::abs(y1-y0),0,background_color,0.2f).
-                draw_ellipse(zx0,y0,(float)cimg::abs(zx1-zx0),(float)cimg::abs(y1-y0),0,foreground_color,0.6f,0x55555555).
-                draw_point(zx0,y0,foreground_color,0.6f).
-                draw_ellipse(x0,zy0,(float)cimg::abs(x1-x0),(float)cimg::abs(zy1-zy0),0,background_color,0.2f).
-                draw_ellipse(x0,zy0,(float)cimg::abs(x1-x0),(float)cimg::abs(zy1-zy0),0,foreground_color,0.6f,0x55555555).
-                draw_point(x0,zy0,foreground_color,0.6f);
-            }
-          } break;
-          } else {
-            const int
-              x0 = X*disp.width()/(_width+d),
-              y0 = Y*disp.height()/(_height+d),
-              x1 = (X+1)*disp.width()/(_width+d)-1,
-              y1 = (Y+1)*disp.height()/(_height+d)-1,
-              zx0 = (Z+_width)*disp.width()/(_width+d),
-              zx1 = (Z+_width+1)*disp.width()/(_width+d),
-              zy0 = (Z+_height)*disp.height()/(_height+d),
-              zy1 = (Z+_height+1)*disp.height()/(_height+d);
+          if (X<0 || Y<0 || Z<0) { if (!visible_cursor) { disp.show_mouse(); visible_cursor = true; }}
+          else {
+            if (is_axes) { if (visible_cursor) { disp.hide_mouse(); visible_cursor = false; }}
+            else { if (!visible_cursor) { disp.show_mouse(); visible_cursor = true; }}
+            const int d = (_depth>1)?_depth:0;
+            int
+              w = disp.width(), W = width() + d,
+              h = disp.height(), H = height() + d,
+              _xp = (int)X*w/W, xp = _xp + (_xp*W/w!=(int)X?1:0),
+              _yp = (int)Y*h/H, yp = _yp + (_yp*H/h!=(int)Y?1:0),
+              _xn = (int)(X+1)*w/W-1, xn = _xn + ((_xn+1)*W/w!=(int)X+1?1:0),
+              _yn = (int)(Y+1)*h/H-1, yn = _yn + ((_yn+1)*H/h!=(int)Y+1?1:0),
+              _zxp = ((int)Z+width())*w/W, zxp = _zxp + (_zxp*W/w!=(int)Z+width()?1:0),
+              _zyp = ((int)Z+height())*h/H, zyp = _zyp + (_zyp*H/h!=(int)Z+height()?1:0),
+              _zxn = ((int)Z+width()+1)*w/W-1, zxn = _zxn + ((_zxn+1)*W/w!=(int)Z+width()+1?1:0),
+              _zyn = ((int)Z+height()+1)*h/H-1, zyn = _zyn + ((_zyn+1)*H/h!=(int)Z+height()+1?1:0),
+              _xM = width()*w/W-1, xM = _xM + ((_xM+1)*W/w!=width()?1:0),
+              _yM = height()*h/H-1, yM = _yM + ((_yM+1)*H/h!=height()?1:0),
+              xc = (xp + xn)/2,
+              yc = (yp + yn)/2,
+              zxc = (zxp + zxn)/2,
+              zyc = (zyp + zyn)/2,
+              xf = (int)(X*w/W),
+              yf = (int)(Y*h/H),
+              zxf = (int)((Z+width())*w/W),
+              zyf = (int)((Z+height())*h/H);
 
-            if (x1-x0>=4 && y1-y0>=4) visu.draw_rectangle(x0,y0,x1,y1,background_color,0.2f).
-                                        draw_rectangle(x0,y0,x1,y1,foreground_color,0.6f,~0U);
+            if (is_axes) { // Draw axes.
+              visu.draw_line(0,yf,visu.width()-1,yf,foreground_color,0.7f,0xFF00FF00).
+                draw_line(0,yf,visu.width()-1,yf,background_color,0.7f,0x00FF00FF).
+                draw_line(xf,0,xf,visu.height()-1,foreground_color,0.7f,0xFF00FF00).
+                draw_line(xf,0,xf,visu.height()-1,background_color,0.7f,0x00FF00FF);
+              if (_depth>1)
+                visu.draw_line(zxf,0,zxf,yM,foreground_color,0.7f,0xFF00FF00).
+                  draw_line(zxf,0,zxf,yM,background_color,0.7f,0x00FF00FF).
+                  draw_line(0,zyf,xM,zyf,foreground_color,0.7f,0xFF00FF00).
+                  draw_line(0,zyf,xM,zyf,background_color,0.7f,0x00FF00FF);
+            }
 
+            // Draw box cursor.
+            if (xn-xp>=4 && yn-yp>=4) visu.draw_rectangle(xp,yp,xn,yn,foreground_color,0.2f).
+                                        draw_rectangle(xp,yp,xn,yn,foreground_color,1,0xAAAAAAAA).
+                                        draw_rectangle(xp,yp,xn,yn,background_color,1,0x55555555);
             if (_depth>1) {
-              if (y1-y0>=4 && zx1-zx0>=4) visu.draw_rectangle(zx0,y0,zx1,y1,background_color,0.2f).
-                                            draw_rectangle(zx0,y0,zx1,y1,foreground_color,0.6f,~0U);
-              if (x1-x0>=4 && zy1-zy0>=4) visu.draw_rectangle(x0,zy0,x1,zy1,background_color,0.2f).
-                                            draw_rectangle(x0,zy0,x1,zy1,foreground_color,0.6f,~0U);
+              if (yn-yp>=4 && zxn-zxp>=4) visu.draw_rectangle(zxp,yp,zxn,yn,background_color,0.2f).
+                                            draw_rectangle(zxp,yp,zxn,yn,foreground_color,1,0xAAAAAAAA).
+                                            draw_rectangle(zxp,yp,zxn,yn,background_color,1,0x55555555);
+              if (xn-xp>=4 && zyn-zyp>=4) visu.draw_rectangle(xp,zyp,xn,zyn,background_color,0.2f).
+                                            draw_rectangle(xp,zyp,xn,zyn,foreground_color,1,0xAAAAAAAA).
+                                            draw_rectangle(xp,zyp,xn,zyn,background_color,1,0x55555555);
             }
+
+            // Draw selection.
+            if (phase) {
+              const int
+                _xp0 = X0*w/W, xp0 = _xp0 + (_xp0*W/w!=X0?1:0),
+                _yp0 = Y0*h/H, yp0 = _yp0 + (_yp0*H/h!=Y0?1:0),
+                _xn0 = (X0+1)*w/W-1, xn0 = _xn0 + ((_xn0+1)*W/w!=X0+1?1:0),
+                _yn0 = (Y0+1)*h/H-1, yn0 = _yn0 + ((_yn0+1)*H/h!=Y0+1?1:0),
+                _zxp0 = (Z0+width())*w/W, zxp0 = _zxp0 + (_zxp0*W/w!=Z0+width()?1:0),
+                _zyp0 = (Z0+height())*h/H, zyp0 = _zyp0 + (_zyp0*H/h!=Z0+height()?1:0),
+                _zxn0 = (Z0+width()+1)*w/W-1, zxn0 = _zxn0 + ((_zxn0+1)*W/w!=Z0+width()+1?1:0),
+                _zyn0 = (Z0+height()+1)*h/H-1, zyn0 = _zyn0 + ((_zyn0+1)*H/h!=Z0+height()+1?1:0),
+                xc0 = (xp0 + xn0)/2,
+                yc0 = (yp0 + yn0)/2,
+                zxc0 = (zxp0 + zxn0)/2,
+                zyc0 = (zyp0 + zyn0)/2;
+
+              switch (feature_type) {
+              case 1 : {
+                visu.draw_arrow(xc0,yc0,xc,yc,background_color,0.9f,30,5,0x55555555).
+                  draw_arrow(xc0,yc0,xc,yc,foreground_color,0.9f,30,5,0xAAAAAAAA);
+                if (d) {
+                  visu.draw_arrow(zxc0,yc0,zxc,yc,background_color,0.9f,30,5,0x55555555).
+                    draw_arrow(zxc0,yc0,zxc,yc,foreground_color,0.9f,30,5,0xAAAAAAAA).
+                    draw_arrow(xc0,zyc0,xc,zyc,background_color,0.9f,30,5,0x55555555).
+                    draw_arrow(xc0,zyc0,xc,zyc,foreground_color,0.9f,30,5,0xAAAAAAAA);
+                }
+              } break;
+              case 2 : {
+                visu.draw_rectangle(X0<X1?xp0:xp,Y0<Y1?yp0:yp,X0<X1?xn:xn0,Y0<Y1?yn:yn0,background_color,0.2f).
+                  draw_rectangle(X0<X1?xp0:xp,Y0<Y1?yp0:yp,X0<X1?xn:xn0,Y0<Y1?yn:yn0,foreground_color,0.9f,0xAAAAAAAA).
+                  draw_rectangle(X0<X1?xp0:xp,Y0<Y1?yp0:yp,X0<X1?xn:xn0,Y0<Y1?yn:yn0,background_color,0.9f,0x55555555);
+                if (d) {
+                  visu.draw_rectangle(Z0<Z1?zxp0:zxp,Y0<Y1?yp0:yp,Z0<Z1?zxn:zxn0,Y0<Y1?yn:yn0,background_color,0.2f).
+                    draw_rectangle(Z0<Z1?zxp0:zxp,Y0<Y1?yp0:yp,Z0<Z1?zxn:zxn0,Y0<Y1?yn:yn0,foreground_color,0.9f,0xAAAAAAAA).
+                    draw_rectangle(Z0<Z1?zxp0:zxp,Y0<Y1?yp0:yp,Z0<Z1?zxn:zxn0,Y0<Y1?yn:yn0,background_color,0.9f,0x55555555).
+                    draw_rectangle(X0<X1?xp0:xp,Z0<Z1?zyp0:zyp,X0<X1?xn:xn0,Z0<Z1?zyn:zyn0,background_color,0.2f).
+                    draw_rectangle(X0<X1?xp0:xp,Z0<Z1?zyp0:zyp,X0<X1?xn:xn0,Z0<Z1?zyn:zyn0,foreground_color,0.9f,0xAAAAAAAA).
+                    draw_rectangle(X0<X1?xp0:xp,Z0<Z1?zyp0:zyp,X0<X1?xn:xn0,Z0<Z1?zyn:zyn0,background_color,0.9f,0x55555555);
+                }
+              } break;
+              case 3 : {
+                visu.draw_ellipse(xc0,yc0,(float)cimg::abs(xc-xc0),(float)cimg::abs(yc-yc0),0,background_color,0.2f).
+                  draw_ellipse(xc0,yc0,(float)cimg::abs(xc-xc0),(float)cimg::abs(yc-yc0),0,foreground_color,0.9f,~0U).
+                  draw_point(xc0,yc0,foreground_color,0.9f);
+                if (d) {
+                  visu.draw_ellipse(zxc0,yc0,(float)cimg::abs(zxc-zxc0),(float)cimg::abs(yc-yc0),0,background_color,0.2f).
+                    draw_ellipse(zxc0,yc0,(float)cimg::abs(zxc-zxc0),(float)cimg::abs(yc-yc0),0,foreground_color,0.9f,~0U).
+                    draw_point(zxc0,yc0,foreground_color,0.9f).
+                    draw_ellipse(xc0,zyc0,(float)cimg::abs(xc-xc0),(float)cimg::abs(zyc-zyc0),0,background_color,0.2f).
+                    draw_ellipse(xc0,zyc0,(float)cimg::abs(xc-xc0),(float)cimg::abs(zyc-zyc0),0,foreground_color,0.9f,~0U).
+                    draw_point(xc0,zyc0,foreground_color,0.9f);
+                }
+              } break;
+              }
+            }
+
+            // Draw text info.
+            if (my>=0 && my<13) text_down = true; else if (my>=visu.height()-13) text_down = false;
+            if (!feature_type || !phase) {
+              if (X>=0 && Y>=0 && Z>=0 && X<width() && Y<height() && Z<depth()) {
+                if (_depth>1 || force_display_z_coord) cimg_snprintf(text,sizeof(text)," Point (%d,%d,%d) = [ ",origX+(int)X,origY+(int)Y,origZ+(int)Z);
+                else cimg_snprintf(text,sizeof(text)," Point (%d,%d) = [ ",origX+(int)X,origY+(int)Y);
+                char *ctext = text + std::strlen(text), *const ltext = text + 512;
+                for (unsigned int c = 0; c<_spectrum && ctext<ltext; ++c) {
+                  cimg_snprintf(ctext,sizeof(text)/2,cimg::type<T>::format(),cimg::type<T>::format((*this)((int)X,(int)Y,(int)Z,c)));
+                  ctext = text + std::strlen(text);
+                  *(ctext++) = ' '; *ctext = 0;
+                }
+                std::strcpy(text + std::strlen(text),"] ");
+              }
+            } else switch (feature_type) {
+              case 1 : {
+                const double dX = (double)(X0 - X1), dY = (double)(Y0 - Y1), dZ = (double)(Z0 - Z1), norm = std::sqrt(dX*dX+dY*dY+dZ*dZ);
+                if (_depth>1 || force_display_z_coord) cimg_snprintf(text,sizeof(text)," Vect (%d,%d,%d)-(%d,%d,%d), Norm = %g ",
+                                                                     origX+X0,origY+Y0,origZ+Z0,origX+X1,origY+Y1,origZ+Z1,norm);
+                else cimg_snprintf(text,sizeof(text)," Vect (%d,%d)-(%d,%d), Norm = %g ",
+                                   origX+X0,origY+Y0,origX+X1,origY+Y1,norm);
+              } break;
+              case 2 :
+                if (_depth>1 || force_display_z_coord) cimg_snprintf(text,sizeof(text)," Box (%d,%d,%d)-(%d,%d,%d), Size = (%d,%d,%d) ",
+                                                                     origX+(X0<X1?X0:X1),origY+(Y0<Y1?Y0:Y1),origZ+(Z0<Z1?Z0:Z1),
+                                                                     origX+(X0<X1?X1:X0),origY+(Y0<Y1?Y1:Y0),origZ+(Z0<Z1?Z1:Z0),
+                                                                     1+cimg::abs(X0-X1),1+cimg::abs(Y0-Y1),1+cimg::abs(Z0-Z1));
+                else cimg_snprintf(text,sizeof(text)," Box (%d,%d)-(%d,%d), Size = (%d,%d) ",
+                                   origX+(X0<X1?X0:X1),origY+(Y0<Y1?Y0:Y1),origX+(X0<X1?X1:X0),origY+(Y0<Y1?Y1:Y0),
+                                   1+cimg::abs(X0-X1),1+cimg::abs(Y0-Y1));
+                break;
+              default :
+                if (_depth>1 || force_display_z_coord) cimg_snprintf(text,sizeof(text)," Ellipse (%d,%d,%d)-(%d,%d,%d), Radii = (%d,%d,%d) ",
+                                                                     origX+X0,origY+Y0,origZ+Z0,origX+X1,origY+Y1,origZ+Z1,
+                                                                     1+cimg::abs(X0-X1),1+cimg::abs(Y0-Y1),1+cimg::abs(Z0-Z1));
+                else cimg_snprintf(text,sizeof(text)," Ellipse (%d,%d)-(%d,%d), Radii = (%d,%d) ",
+                                   origX+X0,origY+Y0,origX+X1,origY+Y1,1+cimg::abs(X0-X1),1+cimg::abs(Y0-Y1));
+              }
+            if (phase || (mx>=0 && my>=0)) visu.draw_text(0,text_down?visu.height()-13:0,text,foreground_color,background_color,0.7f,13);
           }
 
-          if (my>=0 && my<13) text_down = true; else if (my>=visu.height()-13) text_down = false;
-          if (!feature_type || !phase) {
-            if (X>=0 && Y>=0 && Z>=0 && X<width() && Y<height() && Z<depth()) {
-              if (_depth>1) cimg_snprintf(text,sizeof(text)," Point (%d,%d,%d) = [ ",origX+X,origY+Y,origZ+Z);
-              else cimg_snprintf(text,sizeof(text)," Point (%d,%d) = [ ",origX+X,origY+Y);
-              char *ctext = text + std::strlen(text), *const ltext = text + 512;
-              for (unsigned int c = 0; c<_spectrum && ctext<ltext; ++c) {
-                cimg_snprintf(ctext,sizeof(text)/2,cimg::type<T>::format(),cimg::type<T>::format((*this)(X,Y,Z,c)));
-                ctext = text + std::strlen(text);
-                *(ctext++) = ' '; *ctext = 0;
-              }
-              std::strcpy(text + std::strlen(text),"] ");
-            }
-          } else switch (feature_type) {
-          case 1 : {
-            const double dX = (double)(X0 - X1), dY = (double)(Y0 - Y1), dZ = (double)(Z0 - Z1), norm = std::sqrt(dX*dX+dY*dY+dZ*dZ);
-            if (_depth>1) cimg_snprintf(text,sizeof(text)," Vect (%d,%d,%d)-(%d,%d,%d), Norm = %g ",
-                                        origX+X0,origY+Y0,origZ+Z0,origX+X1,origY+Y1,origZ+Z1,norm);
-            else cimg_snprintf(text,sizeof(text)," Vect (%d,%d)-(%d,%d), Norm = %g ",
-                               origX+X0,origY+Y0,origX+X1,origY+Y1,norm);
-          } break;
-          case 2 :
-            if (_depth>1) cimg_snprintf(text,sizeof(text)," Box (%d,%d,%d)-(%d,%d,%d), Size = (%d,%d,%d) ",
-                                        origX+(X0<X1?X0:X1),origY+(Y0<Y1?Y0:Y1),origZ+(Z0<Z1?Z0:Z1),
-                                        origX+(X0<X1?X1:X0),origY+(Y0<Y1?Y1:Y0),origZ+(Z0<Z1?Z1:Z0),
-                                        1+cimg::abs(X0-X1),1+cimg::abs(Y0-Y1),1+cimg::abs(Z0-Z1));
-            else cimg_snprintf(text,sizeof(text)," Box (%d,%d)-(%d,%d), Size = (%d,%d) ",
-                               origX+(X0<X1?X0:X1),origY+(Y0<Y1?Y0:Y1),origX+(X0<X1?X1:X0),origY+(Y0<Y1?Y1:Y0),
-                               1+cimg::abs(X0-X1),1+cimg::abs(Y0-Y1));
-            break;
-          default :
-            if (_depth>1) cimg_snprintf(text,sizeof(text)," Ellipse (%d,%d,%d)-(%d,%d,%d), Radii = (%d,%d,%d) ",
-                                        origX+X0,origY+Y0,origZ+Z0,origX+X1,origY+Y1,origZ+Z1,
-                                        1+cimg::abs(X0-X1),1+cimg::abs(Y0-Y1),1+cimg::abs(Z0-Z1));
-            else cimg_snprintf(text,sizeof(text)," Ellipse (%d,%d)-(%d,%d), Radii = (%d,%d) ",
-                               origX+X0,origY+Y0,origX+X1,origY+Y1,1+cimg::abs(X0-X1),1+cimg::abs(Y0-Y1));
-            }
-          if (phase || (mx>=0 && my>=0)) visu.draw_text(0,text_down?visu.height()-13:0,text,foreground_color,background_color,0.7f,13);
           disp.display(visu).wait();
         } else if (!shape_selected) disp.wait();
         if (disp.is_resized()) { disp.resize(false)._is_resized = false; old_is_resized = true; visu0.assign(); }
+        omx = mx; omy = my;
       }
 
-      // Return result
+      // Return result.
       CImg<intT> res(1,feature_type==0?3:6,1,1,-1);
       if (XYZ) { XYZ[0] = (unsigned int)X0; XYZ[1] = (unsigned int)Y0; XYZ[2] = (unsigned int)Z0; }
       if (shape_selected) {
@@ -34616,10 +34966,55 @@ namespace cimg_library_suffixed {
         }
       }
       disp.set_button();
+      if (!visible_cursor) disp.show_mouse();
       disp._normalization = old_normalization;
       disp._is_resized = old_is_resized;
       if (key!=~0U) disp.set_key(key);
       return res;
+    }
+
+    // Return a visualizable uchar8 image for display routines.
+    CImg<ucharT> __get_select(const CImgDisplay& disp, const int normalization, const int x, const int y, const int z) const {
+      if (is_empty()) return CImg<ucharT>(1,1,1,1,0);
+      const CImg<T> crop = get_shared_channels(0,cimg::min(2,spectrum()-1));
+      CImg<Tuchar> img2d;
+      if (_depth>1) crop.get_projections2d(x,y,z).move_to(img2d);
+      else CImg<Tuchar>(crop,false).move_to(img2d);
+
+      if (cimg::type<T>::is_float()) { // Check for inf and nan values.
+        bool is_inf = false, is_nan = false;
+        cimg_for(img2d,ptr,Tuchar)
+          if (cimg::type<T>::is_inf(*ptr)) { is_inf = true; break; }
+          else if (cimg::type<T>::is_nan(*ptr)) { is_nan = true; break; }
+        if (is_inf || is_nan) {
+          T m0 = cimg::type<T>::max(), M0 = cimg::type<T>::min();
+          if (!normalization) { m0 = 0; M0 = 255; }
+          else if (normalization==2) { m0 = (T)disp._min; M0 = (T)disp._max; }
+          else cimg_for(img2d,ptr,Tuchar) if (!cimg::type<T>::is_inf(*ptr) && !cimg::type<T>::is_nan(*ptr)) { if (*ptr<m0) m0 = *ptr; if (*ptr>M0) M0 = *ptr; }
+          const T
+            val_minf = (normalization==1 || normalization==3)?m0-(M0-m0)*20-1:m0,
+            val_pinf = (normalization==1 || normalization==3)?M0+(M0-m0)*20+1:M0;
+          if (is_nan) cimg_for(img2d,ptr,Tuchar) if (cimg::type<T>::is_nan(*ptr)) *ptr = val_minf; // Replace nan values.
+          if (is_inf) cimg_for(img2d,ptr,Tuchar) if (cimg::type<T>::is_inf(*ptr)) *ptr = (float)*ptr<0?val_minf:val_pinf; // Replace +-inf values.
+        }
+      }
+
+      switch (normalization) {
+      case 1 : img2d.normalize(0,255); break;
+      case 2 : {
+        const float m = disp._min, M = disp._max;
+        (img2d-=m)*=255.0f/(M-m>0?M-m:1);
+      } break;
+      case 3 :
+        if (cimg::type<T>::is_float()) img2d.normalize(0,255);
+        else {
+          const float m = (float)cimg::type<T>::min(), M = (float)cimg::type<T>::max();
+          (img2d-=m)*=255.0f/(M-m>0?M-m:1);
+        } break;
+      }
+
+      if (img2d.spectrum()==2) img2d.channels(0,2);
+      return img2d;
     }
 
     //! Select sub-graph in a graph.
@@ -34802,7 +35197,7 @@ namespace cimg_library_suffixed {
             } while (file);
             (+screen).draw_text(0,0," Saving snapshot... ",black,gray,1,13).display(disp);
             screen.save(filename);
-            screen.draw_text(0,0," Snapshot '%s' saved. ",black,gray,1,13,filename).display(disp);
+            (+screen).draw_text(0,0," Snapshot '%s' saved. ",black,gray,1,13,filename).display(disp);
           }
           disp.set_key(key,false); okey = 0;
         } break;
@@ -34822,7 +35217,7 @@ namespace cimg_library_suffixed {
               } while (file);
               (+screen).draw_text(0,0," Saving instance... ",black,gray,1,13).display(disp);
               save(filename);
-              screen.draw_text(0,0," Instance '%s' saved. ",black,gray,1,13,filename).display(disp);
+              (+screen).draw_text(0,0," Instance '%s' saved. ",black,gray,1,13,filename).display(disp);
             }
             disp.set_key(key,false); okey = 0;
           } break;
@@ -34970,11 +35365,13 @@ namespace cimg_library_suffixed {
                  !cimg::strcasecmp(ext,"m2v") ||
                  !cimg::strcasecmp(ext,"m4v") ||
                  !cimg::strcasecmp(ext,"mjp") ||
+                 !cimg::strcasecmp(ext,"mp4") ||
                  !cimg::strcasecmp(ext,"mkv") ||
                  !cimg::strcasecmp(ext,"mpe") ||
                  !cimg::strcasecmp(ext,"movie") ||
                  !cimg::strcasecmp(ext,"ogm") ||
                  !cimg::strcasecmp(ext,"ogg") ||
+                 !cimg::strcasecmp(ext,"ogv") ||
                  !cimg::strcasecmp(ext,"qt") ||
                  !cimg::strcasecmp(ext,"rm") ||
                  !cimg::strcasecmp(ext,"vob") ||
@@ -35193,6 +35590,7 @@ namespace cimg_library_suffixed {
       int
         file_size = header[0x02] + (header[0x03]<<8) + (header[0x04]<<16) + (header[0x05]<<24),
         offset = header[0x0A] + (header[0x0B]<<8) + (header[0x0C]<<16) + (header[0x0D]<<24),
+        header_size = header[0x0E] + (header[0x0F]<<8) + (header[0x10]<<16) + (header[0x11]<<24),
         dx = header[0x12] + (header[0x13]<<8) + (header[0x14]<<16) + (header[0x15]<<24),
         dy = header[0x16] + (header[0x17]<<8) + (header[0x18]<<16) + (header[0x19]<<24),
         compression = header[0x1E] + (header[0x1F]<<8) + (header[0x20]<<16) + (header[0x21]<<24),
@@ -35204,6 +35602,7 @@ namespace cimg_library_suffixed {
         file_size = (int)std::ftell(nfile);
         std::fseek(nfile,54,SEEK_SET);
       }
+      if (header_size>40) std::fseek(nfile, header_size - 40, SEEK_CUR);
 
       const int
         cimg_iobuffer = 12*1024*1024,
@@ -35214,7 +35613,7 @@ namespace cimg_library_suffixed {
       CImg<intT> colormap;
       if (bpp<16) { if (!nb_colors) nb_colors = 1<<bpp; } else nb_colors = 0;
       if (nb_colors) { colormap.assign(nb_colors); cimg::fread(colormap._data,nb_colors,nfile); }
-      const int xoffset = offset - 54 - 4*nb_colors;
+      const int xoffset = offset - 14 - header_size - 4*nb_colors;
       if (xoffset>0) std::fseek(nfile,xoffset,SEEK_CUR);
 
       CImg<ucharT> buffer;
@@ -36620,15 +37019,15 @@ namespace cimg_library_suffixed {
     /**
       \param filename Filename, as a C-string.
       \param n0 Starting frame.
-      \param n1 Ending frame.
+      \param n1 Ending frame (~0U for max).
       \param x0 X-coordinate of the starting sub-image vertex.
       \param y0 Y-coordinate of the starting sub-image vertex.
       \param z0 Z-coordinate of the starting sub-image vertex.
       \param c0 C-coordinate of the starting sub-image vertex.
-      \param x1 X-coordinate of the ending sub-image vertex.
-      \param y1 Y-coordinate of the ending sub-image vertex.
-      \param z1 Z-coordinate of the ending sub-image vertex.
-      \param c1 C-coordinate of the ending sub-image vertex.
+      \param x1 X-coordinate of the ending sub-image vertex (~0U for max).
+      \param y1 Y-coordinate of the ending sub-image vertex (~0U for max).
+      \param z1 Z-coordinate of the ending sub-image vertex (~0U for max).
+      \param c1 C-coordinate of the ending sub-image vertex (~0U for max).
       \param axis Appending axis, if file contains multiple images. Can be <tt>{ 'x' | 'y' | 'z' | 'c' }</tt>.
       \param align Appending alignment.
     **/
@@ -37080,42 +37479,48 @@ namespace cimg_library_suffixed {
       \param size_c Spectrum of the image buffer.
       \param is_multiplexed Tells if the image values are multiplexed along the C-axis.
       \param invert_endianness Tells if the endianness of the image buffer must be inverted.
+      \param offset Starting offset of the read in the specified file.
     **/
     CImg<T>& load_raw(const char *const filename,
                       const unsigned int size_x=0, const unsigned int size_y=1,
                       const unsigned int size_z=1, const unsigned int size_c=1,
-                      const bool is_multiplexed=false, const bool invert_endianness=false) {
-      return _load_raw(0,filename,size_x,size_y,size_z,size_c,is_multiplexed,invert_endianness);
+                      const bool is_multiplexed=false, const bool invert_endianness=false,
+                      const unsigned long offset=0) {
+      return _load_raw(0,filename,size_x,size_y,size_z,size_c,is_multiplexed,invert_endianness,offset);
     }
 
     //! Load image from a raw binary file \newinstance.
     static CImg<T> get_load_raw(const char *const filename,
                                 const unsigned int size_x=0, const unsigned int size_y=1,
                                 const unsigned int size_z=1, const unsigned int size_c=1,
-                                const bool is_multiplexed=false, const bool invert_endianness=false) {
-      return CImg<T>().load_raw(filename,size_x,size_y,size_z,size_c,is_multiplexed,invert_endianness);
+                                const bool is_multiplexed=false, const bool invert_endianness=false,
+                                const unsigned long offset=0) {
+      return CImg<T>().load_raw(filename,size_x,size_y,size_z,size_c,is_multiplexed,invert_endianness,offset);
     }
 
     //! Load image from a raw binary file \overloading.
     CImg<T>& load_raw(std::FILE *const file,
                       const unsigned int size_x=0, const unsigned int size_y=1,
                       const unsigned int size_z=1, const unsigned int size_c=1,
-                      const bool is_multiplexed=false, const bool invert_endianness=false) {
-      return _load_raw(file,0,size_x,size_y,size_z,size_c,is_multiplexed,invert_endianness);
+                      const bool is_multiplexed=false, const bool invert_endianness=false,
+                      const unsigned long offset=0) {
+      return _load_raw(file,0,size_x,size_y,size_z,size_c,is_multiplexed,invert_endianness,offset);
     }
 
     //! Load image from a raw binary file \newinstance.
     static CImg<T> get_load_raw(std::FILE *const file,
                                 const unsigned int size_x=0, const unsigned int size_y=1,
                                 const unsigned int size_z=1, const unsigned int size_c=1,
-                                const bool is_multiplexed=false, const bool invert_endianness=false) {
-      return CImg<T>().load_raw(file,size_x,size_y,size_z,size_c,is_multiplexed,invert_endianness);
+                                const bool is_multiplexed=false, const bool invert_endianness=false,
+                                const unsigned long offset=0) {
+      return CImg<T>().load_raw(file,size_x,size_y,size_z,size_c,is_multiplexed,invert_endianness,offset);
     }
 
     CImg<T>& _load_raw(std::FILE *const file, const char *const filename,
                        const unsigned int size_x, const unsigned int size_y,
                        const unsigned int size_z, const unsigned int size_c,
-                       const bool is_multiplexed, const bool invert_endianness) {
+                       const bool is_multiplexed, const bool invert_endianness,
+                       const unsigned long offset) {
       if (!file && !filename)
         throw CImgArgumentException(_cimg_instance
                                     "load_raw(): Specified filename is (null).",
@@ -37132,6 +37537,7 @@ namespace cimg_library_suffixed {
         _size_x = _size_z = _size_c = 1;
         std::fseek(nfile,fpos,SEEK_SET);
       }
+      std::fseek(nfile,(long)offset,SEEK_SET);
       assign(_size_x,_size_y,_size_z,_size_c,0);
       if (!is_multiplexed || size_c==1) {
         cimg::fread(_data,siz,nfile);
@@ -37292,12 +37698,12 @@ namespace cimg_library_suffixed {
       // Read primitive data
       primitives.assign();
       colors.assign();
-      bool stopflag = false;
-      while (!stopflag) {
+      bool stop_flag = false;
+      while (!stop_flag) {
         float c0 = 0.7f, c1 = 0.7f, c2 = 0.7f;
         unsigned int prim = 0, i0 = 0, i1 = 0, i2 = 0, i3 = 0, i4 = 0, i5 = 0, i6 = 0, i7 = 0;
         *line = 0;
-        if ((err = std::fscanf(nfile,"%u",&prim))!=1) stopflag=true;
+        if ((err = std::fscanf(nfile,"%u",&prim))!=1) stop_flag = true;
         else {
           ++nb_read;
           switch (prim) {
@@ -37872,7 +38278,7 @@ namespace cimg_library_suffixed {
     **/
     const CImg<T>& print(const char *const title=0, const bool display_stats=true) const {
       int xm = 0, ym = 0, zm = 0, vm = 0, xM = 0, yM = 0, zM = 0, vM = 0;
-      static CImg<doubleT> st;
+      CImg<doubleT> st;
       if (!is_empty() && display_stats) {
         st = get_stats();
         xm = (int)st[4]; ym = (int)st[5], zm = (int)st[6], vm = (int)st[7];
@@ -37948,6 +38354,7 @@ namespace cimg_library_suffixed {
       if (!disp) {
         disp.assign(cimg_fitscreen(_width,_height,_depth),title?title:0,1);
         if (!title) disp.set_title("CImg<%s> (%ux%ux%ux%u)",pixel_type(),_width,_height,_depth,_spectrum);
+        else disp.set_title("%s",title);
       } else if (title) disp.set_title("%s",title);
       disp.show().flush();
 
@@ -37984,7 +38391,14 @@ namespace cimg_library_suffixed {
           go_inc = false, go_dec = false, go_in = false, go_out = false,
           go_in_center = false;
         const CImg<T>& visu = zoom?zoom:*this;
-        const CImg<intT> selection = visu._get_select(disp,0,2,_XYZ,x0,y0,z0,is_first_select);
+
+        disp.set_title("%s",dtitle._data);
+        if (_width>1 && visu._width==1) disp.set_title("%s | x=%u",disp._title,x0);
+        if (_height>1 && visu._height==1) disp.set_title("%s | y=%u",disp._title,y0);
+        if (_depth>1 && visu._depth==1) disp.set_title("%s | z=%u",disp._title,z0);
+
+        if (!is_first_select) { _XYZ[0] = (x1-x0)/2; _XYZ[1] = (y1-y0)/2; _XYZ[2] = (z1-z0)/2; }
+        const CImg<intT> selection = visu._get_select(disp,0,2,_XYZ,x0,y0,z0,is_first_select,_depth>1);
         is_first_select = false;
 
         if (disp.wheel()) {
@@ -37998,7 +38412,8 @@ namespace cimg_library_suffixed {
           sx0 = selection(0), sy0 = selection(1), sz0 = selection(2),
           sx1 = selection(3), sy1 = selection(4), sz1 = selection(5);
         if (sx0>=0 && sy0>=0 && sz0>=0 && sx1>=0 && sy1>=0 && sz1>=0) {
-          x1 = x0 + sx1; y1 = y0 + sy1; z1 = z0 + sz1; x0+=sx0; y0+=sy0; z0+=sz0;
+          x1 = x0 + sx1; y1 = y0 + sy1; z1 = z0 + sz1;
+          x0+=sx0; y0+=sy0; z0+=sz0;
           if (sx0==sx1 && sy0==sy1 && sz0==sz1) {
             if (exit_on_simpleclick && (!zoom || is_empty())) break; else reset_view = true;
           }
@@ -38169,8 +38584,8 @@ namespace cimg_library_suffixed {
                                     const to& opacities,
                                     const bool centering=true,
                                     const int render_static=4, const int render_motion=1,
-                                    const bool is_double_sided=true, const float focale=500,
-                                    const float light_x=0, const float light_y=0, const float light_z=-5000,
+                                    const bool is_double_sided=true, const float focale=700,
+                                    const float light_x=0, const float light_y=0, const float light_z=-5e8f,
                                     const float specular_lightness=0.2f, const float specular_shininess=0.1f,
                                     const bool display_axes=true, float *const pose_matrix=0) const {
       return _display_object3d(disp,0,vertices,primitives,colors,opacities,centering,render_static,
@@ -38188,8 +38603,8 @@ namespace cimg_library_suffixed {
                                     const to& opacities,
                                     const bool centering=true,
                                     const int render_static=4, const int render_motion=1,
-                                    const bool is_double_sided=true, const float focale=500,
-                                    const float light_x=0, const float light_y=0, const float light_z=-5000,
+                                    const bool is_double_sided=true, const float focale=700,
+                                    const float light_x=0, const float light_y=0, const float light_z=-5e8f,
                                     const float specular_lightness=0.2f, const float specular_shininess=0.1f,
                                     const bool display_axes=true, float *const pose_matrix=0) const {
       CImgDisplay disp;
@@ -38207,8 +38622,8 @@ namespace cimg_library_suffixed {
                                     const CImgList<tc>& colors,
                                     const bool centering=true,
                                     const int render_static=4, const int render_motion=1,
-                                    const bool is_double_sided=true, const float focale=500,
-                                    const float light_x=0, const float light_y=0, const float light_z=-5000,
+                                    const bool is_double_sided=true, const float focale=700,
+                                    const float light_x=0, const float light_y=0, const float light_z=-5e8f,
                                     const float specular_lightness=0.2f, const float specular_shininess=0.1f,
                                     const bool display_axes=true, float *const pose_matrix=0) const {
       return display_object3d(disp,vertices,primitives,colors,CImgList<floatT>(),centering,
@@ -38225,8 +38640,8 @@ namespace cimg_library_suffixed {
                                     const CImgList<tc>& colors,
                                     const bool centering=true,
                                     const int render_static=4, const int render_motion=1,
-                                    const bool is_double_sided=true, const float focale=500,
-                                    const float light_x=0, const float light_y=0, const float light_z=-5000,
+                                    const bool is_double_sided=true, const float focale=700,
+                                    const float light_x=0, const float light_y=0, const float light_z=-5e8f,
                                     const float specular_lightness=0.2f, const float specular_shininess=0.1f,
                                     const bool display_axes=true, float *const pose_matrix=0) const {
       return display_object3d(title,vertices,primitives,colors,CImgList<floatT>(),centering,
@@ -38242,8 +38657,8 @@ namespace cimg_library_suffixed {
                                     const CImgList<tf>& primitives,
                                     const bool centering=true,
                                     const int render_static=4, const int render_motion=1,
-                                    const bool is_double_sided=true, const float focale=500,
-                                    const float light_x=0, const float light_y=0, const float light_z=-5000,
+                                    const bool is_double_sided=true, const float focale=700,
+                                    const float light_x=0, const float light_y=0, const float light_z=-5e8f,
                                     const float specular_lightness=0.2f, const float specular_shininess=0.1f,
                                     const bool display_axes=true, float *const pose_matrix=0) const {
       return display_object3d(disp,vertices,primitives,CImgList<T>(),centering,
@@ -38260,8 +38675,8 @@ namespace cimg_library_suffixed {
                                     const CImgList<tf>& primitives,
                                     const bool centering=true,
                                     const int render_static=4, const int render_motion=1,
-                                    const bool is_double_sided=true, const float focale=500,
-                                    const float light_x=0, const float light_y=0, const float light_z=-5000,
+                                    const bool is_double_sided=true, const float focale=700,
+                                    const float light_x=0, const float light_y=0, const float light_z=-5e8f,
                                     const float specular_lightness=0.2f, const float specular_shininess=0.1f,
                                     const bool display_axes=true, float *const pose_matrix=0) const {
       return display_object3d(title,vertices,primitives,CImgList<T>(),centering,
@@ -38276,8 +38691,8 @@ namespace cimg_library_suffixed {
                                     const CImg<tp>& vertices,
                                     const bool centering=true,
                                     const int render_static=4, const int render_motion=1,
-                                    const bool is_double_sided=true, const float focale=500,
-                                    const float light_x=0, const float light_y=0, const float light_z=-5000,
+                                    const bool is_double_sided=true, const float focale=700,
+                                    const float light_x=0, const float light_y=0, const float light_z=-5e8f,
                                     const float specular_lightness=0.2f, const float specular_shininess=0.1f,
                                     const bool display_axes=true, float *const pose_matrix=0) const {
       return display_object3d(disp,vertices,CImgList<uintT>(),centering,
@@ -38292,8 +38707,8 @@ namespace cimg_library_suffixed {
                                     const CImg<tp>& vertices,
                                     const bool centering=true,
                                     const int render_static=4, const int render_motion=1,
-                                    const bool is_double_sided=true, const float focale=500,
-                                    const float light_x=0, const float light_y=0, const float light_z=-5000,
+                                    const bool is_double_sided=true, const float focale=700,
+                                    const float light_x=0, const float light_y=0, const float light_z=-5e8f,
                                     const float specular_lightness=0.2f, const float specular_shininess=0.1f,
                                     const bool display_axes=true, float *const pose_matrix=0) const {
       return display_object3d(title,vertices,CImgList<uintT>(),centering,
@@ -38439,7 +38854,7 @@ namespace cimg_library_suffixed {
               rotated_bbox_vertices(l,2) = r02*x + r12*y + r22*z + r32;
             }
 
-          // Draw object
+          // Draw objects
           visu = visu0;
           if ((clicked && nrender_motion<0) || (!clicked && nrender_static<0))
             visu.draw_object3d(Xoff + visu._width/2.0f,Yoff + visu._height/2.0f,Zoff,
@@ -38450,7 +38865,7 @@ namespace cimg_library_suffixed {
                                    Xoff + visu._width/2.0f,Yoff + visu._height/2.0f,Zoff,
                                    rotated_vertices,reverse_primitives?reverse_primitives:primitives,
                                    colors,opacities,clicked?nrender_motion:nrender_static,_is_double_sided==1,focale,
-                                   width()/2.0f+light_x,height()/2.0f+light_y,light_z,specular_lightness,specular_shininess,
+                                   width()/2.0f+light_x,height()/2.0f+light_y,light_z+Zoff,specular_lightness,specular_shininess,
                                    sprite_scale);
           // Draw axes
           if (ndisplay_axes) {
@@ -38614,9 +39029,9 @@ namespace cimg_library_suffixed {
               cimg_snprintf(filename,sizeof(filename),cimg_appname "_%.4u.bmp",snap_number++);
               if ((file=std::fopen(filename,"r"))!=0) cimg::fclose(file);
             } while (file);
-            (+visu).draw_text(0,0," Saving snapshot... ",foreground_color._data,background_color._data,1,13).display(disp);
+            (+visu).draw_text(0,0," Saving snapshot... ",foreground_color._data,background_color._data,0.7f,13).display(disp);
             visu.save(filename);
-            visu.draw_text(0,0," Snapshot '%s' saved. ",foreground_color._data,background_color._data,1,13,filename).display(disp);
+            (+visu).draw_text(0,0," Snapshot '%s' saved. ",foreground_color._data,background_color._data,0.7f,13,filename).display(disp);
             disp.set_key(key,false); key = 0;
           } break;
         case cimg::keyG : if (disp.is_keyCTRLLEFT() || disp.is_keyCTRLRIGHT()) { // Save object as a .off file
@@ -38627,9 +39042,9 @@ namespace cimg_library_suffixed {
               cimg_snprintf(filename,sizeof(filename),cimg_appname "_%.4u.off",snap_number++);
               if ((file=std::fopen(filename,"r"))!=0) cimg::fclose(file);
             } while (file);
-            visu.draw_text(0,0," Saving object... ",foreground_color._data,background_color._data,1,13).display(disp);
+            (+visu).draw_text(0,0," Saving object... ",foreground_color._data,background_color._data,0.7f,13).display(disp);
             vertices.save_off(reverse_primitives?reverse_primitives:primitives,colors,filename);
-            visu.draw_text(0,0," Object '%s' saved. ",foreground_color._data,background_color._data,1,13,filename).display(disp);
+            (+visu).draw_text(0,0," Object '%s' saved. ",foreground_color._data,background_color._data,0.7f,13,filename).display(disp);
             disp.set_key(key,false); key = 0;
           } break;
         case cimg::keyO : if (disp.is_keyCTRLLEFT() || disp.is_keyCTRLRIGHT()) { // Save object as a .cimg file
@@ -38644,9 +39059,9 @@ namespace cimg_library_suffixed {
 #endif
               if ((file=std::fopen(filename,"r"))!=0) cimg::fclose(file);
             } while (file);
-            visu.draw_text(0,0," Saving object... ",foreground_color._data,background_color._data,1,13).display(disp);
+            (+visu).draw_text(0,0," Saving object... ",foreground_color._data,background_color._data,0.7f,13).display(disp);
             vertices.get_object3dtoCImg3d(reverse_primitives?reverse_primitives:primitives,colors,opacities).save(filename);
-            visu.draw_text(0,0," Object '%s' saved. ",foreground_color._data,background_color._data,1,13,filename).display(disp);
+            (+visu).draw_text(0,0," Object '%s' saved. ",foreground_color._data,background_color._data,0.7f,13,filename).display(disp);
             disp.set_key(key,false); key = 0;
           } break;
 #ifdef cimg_use_board
@@ -38658,17 +39073,17 @@ namespace cimg_library_suffixed {
               cimg_snprintf(filename,sizeof(filename),cimg_appname "_%.4u.eps",snap_number++);
               if ((file=std::fopen(filename,"r"))!=0) cimg::fclose(file);
             } while (file);
-            visu.draw_text(0,0," Saving EPS snapshot... ",foreground_color._data,background_color._data,1,13).display(disp);
+            (+visu).draw_text(0,0," Saving EPS snapshot... ",foreground_color._data,background_color._data,0.7f,13).display(disp);
             LibBoard::Board board;
             (+visu)._draw_object3d(&board,zbuffer.fill(0),
                                    Xoff + visu._width/2.0f,Yoff + visu._height/2.0f,Zoff,
                                    rotated_vertices,reverse_primitives?reverse_primitives:primitives,
                                    colors,opacities,clicked?nrender_motion:nrender_static,
                                    _is_double_sided==1,focale,
-                                   visu.width()/2.0f+light_x,visu.height()/2.0f+light_y,light_z,specular_lightness,specular_shininess,
+                                   visu.width()/2.0f+light_x,visu.height()/2.0f+light_y,light_z+Zoff,specular_lightness,specular_shininess,
                                    sprite_scale);
             board.saveEPS(filename);
-            visu.draw_text(0,0," Object '%s' saved. ",foreground_color._data,background_color._data,1,13,filename).display(disp);
+            (+visu).draw_text(0,0," Object '%s' saved. ",foreground_color._data,background_color._data,0.7f,13,filename).display(disp);
             disp.set_key(key,false); key = 0;
           } break;
         case cimg::keyV : if (disp.is_keyCTRLLEFT() || disp.is_keyCTRLRIGHT()) { // Save object as a .SVG file
@@ -38679,17 +39094,17 @@ namespace cimg_library_suffixed {
               cimg_snprintf(filename,sizeof(filename),cimg_appname "_%.4u.svg",snap_number++);
               if ((file=std::fopen(filename,"r"))!=0) cimg::fclose(file);
             } while (file);
-            visu.draw_text(0,0," Saving SVG snapshot... ",foreground_color._data,background_color._data,1,13).display(disp);
+            (+visu).draw_text(0,0," Saving SVG snapshot... ",foreground_color._data,background_color._data,0.7f,13).display(disp);
             LibBoard::Board board;
             (+visu)._draw_object3d(&board,zbuffer.fill(0),
                                    Xoff + visu._width/2.0f,Yoff + visu._height/2.0f,Zoff,
                                    rotated_vertices,reverse_primitives?reverse_primitives:primitives,
                                    colors,opacities,clicked?nrender_motion:nrender_static,
                                    _is_double_sided==1,focale,
-                                   visu.width()/2.0f+light_x,visu.height()/2.0f+light_y,light_z,specular_lightness,specular_shininess,
+                                   visu.width()/2.0f+light_x,visu.height()/2.0f+light_y,light_z+Zoff,specular_lightness,specular_shininess,
                                    sprite_scale);
             board.saveSVG(filename);
-            visu.draw_text(0,0," Object '%s' saved. ",foreground_color._data,background_color._data,1,13,filename).display(disp);
+            (+visu).draw_text(0,0," Object '%s' saved. ",foreground_color._data,background_color._data,0.7f,13,filename).display(disp);
             disp.set_key(key,false); key = 0;
           } break;
 #endif
@@ -38724,11 +39139,27 @@ namespace cimg_library_suffixed {
                                  const unsigned int plot_type=1, const unsigned int vertex_type=1,
                                  const char *const labelx=0, const double xmin=0, const double xmax=0,
                                  const char *const labely=0, const double ymin=0, const double ymax=0) const {
+      return _display_graph(disp,0,plot_type,vertex_type,labelx,xmin,xmax,labely,ymin,ymax);
+    }
+
+    //! Display 1d graph in an interactive window \overloading.
+    const CImg<T>& display_graph(const char *const title=0,
+                                 const unsigned int plot_type=1, const unsigned int vertex_type=1,
+                                 const char *const labelx=0, const double xmin=0, const double xmax=0,
+                                 const char *const labely=0, const double ymin=0, const double ymax=0) const {
+      CImgDisplay disp;
+      return _display_graph(disp,title,plot_type,vertex_type,labelx,xmin,xmax,labely,ymin,ymax);
+    }
+
+    const CImg<T>& _display_graph(CImgDisplay &disp, const char *const title=0,
+                                 const unsigned int plot_type=1, const unsigned int vertex_type=1,
+                                 const char *const labelx=0, const double xmin=0, const double xmax=0,
+                                 const char *const labely=0, const double ymin=0, const double ymax=0) const {
       if (is_empty())
         throw CImgInstanceException(_cimg_instance
                                     "display_graph(): Empty instance.",
                                     cimg_instance);
-      if (!disp) disp.assign(cimg_fitscreen(640,480,1),0,0).set_title("CImg<%s>",pixel_type());
+      if (!disp) disp.assign(cimg_fitscreen(640,480,1),0,0).set_title(title?"%s":"CImg<%s>",title?title:pixel_type());
       const unsigned long siz = (unsigned long)_width*_height*_depth, siz1 = cimg::max(1U,siz-1);
       const unsigned int old_normalization = disp.normalization();
       disp.show().flush()._normalization = 0;
@@ -38835,28 +39266,17 @@ namespace cimg_library_suffixed {
       return *this;
     }
 
-    //! Display 1d graph in an interactive window \overloading.
-    const CImg<T>& display_graph(const char *const title=0,
-                                 const unsigned int plot_type=1, const unsigned int vertex_type=1,
-                                 const char *const labelx=0, const double xmin=0, const double xmax=0,
-                                 const char *const labely=0, const double ymin=0, const double ymax=0) const {
-      if (is_empty())
-        throw CImgInstanceException(_cimg_instance
-                                    "display_graph(): Empty instance.",
-                                    cimg_instance);
-      CImgDisplay disp;
-      return display_graph(disp.set_title("%s",title),plot_type,vertex_type,labelx,xmin,xmax,labely,ymin,ymax);
-    }
-
     //! Save image as a file.
     /**
        \param filename Filename, as a C-string.
-       \param number When positive, represents an index added to the filename.
+       \param number When positive, represents an index added to the filename. Otherwise, no number is added.
+       \param digits Number of digits used for adding the number to the filename.
        \note
        - The used file format is defined by the file extension in the filename \p filename.
        - Parameter \p number can be used to add a 6-digit number to the filename before saving.
+
     **/
-    const CImg<T>& save(const char *const filename, const int number=-1) const {
+    const CImg<T>& save(const char *const filename, const int number=-1, const unsigned int digits=6) const {
       if (!filename)
         throw CImgArgumentException(_cimg_instance
                                     "save(): Specified filename is (null).",
@@ -38864,7 +39284,8 @@ namespace cimg_library_suffixed {
       // Do not test for empty instances, since .cimg format is able to manage empty instances.
       const char *const ext = cimg::split_filename(filename);
       char nfilename[1024] = { 0 };
-      const char *const fn = (number>=0)?cimg::number_filename(filename,number,6,nfilename):filename;
+      const char *const fn = (number>=0)?cimg::number_filename(filename,number,digits,nfilename):filename;
+
 #ifdef cimg_save_plugin
       cimg_save_plugin(fn);
 #endif
@@ -38946,11 +39367,13 @@ namespace cimg_library_suffixed {
                !cimg::strcasecmp(ext,"m2v") ||
                !cimg::strcasecmp(ext,"m4v") ||
                !cimg::strcasecmp(ext,"mjp") ||
+               !cimg::strcasecmp(ext,"mp4") ||
                !cimg::strcasecmp(ext,"mkv") ||
                !cimg::strcasecmp(ext,"mpe") ||
                !cimg::strcasecmp(ext,"movie") ||
                !cimg::strcasecmp(ext,"ogm") ||
                !cimg::strcasecmp(ext,"ogg") ||
+               !cimg::strcasecmp(ext,"ogv") ||
                !cimg::strcasecmp(ext,"qt") ||
                !cimg::strcasecmp(ext,"rm") ||
                !cimg::strcasecmp(ext,"vob") ||
@@ -39232,7 +39655,7 @@ namespace cimg_library_suffixed {
       JSAMPROW row_pointer[1];
       CImg<ucharT> buffer((unsigned long)_width*dimbuf);
 
-      while (cinfo.next_scanline < cinfo.image_height) {
+      while (cinfo.next_scanline<cinfo.image_height) {
         unsigned char *ptrd = buffer._data;
 
         // Fill pixel buffer
@@ -41016,16 +41439,12 @@ namespace cimg_library_suffixed {
 
     // [internal] Return a 40x38 color logo of a 'danger' item.
     static CImg<T> _logo40x38() {
-      static bool first_time = true;
-      static CImg<T> res(40,38,1,3);
-      if (first_time) {
-        const unsigned char *ptrs = cimg::logo40x38;
-        T *ptr1 = res.data(0,0,0,0), *ptr2 = res.data(0,0,0,1), *ptr3 = res.data(0,0,0,2);
-        for (unsigned long off = 0; off<(unsigned long)res._width*res._height;) {
-          const unsigned char n = *(ptrs++), r = *(ptrs++), g = *(ptrs++), b = *(ptrs++);
-          for (unsigned int l = 0; l<n; ++off, ++l) { *(ptr1++) = (T)r; *(ptr2++) = (T)g; *(ptr3++) = (T)b; }
-        }
-        first_time = false;
+      CImg<T> res(40,38,1,3);
+      const unsigned char *ptrs = cimg::logo40x38;
+      T *ptr1 = res.data(0,0,0,0), *ptr2 = res.data(0,0,0,1), *ptr3 = res.data(0,0,0,2);
+      for (unsigned long off = 0; off<(unsigned long)res._width*res._height;) {
+        const unsigned char n = *(ptrs++), r = *(ptrs++), g = *(ptrs++), b = *(ptrs++);
+        for (unsigned int l = 0; l<n; ++off, ++l) { *(ptr1++) = (T)r; *(ptr2++) = (T)g; *(ptr3++) = (T)b; }
       }
       return res;
     }
@@ -41875,6 +42294,12 @@ namespace cimg_library_suffixed {
       return insert(img);
     }
 
+    //! Return a copy of the list instance, where image \c img has been inserted at the end \const.
+    template<typename t>
+    CImgList<T> operator,(const CImg<t>& img) const {
+      return (+*this).insert(img);
+    }
+
     //! Return a copy of the list instance, where all elements of input list \c list have been inserted at the end.
     /**
        \param list List inserted at the end of the instance copy.
@@ -41882,6 +42307,12 @@ namespace cimg_library_suffixed {
     template<typename t>
     CImgList<T>& operator,(const CImgList<t>& list) {
       return insert(list);
+    }
+
+    //! Return a copy of the list instance, where all elements of input list \c list have been inserted at the end \const.
+    template<typename t>
+    CImgList<T>& operator,(const CImgList<t>& list) const {
+      return (+*this).insert(list);
     }
 
     //! Return image corresponding to the appending of all images of the instance list along specified axis.
@@ -41957,13 +42388,11 @@ namespace cimg_library_suffixed {
     **/
 #if cimg_verbosity>=3
     CImg<T> *data(const unsigned int pos) {
-      if (pos>=size()) {
+      if (pos>=size())
         cimg::warn(_cimglist_instance
                    "data(): Invalid pointer request, at position [%u].",
                    cimglist_instance,
                    pos);
-        return _data;
-      }
       return _data + pos;
     }
 
@@ -43302,15 +43731,12 @@ namespace cimg_library_suffixed {
           if (axis=='x') for (unsigned int x = 0; x<visu0._width; ) {
               const unsigned int x0 = x;
               ind = indices[x];
-              while (x<indices._width && indices[++x]==ind) {}
+              while (x<indices._width && indices[x++]==ind) {}
               const CImg<T>
                 onexone(1,1,1,1,0),
-                &src = _data[ind]?_data[ind]:onexone,
-                _img2d = src._depth>1?src.get_projections2d(src._width/2,src._height/2,src._depth/2):CImg<T>(),
-                &img2d = _img2d?_img2d:src;
-              CImg<ucharT> res = old_normalization==1 || (old_normalization==3 && cimg::type<T>::string()!=cimg::type<unsigned char>::string())?
-                CImg<ucharT>(img2d.get_channels(0,cimg::min(2,img2d.spectrum()-1)).normalize(0,255)):
-                CImg<ucharT>(img2d.get_channels(0,cimg::min(2,img2d.spectrum()-1)));
+                &src = _data[ind]?_data[ind]:onexone;
+              CImg<ucharT> res;
+              src.__get_select(disp,old_normalization,(src._width-1)/2,(src._height-1)/2,(src._depth-1)/2).move_to(res);
               const unsigned int h = CImgDisplay::_fitscreen(res._width,res._height,1,128,-85,true);
               res.resize(x - x0,cimg::max(32U,h*disp._height/max_height),1,res._spectrum==1?3:-100);
               positions(ind,0) = positions(ind,2) = (int)x0;
@@ -43324,7 +43750,7 @@ namespace cimg_library_suffixed {
               while (y<visu0._height && indices[++y]==ind) {}
               const CImg<T>
                 &src = _data[ind],
-                _img2d = src._depth>1?src.get_projections2d(src._width/2,src._height/2,src._depth/2):CImg<T>(),
+                _img2d = src._depth>1?src.get_projections2d((src._width-1)/2,(src._height-1)/2,(src._depth-1)/2):CImg<T>(),
                 &img2d = _img2d?_img2d:src;
               CImg<ucharT> res = old_normalization==1 || (old_normalization==3 && cimg::type<T>::string()!=cimg::type<unsigned char>::string())?
                 CImg<ucharT>(img2d.get_normalize(0,255)):
@@ -43350,13 +43776,17 @@ namespace cimg_library_suffixed {
                 visu.draw_rectangle(positions(ind,0),positions(ind,1),positions(ind,2),positions(ind,3),background_color,0.2f);
                 if ((axis=='x' && positions(ind,2) - positions(ind,0)>=8) ||
                     (axis!='x' && positions(ind,3) - positions(ind,1)>=8))
-                  visu.draw_rectangle(positions(ind,0),positions(ind,1),positions(ind,2),positions(ind,3),foreground_color,0.9f,0x55555555);
+                  visu.draw_rectangle(positions(ind,0),positions(ind,1),positions(ind,2),positions(ind,3),foreground_color,0.9f,0xAAAAAAAA);
               }
             const int yt = (int)text_down?visu.height()-13:0;
-            if (is_clicked) visu.draw_text(0,yt," Images %u - %u, Size = %u",foreground_color,background_color,0.7f,13,
+            if (is_clicked) visu.draw_text(0,yt," Images #%u - #%u, Size = %u",foreground_color,background_color,0.7f,13,
                                            orig + indm,orig + indM,indM - indm + 1);
-            else visu.draw_text(0,yt," Image %u",foreground_color,background_color,0.7f,13,
-                                orig + indice0);
+            else visu.draw_text(0,yt," Image #%u (%u,%u,%u,%u)",foreground_color,background_color,0.7f,13,
+                                orig + indice0,
+                                _data[orig+indice0]._width,
+                                _data[orig+indice0]._height,
+                                _data[orig+indice0]._depth,
+                                _data[orig+indice0]._spectrum);
             update_display = true;
           } else visu.assign();
         }
@@ -43421,9 +43851,9 @@ namespace cimg_library_suffixed {
               if ((file=std::fopen(filename,"r"))!=0) cimg::fclose(file);
             } while (file);
             if (visu0) {
-              visu.draw_text(0,0," Saving snapshot... ",foreground_color,background_color,1,13).display(disp);
+              (+visu0).draw_text(0,0," Saving snapshot... ",foreground_color,background_color,0.7f,13).display(disp);
               visu0.save(filename);
-              visu.draw_text(0,0," Snapshot '%s' saved. ",foreground_color,background_color,1,13,filename).display(disp);
+              (+visu0).draw_text(0,0," Snapshot '%s' saved. ",foreground_color,background_color,0.7f,13,filename).display(disp);
             }
             disp.set_key(key,false).wait(); key = 0;
           } break;
@@ -43440,9 +43870,9 @@ namespace cimg_library_suffixed {
 #endif
               if ((file=std::fopen(filename,"r"))!=0) cimg::fclose(file);
             } while (file);
-            visu.draw_text(0,0," Saving instance... ",foreground_color,background_color,1,13).display(disp);
+            (+visu0).draw_text(0,0," Saving instance... ",foreground_color,background_color,0.7f,13).display(disp);
             save(filename);
-            visu.draw_text(0,0," Instance '%s' saved. ",foreground_color,background_color,1,13,filename).display(disp);
+            (+visu0).draw_text(0,0," Instance '%s' saved. ",foreground_color,background_color,0.7f,13,filename).display(disp);
             disp.set_key(key,false).wait(); key = 0;
           } break;
         }
@@ -43525,11 +43955,13 @@ namespace cimg_library_suffixed {
                  !cimg::strcasecmp(ext,"m2v") ||
                  !cimg::strcasecmp(ext,"m4v") ||
                  !cimg::strcasecmp(ext,"mjp") ||
+                 !cimg::strcasecmp(ext,"mp4") ||
                  !cimg::strcasecmp(ext,"mkv") ||
                  !cimg::strcasecmp(ext,"mpe") ||
                  !cimg::strcasecmp(ext,"movie") ||
                  !cimg::strcasecmp(ext,"ogm") ||
                  !cimg::strcasecmp(ext,"ogg") ||
+                 !cimg::strcasecmp(ext,"ogv") ||
                  !cimg::strcasecmp(ext,"qt") ||
                  !cimg::strcasecmp(ext,"rm") ||
                  !cimg::strcasecmp(ext,"vob") ||
@@ -43698,16 +44130,16 @@ namespace cimg_library_suffixed {
     //! Load a sublist list from a (non compressed) .cimg file.
     /**
       \param filename Filename to read data from.
-      \param n0 Starting index of images to read.
-      \param n1 Ending index of images to read.
+      \param n0 Starting index of images to read (~0U for max).
+      \param n1 Ending index of images to read (~0U for max).
       \param x0 Starting X-coordinates of image regions to read.
       \param y0 Starting Y-coordinates of image regions to read.
       \param z0 Starting Z-coordinates of image regions to read.
       \param c0 Starting C-coordinates of image regions to read.
-      \param x1 Ending X-coordinates of image regions to read.
-      \param y1 Ending Y-coordinates of image regions to read.
-      \param z1 Ending Z-coordinates of image regions to read.
-      \param c1 Ending C-coordinates of image regions to read.
+      \param x1 Ending X-coordinates of image regions to read (~0U for max).
+      \param y1 Ending Y-coordinates of image regions to read (~0U for max).
+      \param z1 Ending Z-coordinates of image regions to read (~0U for max).
+      \param c1 Ending C-coordinates of image regions to read (~0U for max).
     **/
     CImgList<T>& load_cimg(const char *const filename,
                            const unsigned int n0, const unsigned int n1,
@@ -43724,20 +44156,7 @@ namespace cimg_library_suffixed {
       return CImgList<T>().load_cimg(filename,n0,n1,x0,y0,z0,c0,x1,y1,z1,c1);
     }
 
-    //! Load a sub-image list from a (non compressed) .cimg file.
-    /**
-      \param file File to read data from.
-      \param n0 Starting index of images to read.
-      \param n1 Ending index of images to read.
-      \param x0 Starting X-coordinates of image regions to read.
-      \param y0 Starting Y-coordinates of image regions to read.
-      \param z0 Starting Z-coordinates of image regions to read.
-      \param c0 Starting C-coordinates of image regions to read.
-      \param x1 Ending X-coordinates of image regions to read.
-      \param y1 Ending Y-coordinates of image regions to read.
-      \param z1 Ending Z-coordinates of image regions to read.
-      \param c1 Ending C-coordinates of image regions to read.
-    **/
+    //! Load a sub-image list from a (non compressed) .cimg file \overloading.
     CImgList<T>& load_cimg(std::FILE *const file,
                            const unsigned int n0, const unsigned int n1,
                            const unsigned int x0, const unsigned int y0, const unsigned int z0, const unsigned int c0,
@@ -43768,42 +44187,48 @@ namespace cimg_library_suffixed {
                                   cimglist_instance, \
                                   W,H,D,C,l,filename?filename:"(FILE*)"); \
           if (W*H*D*C>0) { \
-            if (l<n0 || x0>=W || y0>=H || z0>=D || c0>=D) std::fseek(nfile,W*H*D*C*sizeof(Tss),SEEK_CUR); \
+            if (l<nn0 || nx0>=W || ny0>=H || nz0>=D || nc0>=C) std::fseek(nfile,W*H*D*C*sizeof(Tss),SEEK_CUR); \
             else { \
               const unsigned int \
-                nx1 = x1>=W?W-1:x1, \
-                ny1 = y1>=H?H-1:y1, \
-                nz1 = z1>=D?D-1:z1, \
-                nc1 = c1>=C?C-1:c1; \
-              CImg<Tss> raw(1 + nx1 - x0); \
-              CImg<T> &img = _data[l - n0]; \
-              img.assign(1 + nx1 - x0,1 + ny1 - y0,1 + nz1 - z0,1 + nc1 - c0); \
+                _nx1 = nx1==~0U?W-1:nx1, \
+                _ny1 = ny1==~0U?H-1:ny1, \
+                _nz1 = nz1==~0U?D-1:nz1, \
+                _nc1 = nc1==~0U?C-1:nc1; \
+              if (_nx1>=W || _ny1>=H || _nz1>=D || _nc1>=C) \
+                throw CImgArgumentException(_cimglist_instance \
+                                            "load_cimg(): Invalid specified coordinates [%u](%u,%u,%u,%u) -> [%u](%u,%u,%u,%u) " \
+                                            "because image [%u] in file '%s' has size (%u,%u,%u,%u).", \
+                                            cimglist_instance, \
+                                            n0,x0,y0,z0,c0,n1,x1,y1,z1,c1,l,filename?filename:"(FILE*)",W,H,D,C); \
+              CImg<Tss> raw(1 + _nx1 - nx0); \
+              CImg<T> &img = _data[l - nn0]; \
+              img.assign(1 + _nx1 - nx0,1 + _ny1 - ny0,1 + _nz1 - nz0,1 + _nc1 - nc0); \
               T *ptrd = img._data; \
-              const unsigned int skipvb = c0*W*H*D*sizeof(Tss); \
+              const unsigned int skipvb = nc0*W*H*D*sizeof(Tss); \
               if (skipvb) std::fseek(nfile,skipvb,SEEK_CUR); \
-              for (unsigned int v = 1 + nc1 - c0; v; --v) { \
-                const unsigned int skipzb = z0*W*H*sizeof(Tss); \
+              for (unsigned int c = 1 + _nc1 - nc0; c; --c) { \
+                const unsigned int skipzb = nz0*W*H*sizeof(Tss); \
                 if (skipzb) std::fseek(nfile,skipzb,SEEK_CUR); \
-                for (unsigned int z = 1 + nz1 - z0; z; --z) { \
-                  const unsigned int skipyb = y0*W*sizeof(Tss); \
+                for (unsigned int z = 1 + _nz1 - nz0; z; --z) { \
+                  const unsigned int skipyb = ny0*W*sizeof(Tss); \
                   if (skipyb) std::fseek(nfile,skipyb,SEEK_CUR); \
-                  for (unsigned int y = 1 + ny1 - y0; y; --y) { \
-                    const unsigned int skipxb = x0*sizeof(Tss); \
+                  for (unsigned int y = 1 + _ny1 - ny0; y; --y) { \
+                    const unsigned int skipxb = nx0*sizeof(Tss); \
                     if (skipxb) std::fseek(nfile,skipxb,SEEK_CUR); \
                     cimg::fread(raw._data,raw._width,nfile); \
                     if (endian!=cimg::endianness()) cimg::invert_endianness(raw._data,raw._width); \
                     const Tss *ptrs = raw._data; \
                     for (unsigned int off = raw._width; off; --off) *(ptrd++) = (T)*(ptrs++); \
-                    const unsigned int skipxe = (W-1-nx1)*sizeof(Tss); \
+                    const unsigned int skipxe = (W-1-_nx1)*sizeof(Tss); \
                     if (skipxe) std::fseek(nfile,skipxe,SEEK_CUR); \
                   } \
-                  const unsigned int skipye = (H-1-ny1)*W*sizeof(Tss); \
+                  const unsigned int skipye = (H-1-_ny1)*W*sizeof(Tss); \
                   if (skipye) std::fseek(nfile,skipye,SEEK_CUR); \
                 } \
-                const unsigned int skipze = (D-1-nz1)*W*H*sizeof(Tss); \
+                const unsigned int skipze = (D-1-_nz1)*W*H*sizeof(Tss); \
                 if (skipze) std::fseek(nfile,skipze,SEEK_CUR); \
               } \
-              const unsigned int skipve = (C-1-nc1)*W*H*D*sizeof(Tss); \
+              const unsigned int skipve = (C-1-_nc1)*W*H*D*sizeof(Tss); \
               if (skipve) std::fseek(nfile,skipve,SEEK_CUR); \
             } \
           } \
@@ -43815,12 +44240,12 @@ namespace cimg_library_suffixed {
         throw CImgArgumentException(_cimglist_instance
                                     "load_cimg(): Specified filename is (null).",
                                     cimglist_instance);
-
-      if (n1<n0 || x1<x0 || y1<y0 || z1<z0 || c1<c0)
-        throw CImgArgumentException(_cimglist_instance
-                                    "load_cimg(): Invalid specified sub-region coordinates [%u->%u] (%u,%u,%u,%u)->(%u,%u,%u,%u) for file '%s'.",
-                                    cimglist_instance,
-                                    n0,n1,x0,y0,z0,c0,x1,y1,z1,filename?filename:"(FILE*)");
+      unsigned int
+        nn0 = cimg::min(n0,n1), nn1 = cimg::max(n0,n1),
+        nx0 = cimg::min(x0,x1), nx1 = cimg::max(x0,x1),
+        ny0 = cimg::min(y0,y1), ny1 = cimg::max(y0,y1),
+        nz0 = cimg::min(z0,z1), nz1 = cimg::max(z0,z1),
+        nc0 = cimg::min(c0,c1), nc1 = cimg::max(c0,c1);
 
       std::FILE *const nfile = file?file:cimg::fopen(filename,"rb");
       bool loaded = false, endian = cimg::endianness();
@@ -43838,7 +44263,13 @@ namespace cimg_library_suffixed {
       }
       if (!cimg::strncasecmp("little",str_endian,6)) endian = false;
       else if (!cimg::strncasecmp("big",str_endian,3)) endian = true;
-      const unsigned int nn1 = n1>=N?N-1:n1;
+      nn1 = n1==~0U?N-1:n1;
+      if (nn1>=N)
+        throw CImgArgumentException(_cimglist_instance
+                                    "load_cimg(): Invalid specified coordinates [%u](%u,%u,%u,%u) -> [%u](%u,%u,%u,%u) "
+                                    "because file '%s' contains only %u images.",
+                                    cimglist_instance,
+                                    n0,x0,y0,z0,c0,n1,x1,y1,z1,c1,filename?filename:"(FILE*)",N);
       assign(1+nn1-n0);
       _cimg_load_cimg_case2("bool",bool);
       _cimg_load_cimg_case2("unsigned_char",unsigned char);
@@ -44037,7 +44468,7 @@ namespace cimg_library_suffixed {
 
       CImg<ucharT> tmp(size_x,size_y,1,3), UV(size_x/2,size_y/2,1,2);
       std::FILE *const nfile = file?file:cimg::fopen(filename,"rb");
-      bool stopflag = false;
+      bool stop_flag = false;
       int err;
       if (nfirst_frame) {
         err = std::fseek(nfile,nfirst_frame*(size_x*size_y + size_x*size_y/2),SEEK_CUR);
@@ -44050,12 +44481,12 @@ namespace cimg_library_suffixed {
         }
       }
       unsigned int frame;
-      for (frame = nfirst_frame; !stopflag && frame<=nlast_frame; frame+=nstep_frame) {
+      for (frame = nfirst_frame; !stop_flag && frame<=nlast_frame; frame+=nstep_frame) {
         tmp.fill(0);
         // *TRY* to read the luminance part, do not replace by cimg::fread!
         err = (int)std::fread((void*)(tmp._data),1,(unsigned long)tmp._width*tmp._height,nfile);
         if (err!=(int)(tmp._width*tmp._height)) {
-          stopflag = true;
+          stop_flag = true;
           if (err>0)
             cimg::warn(_cimglist_instance
                        "load_yuv(): File '%s' contains incomplete data or given image dimensions (%u,%u) are incorrect.",
@@ -44066,7 +44497,7 @@ namespace cimg_library_suffixed {
           // *TRY* to read the luminance part, do not replace by cimg::fread!
           err = (int)std::fread((void*)(UV._data),1,(size_t)(UV.size()),nfile);
           if (err!=(int)(UV.size())) {
-            stopflag = true;
+            stop_flag = true;
             if (err>0)
               cimg::warn(_cimglist_instance
                          "load_yuv(): File '%s' contains incomplete data or given image dimensions (%u,%u) are incorrect.",
@@ -44084,7 +44515,7 @@ namespace cimg_library_suffixed {
           }
         }
       }
-      if (stopflag && nlast_frame!=~0U && frame!=nlast_frame)
+      if (stop_flag && nlast_frame!=~0U && frame!=nlast_frame)
         cimg::warn(_cimglist_instance
                    "load_yuv(): Frame %d not reached since only %u frames were found in file '%s'.",
                    cimglist_instance,
@@ -44291,11 +44722,11 @@ namespace cimg_library_suffixed {
       cimg::exception_mode() = 0;
       assign();
       unsigned int i = 1;
-      for (bool stopflag = false; !stopflag; ++i) {
+      for (bool stop_flag = false; !stop_flag; ++i) {
         cimg_snprintf(filetmp2,sizeof(filetmp2),"%s_%.6u.ppm",filetmp,i);
         CImg<T> img;
         try { img.load_pnm(filetmp2); }
-        catch (CImgException&) { stopflag = true; }
+        catch (CImgException&) { stop_flag = true; }
         if (img) { img.move_to(*this); std::remove(filetmp2); }
       }
       cimg::exception_mode() = omode;
@@ -44374,12 +44805,12 @@ namespace cimg_library_suffixed {
       if (img) { img.move_to(*this); std::remove(filetmp2); }
       else { // Try to read animated gif.
         unsigned int i = 0;
-        for (bool stopflag = false; !stopflag; ++i) {
+        for (bool stop_flag = false; !stop_flag; ++i) {
           if (use_graphicsmagick) cimg_snprintf(filetmp2,sizeof(filetmp2),"%s.png.%u",filetmp,i);
           else cimg_snprintf(filetmp2,sizeof(filetmp2),"%s-%u.png",filetmp,i);
           CImg<T> img;
           try { img.load_png(filetmp2); }
-          catch (CImgException&) { stopflag = true; }
+          catch (CImgException&) { stop_flag = true; }
           if (img) { img.move_to(*this); std::remove(filetmp2); }
         }
       }
@@ -44677,9 +45108,10 @@ namespace cimg_library_suffixed {
     //! Save list into a file.
     /**
       \param filename Filename to write data to.
-      \param number Number of digits used when chosen format requires the saving of multiple files.
+      \param number When positive, represents an index added to the filename. Otherwise, no number is added.
+      \param digits Number of digits used for adding the number to the filename.
     **/
-    const CImgList<T>& save(const char *const filename, const int number=-1) const {
+    const CImgList<T>& save(const char *const filename, const int number=-1, const unsigned int digits=6) const {
       if (!filename)
         throw CImgArgumentException(_cimglist_instance
                                     "save(): Specified filename is (null).",
@@ -44687,7 +45119,8 @@ namespace cimg_library_suffixed {
       // Do not test for empty instances, since .cimg format is able to manage empty instances.
       const char *const ext = cimg::split_filename(filename);
       char nfilename[1024] = { 0 };
-      const char *const fn = (number>=0)?cimg::number_filename(filename,number,6,nfilename):filename;
+      const char *const fn = (number>=0)?cimg::number_filename(filename,number,digits,nfilename):filename;
+
 #ifdef cimglist_save_plugin
       cimglist_save_plugin(fn);
 #endif
@@ -44728,11 +45161,13 @@ namespace cimg_library_suffixed {
                !cimg::strcasecmp(ext,"m2v") ||
                !cimg::strcasecmp(ext,"m4v") ||
                !cimg::strcasecmp(ext,"mjp") ||
+               !cimg::strcasecmp(ext,"mp4") ||
                !cimg::strcasecmp(ext,"mkv") ||
                !cimg::strcasecmp(ext,"mpe") ||
                !cimg::strcasecmp(ext,"movie") ||
                !cimg::strcasecmp(ext,"ogm") ||
                !cimg::strcasecmp(ext,"ogg") ||
+               !cimg::strcasecmp(ext,"ogv") ||
                !cimg::strcasecmp(ext,"qt") ||
                !cimg::strcasecmp(ext,"rm") ||
                !cimg::strcasecmp(ext,"vob") ||
@@ -44771,11 +45206,13 @@ namespace cimg_library_suffixed {
           !cimg::strcasecmp(ext,"m2v") ||
           !cimg::strcasecmp(ext,"m4v") ||
           !cimg::strcasecmp(ext,"mjp") ||
+          !cimg::strcasecmp(ext,"mp4") ||
           !cimg::strcasecmp(ext,"mkv") ||
           !cimg::strcasecmp(ext,"mpe") ||
           !cimg::strcasecmp(ext,"movie") ||
           !cimg::strcasecmp(ext,"ogm") ||
           !cimg::strcasecmp(ext,"ogg") ||
+          !cimg::strcasecmp(ext,"ogv") ||
           !cimg::strcasecmp(ext,"qt") ||
           !cimg::strcasecmp(ext,"rm") ||
           !cimg::strcasecmp(ext,"vob") ||
@@ -44988,7 +45425,7 @@ namespace cimg_library_suffixed {
                               filename);
       }
       tmp_pict->linesize[0] = (src_pxl_fmt==PIX_FMT_RGB24)?3*frame_dimx:frame_dimx;
-      tmp_pict->type = FF_BUFFER_TYPE_USER;
+      //      tmp_pict->type = FF_BUFFER_TYPE_USER;
       int tmp_size = avpicture_get_size(src_pxl_fmt,frame_dimx,frame_dimy);
       uint8_t *tmp_buffer = (uint8_t*)av_malloc(tmp_size);
       if (!tmp_buffer) { // Failed to allocate memory for tmp buffer.
@@ -45636,55 +46073,73 @@ namespace cimg_library_suffixed {
       return res;
     }
 
-
     //! Return a CImg pre-defined font with desired size.
     /**
-       \param font_height Height of the desired font (exact match for 11,13,17,19,24,32,38,57)
+       \param font_height Height of the desired font (exact match for 13,23,53,103).
        \param is_variable_width Decide if the font has a variable (\c true) or fixed (\c false) width.
     **/
-    static const CImgList<T>& font(const unsigned int font_height, const bool is_variable_width=true) {
+    static const CImgList<ucharT>& font(const unsigned int font_height, const bool is_variable_width=true) {
+      if (!font_height) return CImgList<ucharT>::empty();
+      cimg::mutex(11);
 
-#define _cimg_font(sx,sy) \
-      if (!is_variable_width && (!font || font[0]._height!=sy)) font = _font(cimg::font##sx##x##sy,sx,sy,false); \
-      if (is_variable_width  && (!vfont || vfont[0]._height!=sy)) vfont = _font(cimg::font##sx##x##sy,sx,sy,true); \
-      if (font_height==sy) return is_variable_width?vfont:font; \
-      if (is_variable_width) { \
-        if (cvfont && font_height==cvfont[0]._height) return cvfont; \
-        cvfont = vfont; \
-        cimglist_for(cvfont,l) \
-          cvfont[l].resize(cimg::max(1U,cvfont[l]._width*font_height/cvfont[l]._height),font_height,-100,-100, \
-                           cvfont[0]._height>font_height?2:5); \
-        return cvfont; \
-      } else { \
-        if (cfont && font_height==cfont[0]._height) return cfont; \
-        cfont = font; \
-        cimglist_for(cfont,l) \
-          cfont[l].resize(cimg::max(1U,cfont[l]._width*font_height/cfont[l]._height),font_height,-100,-100, \
-                          cfont[0]._height>font_height?2:5); \
-        return cfont; \
-      } \
+      // Decompress nearest base font data if needed.
+      const char *data_fonts[] = { cimg::data_font12x13, cimg::data_font20x23, cimg::data_font47x53, 0 };
+      const unsigned int data_widths[] = { 12,20,47,90 }, data_heights[] = { 13,23,53,103 }, data_Ms[] = { 86,79,57,47 };
+      const unsigned int data_ind = font_height<=13?0:font_height<=23?1:font_height<=53?2:3;
+      static CImg<ucharT> base_fonts[4];
+      CImg<ucharT> &base_font = base_fonts[data_ind];
+      if (!base_font) {
+        const unsigned int w = data_widths[data_ind], h = data_heights[data_ind], M = data_Ms[data_ind];
+        base_font.assign(256*w,h);
+        const char *data_font = data_fonts[data_ind];
+        unsigned char *ptrd = base_font;
+        const unsigned char *const ptrde = base_font.end();
 
-      static CImgList<T> font, vfont, cfont, cvfont;
-      if (!font_height) return CImgList<T>::empty();
-      if (font_height<=13) { _cimg_font(10,13); } // [1,13] -> ref 13
-      if (font_height<=28) { _cimg_font(12,24); } // [14,28] -> ref 24
-      if (font_height<=32) { _cimg_font(16,32); } // [29,32] -> ref 32
-      _cimg_font(29,57);                          // [33,+inf] -> ref 57
-    }
-
-    static CImgList<T> _font(const unsigned int *const font, const unsigned int w, const unsigned int h, const bool is_variable_width) {
-      CImgList<T> res(256,w,h,1,1);
-      const unsigned int *ptr = font;
-      unsigned int m = 0, val = 0;
-      for (unsigned int y = 0; y<h; ++y)
-        for (unsigned int x = 0; x<256*w; ++x) {
-          m>>=1; if (!m) { m = 0x80000000; val = *(ptr++); }
-          CImg<T>& img = res[x/w];
-          unsigned int xm = x%w;
-          img(xm,y) = (T)((val&m)?1:0);
+        // Special case needed for 90x103 to avoid MS compiler limit with big strings.
+        CImg<char> data90x103;
+        if (!data_font) {
+          ((CImg<char>(cimg::_data_font90x103[0],(unsigned int)std::strlen(cimg::_data_font90x103[0]),1,1,1,true),
+            CImg<char>(cimg::_data_font90x103[1],(unsigned int)std::strlen(cimg::_data_font90x103[1])+1,1,1,1,true))>'x').move_to(data90x103);
+          data_font = data90x103.data();
         }
-      if (is_variable_width) res.crop_font();
-      return  res.insert(res);
+
+        // Uncompress font data (decode RLE).
+        for (const char *ptrs = data_font; *ptrs; ++ptrs) {
+          const int c = *ptrs-M-32, v = c>=0?255:0, n = c>=0?c:-c;
+          if (ptrd+n<=ptrde) { std::memset(ptrd,v,n); ptrd+=n; }
+          else { std::memset(ptrd,v,ptrde-ptrd); break; }
+        }
+      }
+
+      // Find optimal font cache location to return.
+      static CImgList<ucharT> fonts[16];
+      static bool is_variable_widths[16] = { 0 };
+      unsigned int ind = ~0U;
+      for (int i = 0; i<16; ++i)
+        if (!fonts[i] || (is_variable_widths[i]==is_variable_width && font_height==fonts[i][0]._height)) { ind = i; break; }  // Found empty slot or cached font.
+      if (ind==~0U) { // No empty slots nor existing font in cache.
+        std::memmove(fonts,fonts+1,15*sizeof(CImgList<ucharT>));
+        std::memmove(is_variable_widths,is_variable_widths+1,15*sizeof(bool));
+        std::memset(fonts+(ind=15),0,sizeof(CImgList<ucharT>));  // Free a slot in cache for new font.
+      }
+      CImgList<ucharT> &font = fonts[ind];
+
+      // Render requested font.
+      if (!font) {
+        const unsigned int padding_x = font_height<33?1:font_height<53?2:font_height<103?3:4;
+        is_variable_widths[ind] = is_variable_width;
+        font = base_font.get_split('x',256);
+        if (font_height!=font[0]._height)
+          cimglist_for(font,l)
+            font[l].resize(cimg::max(1U,font[l]._width*font_height/font[l]._height),font_height,-100,-100,
+                           font[0]._height>font_height?2:5);
+        if (is_variable_width) font.crop_font();
+        cimglist_for(font,l) font[l].resize(font[l]._width + padding_x,-100,1,1,0,0,0.5);
+        font.insert(256,0);
+        cimglist_for_in(font,0,255,l) font[l].assign(font[l+256]._width,font[l+256]._height,1,3,1);
+      }
+      cimg::mutex(11,0);
+      return font;
     }
 
     //! Compute a 1d Fast Fourier Transform, along specified axis.
@@ -45764,6 +46219,52 @@ namespace cimg_library_suffixed {
   */
 
 namespace cimg {
+
+    // Implement a tic/toc mechanism to display elapsed time of algorithms.
+    inline unsigned long tictoc(const bool is_tic) {
+      cimg::mutex(2);
+      static CImg<unsigned long> times(64);
+      static unsigned int pos = 0;
+      const unsigned long t1 = cimg::time();
+      if (is_tic) { // Tic.
+        times[pos++] = t1;
+        if (pos>=times._width)
+          throw CImgArgumentException("cimg::tic(): Too much calls to 'cimg::tic()' without calls to 'cimg::toc()'.");
+        cimg::mutex(2,0);
+        return t1;
+      }
+      // Toc.
+      if (!pos)
+        throw CImgArgumentException("cimg::toc(): No previous call to 'cimg::tic()' has been made.");
+      const unsigned long
+        t0 = times[--pos],
+        dt = t1>=t0?(t1-t0):cimg::type<unsigned long>::max();
+      const unsigned int
+        edays = (unsigned int)(dt/86400000.0),
+        ehours = (unsigned int)((dt - edays*86400000.0)/3600000.0),
+        emin = (unsigned int)((dt - edays*86400000.0 - ehours*3600000.0)/60000.0),
+        esec = (unsigned int)((dt - edays*86400000.0 - ehours*3600000.0 - emin*60000.0)/1000.0),
+        ems = (unsigned int)(dt - edays*86400000.0 - ehours*3600000.0 - emin*60000.0 - esec*1000.0);
+      if (!edays && !ehours && !emin && !esec)
+        std::fprintf(cimg::output(),"%s[CImg]%*sElapsed time: %u ms%s\n",cimg::t_red,1+2*pos,"",ems,cimg::t_normal);
+      else {
+        if (!edays && !ehours && !emin)
+          std::fprintf(cimg::output(),"%s[CImg]%*sElapsed time: %u sec %u ms%s\n",cimg::t_red,1+2*pos,"",esec,ems,cimg::t_normal);
+        else {
+          if (!edays && !ehours)
+            std::fprintf(cimg::output(),"%s[CImg]%*sElapsed time: %u min %u sec %u ms%s\n",cimg::t_red,1+2*pos,"",emin,esec,ems,cimg::t_normal);
+          else{
+            if (!edays)
+              std::fprintf(cimg::output(),"%s[CImg]%*sElapsed time: %u hours %u min %u sec %u ms%s\n",cimg::t_red,1+2*pos,"",ehours,emin,esec,ems,cimg::t_normal);
+            else{
+              std::fprintf(cimg::output(),"%s[CImg]%*sElapsed time: %u days %u hours %u min %u sec %u ms%s\n",cimg::t_red,1+2*pos,"",edays,ehours,emin,esec,ems,cimg::t_normal);
+            }
+          }
+        }
+      }
+      cimg::mutex(2,0);
+      return dt;
+    }
 
   //! Display a simple dialog box, and wait for the user's response.
   /**
@@ -45846,7 +46347,8 @@ namespace cimg {
     }
 
     CImg<unsigned char> canvas;
-    if (msg) CImg<unsigned char>().draw_text(0,0,"%s",black,gray,1,13,msg).resize(-100,-100,1,3).move_to(canvas);
+    if (msg) ((CImg<unsigned char>().draw_text(0,0,"%s",gray,0,1,13,msg)*=-1)+=200).resize(-100,-100,1,3).move_to(canvas);
+
     const unsigned int
       bwall = (buttons._width-1)*(12+bw) + bw,
       w = cimg::max(196U,36+logo._width+canvas._width,24+bwall),
@@ -45878,9 +46380,9 @@ namespace cimg {
     CImgDisplay disp(canvas,title?title:" ",0,false,is_centered?true:false);
     if (is_centered) disp.move((CImgDisplay::screen_width() - disp.width())/2,
                              (CImgDisplay::screen_height() - disp.height())/2);
-    bool stopflag = false, refresh = false;
+    bool stop_flag = false, refresh = false;
     int oselected = -1, oclicked = -1, selected = -1, clicked = -1;
-    while (!disp.is_closed() && !stopflag) {
+    while (!disp.is_closed() && !stop_flag) {
       if (refresh) {
         if (clicked>=0) CImg<unsigned char>(canvas).draw_image(xbuttons[clicked],by,cbuttons[clicked]).display(disp);
         else {
@@ -45902,13 +46404,13 @@ namespace cimg {
             refresh = true;
           }
         if (clicked!=oclicked) refresh = true;
-      } else if (clicked>=0) stopflag = true;
+      } else if (clicked>=0) stop_flag = true;
 
       if (disp.key()) {
         oselected = selected;
         switch (disp.key()) {
-        case cimg::keyESC : selected=-1; stopflag=true; break;
-        case cimg::keyENTER : if (selected<0) selected = 0; stopflag = true; break;
+        case cimg::keyESC : selected=-1; stop_flag = true; break;
+        case cimg::keyENTER : if (selected<0) selected = 0; stop_flag = true; break;
         case cimg::keyTAB :
         case cimg::keyARROWRIGHT :
         case cimg::keyARROWDOWN : selected = (selected+1)%buttons._width; break;
@@ -45952,6 +46454,12 @@ namespace cimg {
   inline double eval(const char *const expression, const double x, const double y, const double z, const double c) {
     static const CImg<float> empty;
     return empty.eval(expression,x,y,z,c);
+  }
+
+  template<typename t>
+  inline CImg<typename cimg::superset<double,t>::type> eval(const char *const expression, const CImg<t>& xyzc) {
+    static const CImg<float> empty;
+    return empty.eval(expression,xyzc);
   }
 
   // End of cimg:: namespace

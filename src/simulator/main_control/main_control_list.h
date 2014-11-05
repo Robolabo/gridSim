@@ -30,6 +30,9 @@
 /* LIBRARIES*/
 #include "main_control.h"
 #include "default_mc.h"
+#include "mufco_mc.h"
+#include "swarmgrid_mc.h"
+#include "local_mc.h"
 
 /* Functions */
 CMainControl* createMC ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vCtr , XMLElement* cnf );

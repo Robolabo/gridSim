@@ -39,16 +39,19 @@ class CPV {
 
 	public:
 	/* FUNCTIONS */
-	CPV  ( sSimCnf*  sSimCnf , XMLElement* cnf );
+	CPV  ( sSimCnf*  sSimCnf , XMLElement* cnf , TVFloat* , TVFloat* );
 	~CPV ( void );	
 	
 	void    executionStep ( void );
-	void    restart ( void ){};
+	void    restart ( void );
 
 	float    getPower       ( void ){return  m_fPower;};
-	TVFloat* getForecast    ( void ){return &m_vPwFrc;};
+	TVFloat* getForecast    ( void ){return  m_vPwFrc;};
 	
-	float    getNextHourFrc ( void );
+	float    getNextHourFrc  ( void );
+	TVFloat  getNextDayFrc   ( int  );
+	TVFloat  getNextDayNrFrc ( int  );
+	TVFloat  getRangeNrFrc   ( int , int );
 
 	float    getNPower      ( void ){return m_fPAmp;};
 
@@ -74,8 +77,8 @@ class CPV {
 	string  m_sSourceFile;	
 	float   m_fPower;
 
-	TVFloat m_vPwGen;
-	TVFloat m_vPwFrc;
+	TVFloat* m_vPwGen;
+	TVFloat* m_vPwFrc;
 
 	string  m_sPwGenFile;
 	string  m_sPwFrcFile;

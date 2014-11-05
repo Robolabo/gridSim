@@ -41,6 +41,7 @@ class CDefault_MC : public CMainControl {
 	~CDefault_MC  ( void );		
 	
 	void  executionStep  ( void );
+	void  assessmentStep ( void );
 	void  restart        ( void );		
 
 	TVFloat* getEvaluation  ( void );

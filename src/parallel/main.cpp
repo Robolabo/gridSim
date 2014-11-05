@@ -44,6 +44,7 @@ typedef vector<SParamConf> TVCParams;
 
 /******************************************************************************/
 /* FUNCTIONS */
+void   IRACE_slave         ( void );
 void   MPI_slaveLoop       ( void );
 void   MPI_masterLoop      ( void );
 bool   experimentGenerator ( int *p, int *e );
@@ -64,6 +65,13 @@ int    g_nResltN  = 1;
 TVCParams g_vParams;
 TVCParams g_vEnvirs;
 
+int    g_ne1 = 6;
+int    g_ne2 = 2;
+float  g_fk  = 0.0;
+float  g_fp  = 0.0;
+int    g_nr  = 0;
+float  g_fb  = 0.0;
+
 int    g_nNumProcs;     // Number of process in MPI environment
 int    g_nMyid;         // MPI ID of the process
 int    g_nCurrentExp;   // Experiment ID for the experiment generator
@@ -71,7 +79,8 @@ int    g_nCurrentExp;   // Experiment ID for the experiment generator
 /******************************************************************************/
 /* MAIN 								      */
 /******************************************************************************/
-int main(int argc, char** argv) {	
+int main (int argc, char** argv) {	
+	bool irace = false;
 	/* Command line input */
 	for(int i=1; i<argc; i++) { 
 		if(argv[i][0] != '-') { // Type error
@@ -83,33 +92,121 @@ int main(int argc, char** argv) {
 			case 'p':
 				++i;
 				g_sMainFilename.assign(argv[i]);
-				cout << " Filename: " << g_sMainFilename << " CHOOSEN." << endl;
-				break;					
+				//cout << " Filename: " << g_sMainFilename << " CHOOSEN." << endl;
+				break;		
+			case 'o':
+				++i;
+				g_sOutputFile.assign(argv[i]);
+				//cout << " Filename: " << g_sMainFilename << " CHOOSEN." << endl;
+				break;	
+			case 'e':
+				switch(argv[i][2]) {
+					case '1':
+						++i;	
+						g_ne1 = atoi(argv[i]);				
+						break;
+					case '2':	
+						++i;	
+						g_ne2 = atoi(argv[i]);				
+						break;					
+					default:
+						break;
+				}
+				irace = true;
+				break;
+			case 'k':
+				++i;	
+				g_fk = atof(argv[i]);	
+				irace = true;					
+				break;
+			case 's':
+				++i;	
+				g_fp = atof(argv[i]);	
+				irace = true;					
+				break;		
+			case 'r':
+				++i;	
+				g_nr = atoi(argv[i]);	
+				irace = true;					
+				break;	
+			case 'b':
+				++i;	
+				g_fb = atof(argv[i]);	
+				irace = true;					
+				break;
 			/* Option not recognized*/
 			default:
 				cout << "ERROR: Option not recognized" << endl;
 				break;
 		}
 	}
-	/* Configure Parallel Environment */
-	parallelSetUp ( );
-	/* EXECUTION */	
-	/* MPI Execution */	
-	/* Initialize MPI environment */	
-	int argc2    = 0;
-	char **argv2 = NULL;
-	MPI_Init      ( &argc2, &argv2 );
-	MPI_Comm_size ( MPI_COMM_WORLD, &g_nNumProcs );
-       	MPI_Comm_rank ( MPI_COMM_WORLD, &g_nMyid );	
-	/* Launch master or slave mode */		
-	if ( g_nMyid == 0 )
-		MPI_masterLoop();
-	else
-		MPI_slaveLoop();
-	/* Close MPI environment */		
-	MPI_Finalize();
-	cout << "Process " << g_nMyid << " finalized " << endl;
+	if ( irace ){
+		IRACE_slave();
+	}
+	else{
+		/* Configure Parallel Environment */
+		parallelSetUp ( );
+		/* EXECUTION */	
+		/* MPI Execution */	
+		/* Initialize MPI environment */	
+		int argc2    = 0;
+		char **argv2 = NULL;
+		MPI_Init      ( &argc2, &argv2 );
+		MPI_Comm_size ( MPI_COMM_WORLD, &g_nNumProcs );
+       		MPI_Comm_rank ( MPI_COMM_WORLD, &g_nMyid );	
+		/* Launch master or slave mode */		
+		if ( g_nMyid == 0 )
+			MPI_masterLoop();
+		else
+			MPI_slaveLoop();
+		/* Close MPI environment */		
+		MPI_Finalize();
+		cout << "Process " << g_nMyid << " finalized " << endl;
+	}	
 	return 0;		
+};
+
+/******************************************************************************/
+/* IRACE SLAVE LOOP 							      */
+/******************************************************************************/
+void IRACE_slave ( void ){
+	/* Create Simulator and take over it */
+	CSimulator   *pcSimulator   = new CSimulator ( g_sMainFilename );
+	CMainControl *pcMainControl = pcSimulator->getMainControl();
+	/* Set environment */	
+	pcSimulator->setFFTsize  ( pow ( 2 , g_ne1 ) );
+	pcSimulator->setSampling ( g_ne2 * 45 );					
+	/* Set Controllers */	
+	TVFloat param;
+	param.push_back( - g_fk );
+	param.push_back(   g_fp );
+	param.push_back(   g_nr );
+	param.push_back(   g_fb );	
+	pcMainControl->setParameters ( param );							
+	/* Restart Simulator */	
+	pcSimulator->restart       (  );
+	/* Execute the experiment */
+	pcSimulator->ExecuteSimulation ( );
+	/* Get the results */
+	float   ave_res = pcMainControl->getAssessment();
+	/* Write the output */
+	ofstream output (g_sOutputFile.c_str());	
+	output << ave_res << endl;
+	output.close();
+	/*	
+	cout << " FITNESS: " << ave_res << endl;
+	TVFloat* result = pcMainControl->getEvaluation();	
+	cout << " RESULT: ";
+	if ( result ){
+		for ( int i = 0 ; i < result->size() ; i++ ){
+			cout << result->at(i) << " ";
+		}
+	}
+	cout << endl;
+	*/
+	/* Kill simulator */
+	delete pcSimulator;
+	return;
 };
 
 /******************************************************************************/
@@ -152,13 +249,19 @@ void MPI_slaveLoop  ( void ){
 			pcSimulator->restart       (  );	
 			/* Set environment */	
 			TVFloat enviro;
-			enviro.push_back( g_vEnvirs[0].step * float(nEnviro[0]) + g_vEnvirs[0].offset );
-			enviro.push_back( g_vEnvirs[1].step * float(nEnviro[1]) + g_vEnvirs[1].offset );
+			for ( int i = 0 ; i < g_nEnvirN ; i++ ){
+				enviro.push_back( g_vEnvirs[i].step * float(nEnviro[i]) + g_vEnvirs[i].offset );
+			}
+			//enviro.push_back( g_vEnvirs[0].step * float(nEnviro[0]) + g_vEnvirs[0].offset );
+			//enviro.push_back( g_vEnvirs[1].step * float(nEnviro[1]) + g_vEnvirs[1].offset );
 			pcMainControl->setEnvironment ( enviro );					
 			/* Set Controllers */		
 			TVFloat param;
-			param.push_back( g_vParams[0].step * float(nParams[0]) + g_vParams[0].offset );
-			param.push_back( g_vParams[1].step * float(nParams[1]) + g_vParams[1].offset );
+			for ( int i = 0 ; i < g_nParamN ; i++ ){
+				param.push_back( g_vParams[i].step * float(nParams[i]) + g_vParams[i].offset );
+			}
+			//param.push_back( g_vParams[0].step * float(nParams[0]) + g_vParams[0].offset );
+			//param.push_back( g_vParams[1].step * float(nParams[1]) + g_vParams[1].offset );
 			pcMainControl->setParameters ( param );			
 			/* Execute the experiment */
 			pcSimulator->ExecuteSimulation ( );

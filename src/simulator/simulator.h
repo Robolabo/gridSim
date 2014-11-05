@@ -33,8 +33,8 @@ class CSimulator;
 /* LIBRARIES */
 #include "common.h"
 #include "plotter.h"
-#include "user/user.h"
 #include "grid/grid.h"
+#include "user/user.h"
 #include "elements/generation/PV.h"
 #include "elements/storage/storage.h"
 #include "controllers/controller_list.h"
@@ -46,7 +46,11 @@ class CSimulator {
 	~CSimulator ( void );
 
 	void    ExecuteSimulation ( void );
-	void    setSeed           ( int seed ){m_nSeed = seed;};
+
+	void    setSeed           ( int seed )     { m_nSeed = seed; };
+	void    setFFTsize        ( int FFTsize )  { m_sSimCnf.nFFTsize = FFTsize; };
+	void    setSampling       ( int sampling ) { m_sSimCnf.nSampling = sampling; };
+
 	void    restart           ( void );	
 
 	CMainControl* getMainControl ( void ){return m_pcMainControl;};
@@ -72,10 +76,8 @@ class CSimulator {
 	void   _configureVisu      ( void );
 	void   _configureStructure ( XMLElement* elem );
 	void   _configureGrid      ( XMLElement* elem );
-	CNode* _createNode         ( XMLElement* elem );
+	CNode* _createNode         ( XMLElement* elem , TVFloat* , TVFloat* );
 	void   _readLoadDB         ( void );
-	//void   _readGridProfile    ( void );
-
 };
 #endif
 

@@ -49,12 +49,18 @@ class CLine {
 	void  addNode       ( CNode* input ) {m_vNodes.push_back(input);};
 
 	TVCNode* getNodes   ( void ){return &m_vNodes;};           
+
+	TVFloat* getPVNrGen ( void ){return &m_vPwGen;};
+	TVFloat* getPVNrFrc ( void ){return &m_vPwFrc;};
 	
 	private:
 	/* Simulator stuff */
 	sSimCnf*  m_sSimCnf;
 	/* Nodes vector */
 	TVCNode m_vNodes;
+	/* PV profiles */
+	TVFloat m_vPwGen;
+	TVFloat m_vPwFrc;
 	/* Current power */
 	float   m_fPower;	
 };

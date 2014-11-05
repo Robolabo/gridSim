@@ -32,6 +32,8 @@
 CLine::CLine ( sSimCnf*  sSimCnf ){
 	/* Simulator stuff */
 	m_sSimCnf = sSimCnf;	
+	m_vPwGen.clear();
+	m_vPwFrc.clear();
 };
 
 /****************************************************************/
@@ -46,7 +48,7 @@ CLine::~CLine ( void ){
 /****************************************************************/
 /* RESTART 							*/
 /****************************************************************/
-void CLine::restart ( void ){
+void CLine::restart ( void ){	
 	for ( int i = 0 ; i <  m_vNodes.size() ; i++ ){
 		m_vNodes[i]->restart();
 	}

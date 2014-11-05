@@ -105,8 +105,14 @@ void CBatCtr::executionStep( void ){
 	return;
 };
 
-
-
+/******************************************************************************/
+TVFloat CBatCtr::getStatus ( void ){
+	TVFloat result;	
+	result.push_back( m_pcNode->getPV()->getPower() );
+	result.push_back( m_pcNode->getLoad()->getPower() );
+	result.push_back( m_pcNode->getStorage()->getSoC() );
+	return result;
+};
 
 
 

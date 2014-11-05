@@ -43,10 +43,12 @@ class CMainControl {
 	CMainControl  ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vCtr );
 	virtual ~CMainControl ( void );	
 	
-	virtual void     executionStep ( void ){};
-	virtual void     restart       ( void ){};
+	virtual void     executionStep  ( void ){};
+	virtual void     assessmentStep ( void ){};
+	virtual void     restart        ( void ){};
 
 	virtual TVFloat* getEvaluation ( void ){return NULL;};
+	virtual float    getAssessment ( void ){return 0;};
 
 	virtual void     setEnvironment ( TVFloat ){};
 	virtual void     setParameters  ( TVFloat ){};

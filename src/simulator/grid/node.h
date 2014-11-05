@@ -27,18 +27,21 @@
 #ifndef NODE_H_
 #define NODE_H_
 
+/****************************************************************/
+/* BASIC LIBRARIES */
+#include "common.h"
+
 class CNode;
+typedef vector<CNode*> TVCNode;
 
 /****************************************************************/
 /* LIBRARIES */
-#include "common.h"
 #include "elements/generation/PV.h"
 #include "elements/storage/storage.h"
 #include "elements/line/regulator.h"
 #include "elements/line/switch.h"
 #include "elements/consumption/load.h"
-
-typedef vector<CNode*> TVCNode;
+#include "controllers/controller.h"
 
 class CNode {
 	public:
@@ -48,17 +51,20 @@ class CNode {
 	int         executionStep ( void );	
 	void  restart       ( void );
 	
-	CPV*        getPV        ( void ){return m_pcPV;};
-        CLoad*      getLoad      ( void ){return m_pcLoad;};	
-	CStorage*   getStorage   ( void ){return m_pcStorage;};
-	CRegulator* getRegulator ( void ){return m_pcRegulator;};
-	CSwitch*    getSwitch    ( void ){return m_pcSwitch;};
+	CPV*         getPV        ( void ){return m_pcPV;};
+        CLoad*       getLoad      ( void ){return m_pcLoad;};	
+	CStorage*    getStorage   ( void ){return m_pcStorage;};
+	CRegulator*  getRegulator ( void ){return m_pcRegulator;};
+	CSwitch*     getSwitch    ( void ){return m_pcSwitch;};
+	CController* getCtr       ( void ){return m_pcController;};
 
 	sNPower*    getNPower    ( void ){return &m_sPower;};
 
-	void  addPV       ( CPV*      input ){m_pcPV      = input;};
-	void  addLoad     ( CLoad*    input ){m_pcLoad    = input;};
-	void  addStorage  ( CStorage* input ){m_pcStorage = input;};	
+	void  addPV       ( CPV*         input ){m_pcPV         = input;};
+	void  addLoad     ( CLoad*       input ){m_pcLoad       = input;};
+	void  addStorage  ( CStorage*    input ){m_pcStorage    = input;};	
+	void  addCtr      ( CController* input ){m_pcController = input;};	
+	
 	
 	private:
 	/* Simulator stuff */
@@ -70,6 +76,8 @@ class CNode {
 	CLoad*      m_pcLoad;
 	CStorage*   m_pcStorage;
 	CRegulator* m_pcRegulator; // Separate the battery and load of the grid and generation
-	CSwitch*    m_pcSwitch;    // Isolate the system	
+	CSwitch*    m_pcSwitch;    // Isolate the system
+
+	CController* m_pcController;	
 };
 #endif

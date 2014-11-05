@@ -33,19 +33,39 @@ CGrid::CGrid ( sSimCnf*  sSimCnf ){
 	/* Simulator stuff */	
 	m_sSimCnf = sSimCnf;
 	/* FFT */	
-	sFreqCmp  tmp_freqcmp;	
+	//sFreqCmp  tmp_freqcmp;	
 	m_pcFFT        = new CFFT();
-	for ( int i = 0 ; i < (m_sSimCnf->nFFTsize)/2 + 1 ; i++ ){
-		m_vFreqSignal.push_back     ( tmp_freqcmp );
-		m_vFreqSignal_amp.push_back ( 0.0 );
-	}
+	//for ( int i = 0 ; i < (m_sSimCnf->nFFTsize)/2 + 1 ; i++ ){
+	//	m_vFreqSignal.push_back     ( tmp_freqcmp );
+	//	m_vFreqSignal_amp.push_back ( 0.0 );
+	//}
 	/* Clear variables */	
 	m_bNewSample   = false;
 	m_fPower       = 0.0;
 	m_fPower_lines = 0.0;
-	m_fPower_egrid = 0.0;
+	m_fPower_grid = 0.0;
 	m_vSampledSignal.clear();
+	
+
+		
 };
+
+/****************************************************************/
+void CGrid::setSCmp ( XMLElement* elem ){
+	/* Sinusoidal components */
+	m_vGridSCmp.clear();
+	string attr;
+	sGridSCmp tmp_cmp;
+	for( XMLElement* e = elem->FirstChildElement() ; e != NULL ; e = e->NextSiblingElement() ){
+		attr        = e->Attribute("amp");
+		tmp_cmp.amp = atof( attr.c_str() );
+		attr        = e->Attribute("cmp");
+		tmp_cmp.cmp = atoi( attr.c_str() );
+		m_vGridSCmp.push_back( tmp_cmp );
+	}
+	return;
+};
+
 
 /****************************************************************/
 /* RESTART 							*/
@@ -53,10 +73,32 @@ CGrid::CGrid ( sSimCnf*  sSimCnf ){
 void CGrid::restart ( void ){
 	/* Clear variables */
 	m_bNewSample   = false;	
+	m_bNewFFT      = false;
 	m_fPower       = 0.0;
 	m_fPower_lines = 0.0;
-	m_fPower_egrid = 0.0;
+	m_fPower_grid = 0.0;
 	m_vSampledSignal.clear();
+
+	m_vFreqSignal.clear();
+	m_vFreqSignal_amp.clear();
+	/* Calculate sinusoidal components */
+	for ( int i = 0 ; i < m_vGridSCmp.size() ; i++ ){
+		m_vGridSCmp[i].omega = 2 * M_PI * float ( m_vGridSCmp[i].cmp ) / float ( m_sSimCnf->nFFTsize );
+		m_vGridSCmp[i].arg   = 0.0;
+	}
+
+
+
+	/*
+	sGridSCmp tmp_cmp;
+	tmp_cmp.amp   = 5;
+	tmp_cmp.omega = 2 * M_PI / 32.0;
+	tmp_cmp.cmp   = 2;
+	tmp_cmp.arg   = 0.0;	
+
+	m_vGridSCmp.push_back( tmp_cmp );
+	*/
+
 	/* Restart lines */
 	for ( int i = 0 ; i <  m_vLines.size() ; i++ ){
 		m_vLines[i]->restart();
@@ -79,7 +121,7 @@ CGrid::~CGrid ( void ){
 /****************************************************************/
 void CGrid::executionStep ( void ){	
 	/* Get General Grid Power */
-	m_fPower_egrid = _nextGridPower();	
+	m_fPower_grid = _nextGridPower();	
 	/* Execute Lines */
 	for ( int i = 0 ; i < m_vLines.size() ; i++ )
 		m_vLines[i]->executionStep ();
@@ -88,18 +130,19 @@ void CGrid::executionStep ( void ){
 	for ( int i = 0 ; i < m_vLines.size() ; i++ )
 		m_fPower_lines += m_vLines[i]->getPower ();
 	/* Global Power */	
-	m_fPower = m_fPower_egrid + m_fPower_lines;
+	m_fPower = m_fPower_grid + m_fPower_lines;
 	if ( (m_sSimCnf->nSimStep)%(m_sSimCnf->nSampling) == 0 ){		
 		m_vSampledSignal.push_back( m_fPower );	
 		m_bNewSample = true;
 		// FFT 	
 		_SignalFFT ( );			
 		// Clear sampled signal
-		if ( m_vSampledSignal.size() >= m_sSimCnf->nFFTsize )
+		if ( m_vSampledSignal.size() > m_sSimCnf->nFFTsize )
 			m_vSampledSignal.erase( m_vSampledSignal.begin() );
 	}
 	else{
 		m_bNewSample = false;
+		m_bNewFFT    = false;
 	}
 	return;
 };
@@ -107,42 +150,62 @@ void CGrid::executionStep ( void ){
 /****************************************************************/
 float CGrid::_nextGridPower       ( void ){
 	float result;
+	/* Profile */
 	if ( m_sSimCnf->GridProfile.dur == 0 )	
 		result = m_sSimCnf->GridProfile.amp;
 	else
 		result = m_sSimCnf->GridProfile.amp * m_sSimCnf->GridProfile.profile[ (m_sSimCnf->nSimStep)%(m_sSimCnf->GridProfile.dur) ];
+	/* Sinusoidal components */
+	if ( m_vGridSCmp.size() > 0 ){
+		for ( int i = 0 ; i <  m_vGridSCmp.size() ; i++ ){
+			m_vGridSCmp[i].arg = m_vGridSCmp[i].omega * float ( m_sSimCnf->nSimStep );
+			result += m_vGridSCmp[i].amp * cos ( m_vGridSCmp[i].arg );
+		}
+	}
 	return result;
 };
 
 /****************************************************************/
 void CGrid::_SignalFFT ( void ){	
-	if ( m_vSampledSignal.size() >= m_sSimCnf->nFFTsize ){
-		sFreqCmp         tmp_freqcmp;		
-		m_vFreqSignal.clear();
-		m_vFreqSignal_amp.clear();
+	m_vFreqSignal.clear();
+	m_vFreqSignal_amp.clear();
+	sFreqCmp         tmp_freqcmp;
+	/* There are enough samples */
+	if ( m_vSampledSignal.size() >= m_sSimCnf->nFFTsize ){			
 		double time_domain  [m_sSimCnf->nFFTsize][2];
 		double frec_domain  [m_sSimCnf->nFFTsize][2];							
 		for ( int j = 0 ; j < m_sSimCnf->nFFTsize ; j++ ){
-			time_domain[j][0] = m_vSampledSignal[ m_vSampledSignal.size() + j - m_sSimCnf->nFFTsize ];
-			time_domain[j][1] = 0.0;				
-		}						
+			time_domain[j][0] = m_vSampledSignal[ m_vSampledSignal.size() - j - 1 ];
+			time_domain[j][1] = 0.0;						
+		}								
 		m_pcFFT->fft ( m_sSimCnf->nFFTsize, &time_domain[0], &frec_domain[0] );							
 		for (int j = 0 ; j < (m_sSimCnf->nFFTsize)/2 + 1 ; j++){
-			complex<double> tmp_complex (frec_domain[j][0],frec_domain[j][1]);			
-			tmp_freqcmp.c_number = tmp_complex;				
-			tmp_freqcmp.phs      = arg(tmp_complex);
+			complex<double> tmp_complex (frec_domain[j][0],frec_domain[j][1]);					
 			if ( j == 0 ){
 				tmp_freqcmp.amp      = abs(tmp_complex)/float(m_sSimCnf->nFFTsize);
 				tmp_freqcmp.period   = 0.0;
+				tmp_freqcmp.phs      = 0.0;
 			}
 			else{
 				tmp_freqcmp.amp      = 2.0 * abs(tmp_complex)/float(m_sSimCnf->nFFTsize);	
-				tmp_freqcmp.period   = float(m_sSimCnf->nFFTsize)/float(j);						
+				tmp_freqcmp.period   = float(m_sSimCnf->nFFTsize)/float(j);	
+				tmp_freqcmp.phs      = - arg(tmp_complex);					
 			}
 			m_vFreqSignal.push_back     ( tmp_freqcmp );	
 			m_vFreqSignal_amp.push_back ( tmp_freqcmp.amp );							
 		}
-		//m_bNewFFT = true;			
+		m_bNewFFT = true;			
+	}
+	/* There are not enough samples  */
+	else{			
+		tmp_freqcmp.amp      = 0.0;
+		tmp_freqcmp.period   = 0.0;
+		tmp_freqcmp.phs      = 0.0;
+		for (int j = 0 ; j < (m_sSimCnf->nFFTsize)/2 + 1 ; j++){
+			m_vFreqSignal.push_back     ( tmp_freqcmp );	
+			m_vFreqSignal_amp.push_back ( tmp_freqcmp.amp );
+		}
+		m_bNewFFT = false;
 	}	
 	return;
 };

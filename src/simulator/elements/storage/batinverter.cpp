@@ -109,6 +109,8 @@ double CBattInverter::exportPower( double fpower ){
 	fresult = m_pcBattery->receiveEnergy(fAuxPow);	
 	fAuxPow = InputEfficiency(fresult,1);
 	fresult = fAuxPow;
+	if ( fresult > m_fChargePowLimit )
+		fresult = m_fChargePowLimit;
 	return fresult;	
 };
 

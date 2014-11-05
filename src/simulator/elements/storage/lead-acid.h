@@ -54,6 +54,7 @@ class CLeadAcid {
 	double supplyEnergy   ( double fNeeded );
 
 	double getSoC ( void ){return m_fSoCpercent;};
+	double getCap ( void ){return m_fCap;};
 
 	void   setCapacity ( float Cap );
 
@@ -74,6 +75,7 @@ class CLeadAcid {
 	double       m_fCap;
 	double       m_fDCap;	// m_fCap / 10.0
 	double       m_fF100Cap; // 100.0  / m_fCap; 
+	float        m_fFloatC;
 
 	/* FUNCTIONS */		
 	void   givePower(double fpower);

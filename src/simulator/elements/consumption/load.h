@@ -47,53 +47,59 @@ class CLoad {
 	void             restart           ( void );
 
 	float            getPower          ( void ){return m_fPower;};	
+	float            getDefPower       ( void ){return m_fDefPower;};
+	float            getNDefPower      ( void ){return m_fNDefPower;};
+	float            getAmp            ( void ){return m_fAmp;};
 	CAirConditioner* getAirConditioner ( void ){return m_pcAir;};
-	TVCDefLoad*      getDefLoads       ( void ){return &m_vDefLoad;};
+	TVCDefLoad*      getDefLoads       ( void ){return &m_vDefLoad;};	
 	
-	
-	void             setDefLoad        ( CDefLoad* input ){m_vDefLoad.push_back( input );};
-	
-	//TVFloat* getShape    ( int type ){return &((*m_mLoadDB)[ type ]);};
-
-	//float    getPhase    ( void ){ return m_fPhase;    };
-	//float    getPeriod   ( void ){ return m_fPeriod;   };
-	//float    getArgument ( void ){ return m_fArgument; };
-	//TMFloat* getLoadDB   ( void ){ return  m_mLoadDB;  };
-	
-	//void     setDefLoad  ( sDefLoad );	
-	//void     setPeriod   ( float input ){ m_fPeriod = input; };
-	//void     setPhase    ( float input ){ m_fPhase  = input; };
-	//void     setLoadDB   ( TMFloat* );	
+	void             setDefLoad        ( CDefLoad* input ){m_vDefLoad.push_back( input );};	
+	void             setDirectPower    ( float );
 
 	private:
 	/* Simulator stuff */
 	sSimCnf*  m_sSimCnf;
+	TVFloat   m_vFixedC;
 
 	/* Elements */
 	CAirConditioner* m_pcAir;
 
-	/* VARIABLES */
-	int       m_nType;
-	//float     m_fPeriod;
-	//float     m_fPhase;
-	//float     m_fArgument;
-
-	//string    m_sSourceFile;	
-	float     m_fPower;
-
+	/* VARIABLES */		
+	float      m_fPower;
+	bool       m_bDPower;
+	float      m_fDPower;
+	float      m_fDefPower;
+	float      m_fNDefPower;
 	TVCDefLoad m_vDefLoad;
 
-	//TMFloat*  m_mLoadDB;
-	
-	//TVFloat   m_vDefLoad;
-	//TVFloat   m_vNDefLoad;
+	float      m_fAmp;
+	float      m_fAmp_ND;
+	int        m_nType_ND;
 
 	/* FUNCTIONS */	
-	
-	//float _executeProfiles   ( void );	
-	//float _executeSinusoidal ( void );
-
+	void  _read_FixedC_house ( void );
 };
 
 #endif
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

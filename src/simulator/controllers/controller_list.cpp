@@ -30,6 +30,15 @@ CController* createCtr ( sSimCnf*  sSimCnf , CNode* pcNode , XMLElement* cnf ){
 	if ( attr == "bat_ctr" ){
 		result = new CBatCtr ( sSimCnf , cnf , pcNode );
 	}
+	else if ( attr == "ADSM" ){
+		result = new CADSMCtr ( sSimCnf , cnf , pcNode );
+	}
+	else if ( attr == "mufco" ){
+		result = new CMUFCOCtr ( sSimCnf , cnf , pcNode );
+	}
+	else if ( attr == "swarmgrid" ){
+		result = new CSwarmGridCtr ( sSimCnf , cnf , pcNode );
+	}	
 	else if ( attr == "default" ){
 		result = new CController ( sSimCnf , pcNode );
 	}

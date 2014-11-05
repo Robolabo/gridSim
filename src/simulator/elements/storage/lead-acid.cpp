@@ -36,6 +36,8 @@ CLeadAcid::CLeadAcid ( void ){
 	m_nominalV      = 48.0;
 	m_fNorm1        = m_frealTimeStep / (3600.0 * m_nominalV);
 	m_fNorm2        = m_fCap / ( 100.0 * m_fNorm1 );
+
+	m_fFloatC       = 0.0; // 100.0 for small studies
 	
 	m_fSoCpercent = 50;	// Initial SoC [0:100] 
 	m_fSoC        = m_fSoCpercent * m_fCap / 100.0; // Ah		
@@ -61,10 +63,15 @@ void CLeadAcid::restart ( void ){
 /* Maximun accepted power  */
 double CLeadAcid::AcceptedPower ( void ){
 	double fresult;
-	//fresult  = (((100.0 - m_fSoCpercent) * m_fCap * m_nominalV * 3600.0) / (100.0 * m_frealTimeStep));
-	fresult  = ( 100.0 - m_fSoCpercent ) * m_fNorm2;
-	if (fresult <= 100.0)
-		fresult = 100.0;
+	if ( m_fCap <= 0.0){
+		fresult = 0.0;
+	}
+	else{
+		//fresult  = (((100.0 - m_fSoCpercent) * m_fCap * m_nominalV * 3600.0) / (100.0 * m_frealTimeStep));
+		fresult  = ( 100.0 - m_fSoCpercent ) * m_fNorm2;
+		if (fresult <= m_fFloatC )
+			fresult = m_fFloatC;
+	}	
 	return fresult;
 };
 
@@ -72,8 +79,13 @@ double CLeadAcid::AcceptedPower ( void ){
 /* Maximun available power  */
 double CLeadAcid::AvailablePower ( void ){
 	double fresult;
-	//fresult = ((m_fSoCpercent * m_fCap * m_nominalV * 3600.0) / (100.0 * m_frealTimeStep));
-	fresult = m_fSoCpercent * m_fNorm2;
+	if ( m_fCap <= 0.0){
+		fresult = 0.0;
+	}
+	else{
+		//fresult = ((m_fSoCpercent * m_fCap * m_nominalV * 3600.0) / (100.0 * m_frealTimeStep));
+		fresult = m_fSoCpercent * m_fNorm2;
+	}	
 	return fresult;
 };
 

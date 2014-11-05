@@ -54,9 +54,12 @@ class CUser {
 
 	/* VARIABLES */		
 	CNode*       m_pcNode;
+	int          m_nLoads;	
+	int          m_nType;
+	float        m_fPrMod;
 
-	/* FUNCTIONS */		
-	
+	int          m_nLoadCnt;
+	/* FUNCTIONS */	
 
 };
 

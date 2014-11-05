@@ -49,8 +49,7 @@ typedef vector<TVFloat*> TMFloat_pt;
 struct sFreqCmp {	
 	float amp;
 	float phs;
-	float period;
-	complex<double> c_number;
+	float period;	
 };
 typedef vector<sFreqCmp>  TVFreqCmp;
 typedef vector<TVFreqCmp> TMFreqCmp;
@@ -76,9 +75,14 @@ struct sNEnergy {
 	int   num_bo;	//number of blackouts
 };
 
-
-
-
+struct SSShapeInf {
+	float max_g;
+	float min_g;
+	TMFloat max;
+	TMFloat min;
+	float rel_t;
+	TMFloat rel;
+};
 
 #endif
 

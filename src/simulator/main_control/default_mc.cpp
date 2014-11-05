@@ -60,6 +60,14 @@ TVFloat* CDefault_MC::getEvaluation  ( void ){
 /******************************************************************************/
 /* Execution Step */
 void CDefault_MC::executionStep( void ){
+	
+	return;
+};
+
+/******************************************************************************/
+/* Assessment Step */
+void  CDefault_MC::assessmentStep ( void ){
+
 	if ( m_sSimCnf->pcPlotter ){
 		m_vTimeSignal.push_back( m_pcGrid->getPower() );
 		if ( m_pcGrid->is_Sample() ){		
@@ -80,6 +88,11 @@ void CDefault_MC::executionStep( void ){
 	*/
 	return;
 };
+
+
+
+
+
 
 
 

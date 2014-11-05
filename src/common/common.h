@@ -54,7 +54,17 @@ struct sGridProfile{
 	int     dur;
 	float   amp;
 	TVFloat profile;
+	TVFloat nr_profile;
 };
+
+
+struct sGridSCmp {
+	int   cmp;
+	float amp;
+	float omega;
+	float arg;
+};
+typedef vector<sGridSCmp> TVGridSCmp;
 
 struct sDefLoad{
 	int     id;
@@ -70,6 +80,7 @@ struct sLoadDB{
 
 struct sSimCnf {	
 	string       sParamsFile;
+	string       sDataFolder;
 	sLoadDB      LoadDB;
 	sGridProfile GridProfile;
 	CRandom*     pcRandom;	
@@ -83,6 +94,14 @@ struct sSimCnf {
 struct sStructure {
 	int nLines;
 	int nNodes;
+};
+
+struct sFFTeval {
+	float   FFTave;
+	float   FFTvar;
+	float   FFTrel;
+	float   FFTmax;
+	TVFloat R, Phi, Nrm;
 };
 
 class CWriter {
