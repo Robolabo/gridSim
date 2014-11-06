@@ -1,0 +1,101 @@
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{epic}\setlength{\unitlength}{1cm}
+\usepackage{eepic}\setlength{\unitlength}{1cm}
+\usepackage{amssymb}
+\usepackage{anysize}
+\usepackage[dvipdfm]{hyperref}
+\usepackage{color}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{listings}
+
+%------------------- Hyperref ------------------
+\definecolor{dark-red}{rgb}{0.6,0.15,0.15}
+\definecolor{dark-blue}{rgb}{0.15,0.15,0.6}
+\definecolor{medium-blue}{rgb}{0,0,0.5}
+\hypersetup{
+  colorlinks   = true, %Colours links instead of ugly boxes
+  urlcolor     = medium-blue, %Colour for external hyperlinks
+  linkcolor    = dark-red, %Colour of internal links
+  filecolor    = red,
+  citecolor    = dark-blue %Colour of citations
+}
+
+
+%------------------ Front -----------------------
+\newcommand{\frontpage}[4]{%
+\thispagestyle{empty}
+\begin{titlepage}
+\begin{center}
+	% Title
+	\includegraphics[width=0.4\textwidth]{robolabo_logo}\\[1.5cm]
+	\HRule \\[0.4cm]
+	{ \huge \bfseries #1 \\[0.4cm] }
+	\HRule \\[1.5cm]
+	{\Large
+	TM/ROBOLABO/{#2}-{#3}\\[1.5cm]
+	\emph{Developed by} {\bf ROBOLABO} \\[0.3cm]
+	}
+	\href{www.robolabo.etsit.upm.es}{www.robolabo.etsit.upm.es}
+	% Bottom of the page
+	\vfill
+	%Authors
+	\begin{flushleft} \large
+		\emph{Authors:}\\
+		#4
+	\end{flushleft}
+	\vspace{1.0cm}
+	% Date
+	{\large \today}
+\end{center}
+\end{titlepage}
+\thispagestyle{empty}
+\newpage
+}
+
+
+% ------------------ Fancy headers ----------------------
+
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+
+
+
+\renewcommand{\chaptermark}[1]{%
+\markboth{\thechapter.\ #1}{}}
+
+\renewcommand{\sectionmark}[1]{%
+\markright{\thesection.\ #1}{}}
+
+\fancyhf{}
+\fancyhead[LE,RO]{\bfseries\thepage}
+\fancyhead[LO]{\bfseries\rightmark}
+\fancyhead[RE]{\bfseries\leftmark}
+\fancypagestyle{plain}{%
+\fancyhead{} % get rid of headers
+\renewcommand{\headrulewidth}{0pt} % and the line
+}
+
+% ------------------ Hyphenation ----------------------
+\hyphenpenalty=5000
+\tolerance=1000
+\widowpenalty=10000
+\clubpenalty=10000
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

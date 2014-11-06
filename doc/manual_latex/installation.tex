@@ -1,0 +1,79 @@
+\chapter{Installation}
+\label{chap:installation}
+
+{\it GridSim} is open source simulator of electrical grids released under GPLv3.0.
+It can be downloaded from: \href{https://github.com/Robolabo/gridSim.git}{https://github.com/Robolabo/gridSim.git}.
+The repository can also be directly downloaded from {\it github} in your computer:
+\begin{lstlisting}[language=bash]
+  $ git clone https://github.com/Robolabo/gridSim.git
+\end{lstlisting}
+\noindent
+Once the simulator has been downloaded, you can attempt to install it.
+
+{\it GridSim} must be compile in your computer.
+It is preapared to be compile and executed in Linux, this manual does not indicate how to install {\it GridSim} in other operating systems.
+In addition, this manual describes the instllation process for an Ubuntu distribution.
+{\it GridSim} is programmed in {\it C++}, thus, the {\it C++} compiler is required.
+The simulator's compilation has been teste for {\it g++} compiler version $4.4$ or higher.
+The installation of this compiler is recommended:
+\begin{lstlisting}[language=bash]
+  $ sudo apt-get install g++
+\end{lstlisting}
+
+The compilation of {\it GridSim} is performed by {\it autotools} with {\it libtool}.
+Therefore, these tools should be installed in your computer:
+\begin{lstlisting}[language=bash]
+  $ sudo apt-get install automake autotools-dev libtool
+\end{lstlisting}
+
+There is a compilation script which prepare the compilation folder and compile the simulator.
+To execute this script:
+\begin{lstlisting}[language=bash]
+  $ ./build_simulator.sh
+\end{lstlisting}
+\noindent
+It creates the {\bf build} folder.
+All compilation files are in this folder.
+After the compilation, the executable file is copied in the main folder of {\it GridSim}.
+This file is called {\bf gridSim}.
+
+%
+%************************************************************************************************************
+\section{Parallel launcher compilation}
+
+Different instances of {\it GridSim} can be launched in parallel.
+It allows to use the possibilities of a multicore machine or a cluster.
+This parallel execution is based on MPI.
+Thus, MPI should be installed in your computer:
+\begin{lstlisting}[language=bash]
+  $ sudo apt-get install openmpi-common
+\end{lstlisting}
+
+There is a compilation script for the compilation of the parallel launcher:
+\begin{lstlisting}[language=bash]
+  $ ./build_simulator_parallel.sh
+\end{lstlisting}
+\noindent
+After the compilation, the executable file is copied in the main folder of {\it GridSim}.
+It is called {\bf gridSim\_parallel}.
+
+%
+%************************************************************************************************************
+\section{Documentation generation}
+
+This manual can be compile from the {\LaTeX} sources.
+The {\LaTeX} packages should be installed in your computer:
+\begin{lstlisting}[language=bash]
+  $ sudo apt-get install texlive-latex-extra texlive-latex-recommended
+		 texlive-bibtex-extra texlive-math-extra 
+\end{lstlisting}
+
+There is compilation script for the documentation compilation:
+\begin{lstlisting}[language=bash]
+  $ ./build_doc.sh
+\end{lstlisting}
+\noindent
+After the compilation, the documentation file is copied in the main folder of {\it GridSim}.
+It is called {\bf gridsim\_manual.pdf}.
+
+
