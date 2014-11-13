@@ -36,6 +36,9 @@ CMainControl* createMC ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vCtr
 	else if ( attr == "mufco" ){
 		result = new CMUFCO_MC ( sSimCnf , pcGrid , vCtr , cnf );
 	}
+	else if ( attr == "mufco_demo" ){
+		result = new CMUFCO_demo ( sSimCnf , pcGrid , vCtr , cnf );
+	}
 	else if ( attr == "swarmgrid" ){
 		result = new CSwarmGrid_MC ( sSimCnf , pcGrid , vCtr , cnf );
 	}

@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<GridSim>
+	<Simulation seed="1" length="788400" sampling="315" fft_lng="32" data_folder="/home/manu/repo/simulators/gridSim_svn/gridSim/data/"/><!-- length="525600" -->
+	<Visualization active="1" rf_rate="100">
+		<scr title="Grid power"       x_lng="10000" y_ini="0" y_end="50000"/>		
+		<scr title="Grid power FFT"   x_lng="17"     y_ini="0" y_end="10000"/>	
+		<scr title="Node power"       x_lng="10000" y_ini="0" y_end="50000"/>
+		<scr title="Grid power CMP"   x_lng="17"     y_ini="0" y_end="500"/>									
+	</Visualization>
+	<Grid file="DEMR_2013" amp="1.0" cmp="0">
+		<cmp amp="50" cmp="2"/>		
+	</Grid>
+	<Structure lines="1" > 
+		<line_1 nodes="1000" type="oscillator"/>		
+		<oscillator>			
+			<load/>			
+			<ctr name="mufco" type="3" ini_cmp="0" offset="0.0" amp="25.0" K="-0.03" P="0.29" R="0"/>									
+		</oscillator>
+	</Structure>
+	<Writer file="mufco_demo" />
+	<Main_control name="mufco_demo" ctr_act_time="657000" wt_beg="591300" wt_end="788400" />
+</GridSim>

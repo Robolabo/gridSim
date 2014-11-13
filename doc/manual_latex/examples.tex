@@ -1,0 +1,41 @@
+\chapter{Examples}
+\label{chap:examples}
+
+%
+%************************************************************************************************************
+\section{MuFCO demo}
+
+
+The configuration file for the MuFCO demo experiment can be executed with:
+\begin{lstlisting}[language=bash]
+  $ ./gridSim -p cnf/mufco_demo.xml
+\end{lstlisting}
+
+\noindent
+The MuFCO demo has the following configuration parameters:
+\begin{table}[h]
+	\begin{center}	
+	\begin{tabular}{|m{2.5cm}|m{7cm}|m{1cm}|m{2.5cm}|} \hline		
+		{\bf Name}     & {\bf Description}                                          & {\bf Data type} &{\bf Range}             \\ \hline
+		ctr\_act\_time & Simulation step after which the controllers start running  & int 	    &[0, {\it int length}] 	      \\ \hline		
+		wt\_beg        & Simulation step after which data starts being written      & int 	    &[0, {\it int length}] 	      \\ \hline			
+		wt\_end        & Simulation step when data stops to be written              & int 	    &[0, {\it int length}] 	      \\ \hline			
+	\end{tabular}
+	\caption{MuFCO demo configuration parameters.}
+	\label{tab:mufco_demo_params}
+	\end{center}
+\end{table}
+
+
+
+
+
+
+
+
+
+
+
+
+
+

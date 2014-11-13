@@ -9,8 +9,8 @@
 	</Visualization>
 	<Grid file="DEMR_2013" amp="0.0"/><!-- file="DEMR_2013" -->
 	<Structure lines="2" > 
-		<line_1 nodes="600" type="control"/>
-		<line_2 nodes="000" type="no_control"/>
+		<line_1 nodes="000" type="control"/>
+		<line_2 nodes="600" type="no_control"/>
 		<no_control>
 			<load amp="50.0"/>	
 			<user type="2" loads="16" pr_mod="0.022"/>

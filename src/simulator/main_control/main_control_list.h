@@ -31,6 +31,7 @@
 #include "main_control.h"
 #include "default_mc.h"
 #include "mufco_mc.h"
+#include "mufco_demo.h"
 #include "swarmgrid_mc.h"
 #include "local_mc.h"
 
