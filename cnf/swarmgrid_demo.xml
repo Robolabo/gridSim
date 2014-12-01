@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<GridSim>
+	<Simulation seed="1" length="788400" sampling="90" fft_lng="16" data_folder="/home/manu/repo/simulators/gridSim_svn/gridSim/data/"/><!-- length="525600" -->
+	<Visualization active="0" rf_rate="100">
+		<scr title="Grid power"       x_lng="10000" y_ini="0" y_end="50000"/>		
+		<scr title="Grid power FFT"   x_lng="17"     y_ini="0" y_end="10000"/>	
+		<scr title="Node power"       x_lng="10000" y_ini="0" y_end="50000"/>
+		<scr title="Grid power CMP"   x_lng="17"     y_ini="0" y_end="500"/>									
+	</Visualization>
+	<Grid file="DEMR_2013" amp="0.0"/>	
+	<Structure lines="2" > 
+		<line_1 nodes="000" type="control"/>	
+		<line_2 nodes="600" type="no_control"/>				
+		<control>			
+			<load amp="50.0"/>	
+			<user type="2" loads="16" pr_mod="0.022"/>			
+			<ctr  name="swarmgrid" act="1" K="-0.03" P="0.02" R="0" B="0" soc_min="40" soc_max="60"/>		
+		</control>
+		<no_control>			
+			<load amp="50.0"/>	
+			<user type="2" loads="16" pr_mod="0.022"/>
+			<ctr  name="swarmgrid" act="0" K="-0.03" P="0.02" R="0" B="0" soc_min="40" soc_max="60"/>					
+		</no_control>			
+	</Structure>
+	<Writer file="swarmgrid_demo" />
+	<Main_control name="swarmgrid_demo" ass_type="1" ctr_act_time="657000" wt_beg="591300" wt_end="788400" />
+</GridSim>

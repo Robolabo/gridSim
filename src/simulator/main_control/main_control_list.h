@@ -33,6 +33,7 @@
 #include "mufco_mc.h"
 #include "mufco_demo.h"
 #include "swarmgrid_mc.h"
+#include "swarmgrid_demo.h"
 #include "local_mc.h"
 
 /* Functions */

@@ -22,35 +22,14 @@
 */
 
 /******************************************************************************/
-/* Methods of mufco_demo.h 						      */
+/* Methods of swarmgrid_mc.h 						      */
 /******************************************************************************/
-#include "mufco_demo.h"
+#include "swarmgrid_demo.h"
 
 /******************************************************************************/
 /* CONSTRUCTOR */
-CMUFCO_demo::CMUFCO_demo ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vCtr , XMLElement* cnf ) : CMainControl::CMainControl ( sSimCnf , pcGrid , vCtr ) {
+CSwarmGrid_demo::CSwarmGrid_demo ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vCtr , XMLElement* cnf ) : CMainControl::CMainControl ( sSimCnf , pcGrid , vCtr ) {	
 	string attr;
-	if ( cnf->Attribute("res_cmp") ){
-		attr      = cnf->Attribute("res_cmp");
-		m_nResCmp = atoi( attr.c_str() );
-	}
-	else{
-		m_nResCmp = 0;
-	}
-	if ( cnf->Attribute("res_type") ){
-		attr       = cnf->Attribute("res_type");
-		m_nResType = atoi( attr.c_str() );
-	}
-	else{
-		m_nResType = 1;
-	}
-	if ( cnf->Attribute("ass_type") ){
-		attr       = cnf->Attribute("ass_type");
-		m_nAssType = atoi( attr.c_str() );
-	}
-	else{
-		m_nAssType = 1;
-	}
 	if ( cnf->Attribute("wt_beg") ){
 		attr    = cnf->Attribute("wt_beg");
 		m_nWbeg = atoi( attr.c_str() );
@@ -65,6 +44,13 @@ CMUFCO_demo::CMUFCO_demo ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vC
 	else{
 		m_nWend = -1;
 	}
+	if ( cnf->Attribute("ass_type") ){
+		attr       = cnf->Attribute("ass_type");
+		m_nAssType = atoi( attr.c_str() );
+	}
+	else{
+		m_nAssType = 1;
+	}
 	if ( cnf->Attribute("ctr_act_time") ){
 		attr          = cnf->Attribute("ctr_act_time");
 		m_nCtrActTime = atoi( attr.c_str() );
@@ -72,21 +58,11 @@ CMUFCO_demo::CMUFCO_demo ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vC
 	else{
 		m_nCtrActTime = 0;
 	}
-
-	
-
-
-	m_pcFFT        = new CFFT();
-
-
-	
-
-	
 };	
 
 /******************************************************************************/
 /* RESTART */
-void CMUFCO_demo::restart  ( void ){
+void CSwarmGrid_demo::restart  ( void ){
 
 	if ( m_vCtr->size() > 0 )
 		m_nFCreject = m_vCtr->at(0)->getFCreject();
@@ -115,31 +91,24 @@ void CMUFCO_demo::restart  ( void ){
 	m_vGridSig.clear();		
 	m_vResult.clear();
 
-	m_vSampForFFT.clear();
-
 	m_vCmp.clear();
 	for ( int i = 0 ; i < m_sSimCnf->nFFTsize/2 + 1 ; i++ )
 		m_vCmp.push_back(0.0);
 
+	m_fBEne  = 0.0;
+	m_fTEne  = 0.0;
+	m_fNEne  = 0.0;
+	m_fLEne  = 0.0;
+	m_fPVEne = 0.0;
 
 	return;
 };
 
 /******************************************************************************/
 /* DESTRUCTOR */
-CMUFCO_demo::~CMUFCO_demo ( void ){
-	delete m_pcFFT;	
+CSwarmGrid_demo::~CSwarmGrid_demo ( void ){
 
-	ofstream oCmp  ( "mufco_demo_cmp" );
-	for ( int i = 0 ; i < m_mHist_Cmp[0].size() ; i++ ){
-		for ( int j = 0 ; j < m_mHist_Cmp.size() ; j++ ){
-			oCmp << m_mHist_Cmp[j][i] << " ";
-		}
-		oCmp << endl;	
-	}	
-	oCmp.close();
-
-	ofstream oFAmp ( "mufco_demo_famp" );
+	ofstream oFAmp ( "swarmgrid_demo_famp" );
 	for ( int i = 1 ; i <= 1024 ; i++ ){ //147
 		for ( int j = 0 ; j < m_mHist_Frq.size() ; j++ ){
 			oFAmp << m_mHist_Frq[j][i] << " ";
@@ -148,18 +117,26 @@ CMUFCO_demo::~CMUFCO_demo ( void ){
 	}
 	oFAmp.close();
 
-
 };
 
 
 /******************************************************************************/
-TVFloat* CMUFCO_demo::getEvaluation  ( void ){
+TVFloat* CSwarmGrid_demo::getEvaluation  ( void ){
 	_evaluateAC();	
+	float sc_ave = 0.0;
+	for ( int i = 0 ; i < m_vCtr->size() ; i++ ){
+		sc_ave += m_vCtr->at(i)->getSelfC( );
+	}	
+	sc_ave /= float( m_vCtr->size() );
+	if (sc_ave < 0.0){
+		sc_ave = 0.0;
+	}
+	m_vResult.push_back( sc_ave );
 	return &m_vResult;
 };	
 
 /******************************************************************************/
-float CMUFCO_demo::getAssessment  ( void ){
+float CSwarmGrid_demo::getAssessment  ( void ){
 	_evaluateAC();	
 	float  result;
 	switch( m_nAssType ){		
@@ -180,23 +157,14 @@ float CMUFCO_demo::getAssessment  ( void ){
 };
 
 /******************************************************************************/
-void CMUFCO_demo::_evaluateAC  ( void ){
+void CSwarmGrid_demo::_evaluateAC  ( void ){
 	m_vResult.clear();
-	switch(m_nResType){
-		case 1:
-			m_vResult.push_back( m_sFFTst.R[m_nResCmp] );
-			break;
-		case 2:
-			_calculateCF   ( );
-			break;
-		default:
-			break;
-	}
+	_calculateCF();
 	return;
 };
 
 /******************************************************************************/
-void CMUFCO_demo::_calculateCF   ( void ){	
+void CSwarmGrid_demo::_calculateCF   ( void ){	
 	// If there is enough data
 	if ( m_vTimeSignal.size() >= 525600 ){
 		// Year data
@@ -218,69 +186,77 @@ void CMUFCO_demo::_calculateCF   ( void ){
 		float   day_min   = m_vTimeSignal[0];
 		float   day_rms   = 0.0;
 		TVFloat vday_max, vday_min, vday_rms;
-		// Second year analysis
+		// Last year analysis
+		float   act_power; 
 		for ( int i = m_vTimeSignal.size() - 525600 ; i < m_vTimeSignal.size() ; i++ ){
+			// Negative power = 0
+			if ( m_vTimeSignal[i] < 0.0 ){
+				act_power = 0.0;
+			}
+			else{
+				act_power = m_vTimeSignal[i];
+			}
 			// Year
-			if ( m_vTimeSignal[i] > year_max ){
-				year_max = m_vTimeSignal[i];
+			if ( act_power > year_max ){
+				year_max = act_power;
 			}
-			if ( m_vTimeSignal[i] < year_min ){
-				year_min = m_vTimeSignal[i];
+			if ( act_power < year_min ){
+				year_min = act_power;
 			}
-			year_rms += pow( m_vTimeSignal[i] , 2 );
+			year_rms += pow( act_power , 2 );
 			// Month
 			if ( i % 43800 == 43799 ){
 				vmonth_max.push_back( month_max );
 				vmonth_min.push_back( month_min );
 				vmonth_rms.push_back( month_rms );
-				month_max = m_vTimeSignal[i];
-				month_min = m_vTimeSignal[i];
+				month_max = act_power;
+				month_min = act_power;
 				month_rms = 0.0;
 			}
 			else{
-				if ( m_vTimeSignal[i] > month_max ){
-					month_max = m_vTimeSignal[i];
+				if ( act_power > month_max ){
+					month_max = act_power;
 				}
-				if ( m_vTimeSignal[i] < month_min ){
-					month_min = m_vTimeSignal[i];
+				if ( act_power < month_min ){
+					month_min = act_power;
 				}
-				month_rms += pow( m_vTimeSignal[i] , 2 );
+				month_rms += pow( act_power , 2 );
 			}
 			// Week
 			if ( i % 10080 == 10079 ){
 				vweek_max.push_back( week_max );
 				vweek_min.push_back( week_min );
 				vweek_rms.push_back( week_rms );
-				week_max = m_vTimeSignal[i];
-				week_min = m_vTimeSignal[i];
+				week_max = act_power;
+				week_min = act_power;
 				week_rms = 0.0;
 			}
 			else{
-				if ( m_vTimeSignal[i] > week_max ){
-					week_max = m_vTimeSignal[i];
+				if ( act_power > week_max ){
+					week_max = act_power;
 				}
-				if ( m_vTimeSignal[i] < week_min ){
-					week_min = m_vTimeSignal[i];
+				if ( act_power < week_min ){
+					week_min = act_power;
 				}
-				week_rms += pow( m_vTimeSignal[i] , 2 );
+				week_rms += pow( act_power , 2 );
 			}
 			// Day
 			if ( i % 1440 == 1439 ){
 				vday_max.push_back( day_max );
 				vday_min.push_back( day_min );
 				vday_rms.push_back( day_rms );
-				day_max = m_vTimeSignal[i];
-				day_min = m_vTimeSignal[i];
+				day_max = act_power;
+				day_min = act_power;
 				day_rms = 0.0;
 			}
 			else{
-				if ( m_vTimeSignal[i] > day_max ){
-					day_max = m_vTimeSignal[i];
+				if ( act_power > day_max ){
+					day_max = act_power;
 				}
-				if ( m_vTimeSignal[i] < day_min ){
-					day_min = m_vTimeSignal[i];
+				if ( act_power < day_min ){
+					day_min = act_power;
 				}
-				day_rms += pow( m_vTimeSignal[i] , 2 );
+				day_rms += pow( act_power , 2 );
 			}
 		}
 		// Year
@@ -304,8 +280,12 @@ void CMUFCO_demo::_calculateCF   ( void ){
 		float day_par = 0.0;
 		float day_ptp = 0.0;
 		for ( int i = 0 ; i < vday_max.size() ; i++ ){
-			day_par += pow( vday_max[i]               , 1) / pow ( sqrt ( vday_rms[i] / 1440 ) , 1 );
-			
+			if ( vday_rms[i] <= 0.0 ){
+				day_par += 1.0;
+			}
+			else{
+				day_par += pow( vday_max[i] , 1) / pow ( sqrt ( vday_rms[i] / 1440 ) , 1 );
+			}			
 		}
 		m_vResult.push_back ( day_par / float(vday_max.size()));		
 	}
@@ -315,20 +295,17 @@ void CMUFCO_demo::_calculateCF   ( void ){
 
 /******************************************************************************/
 /* Execution Step */
-void CMUFCO_demo::executionStep( void ){	
+void CSwarmGrid_demo::executionStep( void ){	
 
 	/* Communication with the controllers - FFT send */
 	if ( m_pcGrid->is_FFT ( ) ){
 		TVFreqCmp* tmp_FFT     = m_pcGrid->getFreqSignal();
-		if (m_sSimCnf->nSimStep >= m_nCtrActTime ){
-			// Evaluate FFT
-			_evaluateFFT ( tmp_FFT );
-			// Send FFT and evaluation		
-			for ( int i = 0 ; i < m_vCtr->size() ; i++ ){
-				m_vCtr->at(i)->sendFFT ( tmp_FFT , &m_sFFTst );
-			}
+		// Evaluate FFT
+		_evaluateFFT ( tmp_FFT );
+		// Send FFT and evaluation		
+		for ( int i = 0 ; i < m_vCtr->size() ; i++ ){
+			m_vCtr->at(i)->sendFFT ( tmp_FFT , &m_sFFTst );
 		}
-		// Receive oscillator distribution
 		for ( int i = 0 ; i < m_vCmp.size() ; i++ )
 			m_vCmp[i] = 0.0;
 		int cmp;
@@ -337,72 +314,20 @@ void CMUFCO_demo::executionStep( void ){
 			m_vCmp[cmp]++;
 		}
 	}
-	
-	return;
-};
 
-/******************************************************************************/
-void CMUFCO_demo::_evaluateFFT ( TVFreqCmp* input ){
-	/* ORDER PARAMETER */
-	TVGridSCmp* tmp_GCmp = m_pcGrid->getSCmp();	
-	// Generate empty vectors
-	TVFloat  tmp_real, tmp_img, tmp_Gnrm;
-	TVInt    tmp_pop;
-	for ( int i = 0 ; i < m_sSimCnf->nFFTsize/2 + 1 ; i++ ){
-		tmp_real.push_back ( 0.0 );
-		tmp_img.push_back  ( 0.0 );
-		tmp_Gnrm.push_back ( 0.0 );
-		tmp_pop.push_back  ( 0 );
-	}
-	// Get non-controllable arguments
-	for ( int i = 0 ; i < tmp_GCmp->size() ; i++ ){
-		tmp_real [ tmp_GCmp->at(i).cmp ] = tmp_GCmp->at(i).amp * cos ( tmp_GCmp->at(i).arg );
-		tmp_img  [ tmp_GCmp->at(i).cmp ] = tmp_GCmp->at(i).amp * sin ( tmp_GCmp->at(i).arg );	
-		tmp_Gnrm [ tmp_GCmp->at(i).cmp ] = tmp_GCmp->at(i).amp;    
-	}						
-	// Get oscillators arguments	
-	TVFloat tmp_status;
-	for ( int i = 0 ; i < m_vCtr->size() ; i++ ){
-		tmp_status = m_vCtr->at(i)->getStatus();
-		tmp_real[ m_vCtr->at(i)->getCmp() ] += cos ( tmp_status[0] );
-		tmp_img [ m_vCtr->at(i)->getCmp() ] += sin ( tmp_status[0] );
-		tmp_pop [ m_vCtr->at(i)->getCmp() ]++;
-	}
-	// Calculate R and Phi
-	m_sFFTst.R.clear();
-	m_sFFTst.Phi.clear();
-	m_sFFTst.Nrm.clear();
-	for ( int i = 0 ; i < m_sSimCnf->nFFTsize/2 + 1 ; i++ ){
-		m_sFFTst.Nrm.push_back( float(tmp_pop[i]) + tmp_Gnrm[i] );
-		if ( m_sFFTst.Nrm.back() > 1e-3 ){ 
-			tmp_real[i] /= ( m_sFFTst.Nrm.back() );
-			tmp_img [i] /= ( m_sFFTst.Nrm.back() );
-			complex<float> tmp_complex ( tmp_real[i] , tmp_img[i] );
-			m_sFFTst.R.push_back   ( abs( tmp_complex ) );
-			m_sFFTst.Phi.push_back ( arg( tmp_complex ) );								
+	/* Activate Swarm Grid */
+	if (m_sSimCnf->nSimStep >= m_nCtrActTime ){
+		for ( int i = 0 ; i < m_vCtr->size()/2 ; i++ ){
+			m_vCtr->at(i)->flagLoadCtr ( true );
 		}
-		else{			
-			m_sFFTst.R.push_back(0.0);
-			m_sFFTst.Phi.push_back(0.0);
-		}		
+
 	}
-	/* FORM FACTOR EQUATION */
-	//m_sFFTst.FFTmax = 0.0; // ERROR MUST BE GLOBAL
-	for ( int i = m_nFCreject + 1 ; i < input->size() ; i++ ){
-		if ( input->at(i).amp > m_sFFTst.FFTmax )
-			m_sFFTst.FFTmax   = input->at(i).amp;
-	}	
-	m_sFFTst.FFTrel = 0.0;
-	for ( int i = m_nFCreject + 1 ; i < input->size() ; i++ ){
-		m_sFFTst.FFTrel +=  pow ( input->at(i).amp , 4 );
-	}	
-	m_sFFTst.FFTrel /= float( input->size() - m_nFCreject - 1 ) * pow( m_sFFTst.FFTmax  , 4 ); 
 	return;
 };
 
 /******************************************************************************/
 /* Assessment Step */
-void CMUFCO_demo::assessmentStep ( void ){
+void CSwarmGrid_demo::assessmentStep ( void ){
 
 	/* Get Info */
 	m_vTimeSignal.push_back( m_pcGrid->getPower() );
@@ -411,6 +336,7 @@ void CMUFCO_demo::assessmentStep ( void ){
 		m_vSampledSig.push_back( m_pcGrid->getPower_sampled() );
 	}
 	m_vNodeSignal.push_back( m_pcGrid->getPower_lines() );
+
 
 	/* Writter */
 	if ( m_sSimCnf->pcWriter && ( (m_sSimCnf->nSimStep % 45) == 0 ) && m_sSimCnf->nSimStep != 0 ){ 
@@ -434,20 +360,149 @@ void CMUFCO_demo::assessmentStep ( void ){
 		}	
 	}
 	}
+
+
+//	/* Writter */
+//	if ( m_sSimCnf->pcWriter && ( (m_sSimCnf->nSimStep % 60) == 0 ) && m_sSimCnf->nSimStep != 0 ){ 
+//	if ( ( m_nWend < 0 || m_sSimCnf->nSimStep < m_nWend ) && m_sSimCnf->nSimStep >= m_nWbeg ){ //262800	
+//		// Time Signal hourly average
+//		float fTS_ave   = 0.0;
+//		float fGS_ave   = 0.0;
+//		float fNS_ave   = 0.0;
+//		
+//		int   ref_ptr = m_vTimeSignal.size() - 1;
+//		for ( int i = 0 ; i < 60 ; i++ ){
+//			fTS_ave   += m_vTimeSignal.at  ( ref_ptr - i );
+//			fGS_ave   += m_vGridSig.at     ( ref_ptr - i );
+//			fNS_ave   += m_vNodeSignal.at  ( ref_ptr - i );
+//			
+//		}
+//		fTS_ave   /= 60.0;
+//		fGS_ave   /= 60.0;
+//		fNS_ave   /= 60.0;
+
+//		TVFloat tmp_vec;
+//		float pattern = 0.0;
+//		float consump = 0.0;
+//		float pv      = 0.0;		
+//		
+//		for ( int i = 0 ; i < m_vCtr->size() ; i++ ){
+//			tmp_vec = m_vCtr->at(i)->getStatus();
+//			pattern += tmp_vec[0];
+//			consump += tmp_vec[1];
+//			pv      += tmp_vec[2];
+//		}		
+
+//		m_sSimCnf->pcWriter->push_buffer( fTS_ave );
+//		m_sSimCnf->pcWriter->push_buffer( fGS_ave );
+//		m_sSimCnf->pcWriter->push_buffer( fNS_ave );
+//		m_sSimCnf->pcWriter->push_buffer( consump );
+//		m_sSimCnf->pcWriter->push_buffer( pv );
+//		m_sSimCnf->pcWriter->push_buffer( pattern );
+
+//		m_fTEne  += fTS_ave;
+//		m_fBEne  += fGS_ave;		
+//		m_fNEne  += fNS_ave;
+//		m_fLEne  += consump;
+//		m_fPVEne += pv;
+
+//		m_sSimCnf->pcWriter->push_buffer( m_fTEne  );
+//		m_sSimCnf->pcWriter->push_buffer( m_fBEne  );
+//		m_sSimCnf->pcWriter->push_buffer( m_fNEne  );
+//		m_sSimCnf->pcWriter->push_buffer( m_fLEne  );
+//		m_sSimCnf->pcWriter->push_buffer( m_fPVEne );
+//	}
+//	}
+
+
+
 	return;
 };
 
 /******************************************************************************/
-void CMUFCO_demo::setParameters  ( TVFloat input ){
+void CSwarmGrid_demo::_evaluateFFT ( TVFreqCmp* input ){
+	/* FORM FACTOR EQUATION */	
+	for ( int i = m_nFCreject + 1 ; i < input->size() ; i++ ){
+		if ( input->at(i).amp > m_sFFTst.FFTmax )
+			m_sFFTst.FFTmax   = input->at(i).amp;
+	}	
+	m_sFFTst.FFTrel = 0.0;
+	for ( int i = m_nFCreject + 1 ; i < input->size() ; i++ ){
+		m_sFFTst.FFTrel +=  pow ( input->at(i).amp , 4 );
+	}	
+	m_sFFTst.FFTrel /= float( input->size() - m_nFCreject - 1 ) * pow( m_sFFTst.FFTmax  , 4 ); 
+	return;
+};
+
+
+
+
+
+/******************************************************************************/
+void CSwarmGrid_demo::setParameters  ( TVFloat input ){
 	for (int i = 0 ; i < m_vCtr->size() ; i++ ){
 		m_vCtr->at(i)->setParameters( input );
 	}
 	return;
 };
 
+/******************************************************************************/
+void CSwarmGrid_demo::setEnvironment ( TVFloat input ){
+	/* PV sampling */
+	if ( input.size() > 0 ){
+		float tmp_power;
+		tmp_power = 240.0 * input[0];	
+		TVCLine* tmp_lines;  
+		tmp_lines = m_pcGrid->getLines();
+		TVCNode* tmp_nodes;
+		for ( int i = 0 ; i < tmp_lines->size() ; i++ ){
+			tmp_nodes = tmp_lines->at(i)->getNodes();
+			for ( int j = 0 ; j < tmp_nodes->size() ; j++ ){
+				tmp_nodes->at(j)->getPV()->setPAmp( tmp_power ); 
+			}
+		}
+	}
+	/* Battery sampling */
+	if ( input.size() > 1 ){
+		float tmp_cap;
+		tmp_cap = 50.0 * input[1];	
+		TVCLine* tmp_lines;  
+		tmp_lines = m_pcGrid->getLines();
+		TVCNode* tmp_nodes;
+		for ( int i = 0 ; i < tmp_lines->size() ; i++ ){
+			tmp_nodes = tmp_lines->at(i)->getNodes();
+			for ( int j = 0 ; j < tmp_nodes->size() ; j++ ){
+				if ( tmp_nodes->at(j)->getStorage() ){
+					tmp_nodes->at(j)->getStorage()->setCapacity( tmp_cap ); 
+				}
+			}
+		}
+	}
+	/* Percentaje of ADSM controllers per line */
+	if ( input.size() > 2 ){
+		float number_active;
+		TVCLine* tmp_lines;  
+		tmp_lines = m_pcGrid->getLines();
+		TVCNode* tmp_nodes;
+		for ( int i = 0 ; i < tmp_lines->size() ; i++ ){
+			tmp_nodes     = tmp_lines->at(i)->getNodes();
+			number_active = int ( input[2] * float ( tmp_nodes->size() ) );
+			for ( int j = 0 ; j < tmp_nodes->size() ; j++ ){
+				if ( j < number_active ){
+					tmp_nodes->at(j)->getCtr()->flagLoadCtr(true);					
+				}
+				else{
+					tmp_nodes->at(j)->getCtr()->flagLoadCtr(false);
+				}				
+			}
+		}
+	}
+	return;
+};
+
 
 /****************************************************************/
-void CMUFCO_demo::_SignalFFT ( void ){	
+void CSwarmGrid_demo::_SignalFFT ( void ){	
 	m_vFreqSignal.clear();
 	m_vFreqSignal_amp.clear();
 	sFreqCmp         tmp_freqcmp;
@@ -491,6 +546,11 @@ void CMUFCO_demo::_SignalFFT ( void ){
 	}	
 	return;
 };
+
+
+
+
+
 
 
 

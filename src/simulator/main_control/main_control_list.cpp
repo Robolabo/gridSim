@@ -42,6 +42,9 @@ CMainControl* createMC ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vCtr
 	else if ( attr == "swarmgrid" ){
 		result = new CSwarmGrid_MC ( sSimCnf , pcGrid , vCtr , cnf );
 	}
+	else if ( attr == "swarmgrid_demo" ){
+		result = new CSwarmGrid_demo ( sSimCnf , pcGrid , vCtr , cnf );
+	}
 	else{
 		cout << "ERROR: MAIN CONTROL NAME NOT RECOGNIZED "<< endl;
 	}
