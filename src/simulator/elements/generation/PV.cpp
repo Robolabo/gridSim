@@ -32,18 +32,40 @@ CPV::CPV ( sSimCnf*  sSimCnf , XMLElement* cnf , TVFloat* pv_gen , TVFloat* pv_f
 	/* General Simulator Configuration */
 	m_sSimCnf = sSimCnf;
 	/* Get input files (hourly data) */
-	m_sPwGenFile = cnf->Attribute("gen");
-	m_sPwFrcFile = cnf->Attribute("frc");
-	m_fPAmp      = atof(cnf->Attribute("power"));
-	/* Get profiles */
-	if ( pv_gen->size() == 0 ){
-		_readAll( &m_sPwGenFile , pv_gen );
+	if ( cnf->Attribute("gen") ){
+		m_sPwGenFile = cnf->Attribute("gen");
+		/* Get profile only one time */
+		if ( pv_gen->size() == 0 ){
+			_readAll( &m_sPwGenFile , pv_gen );
+		}
 	}
-	if ( pv_frc->size() == 0 ){
-		_readAll( &m_sPwFrcFile , pv_frc );
+	if ( cnf->Attribute("frc") ){
+		m_sPwFrcFile = cnf->Attribute("frc");
+		/* Get profile only one time */
+		if ( pv_frc->size() == 0 ){
+			_readAll( &m_sPwFrcFile , pv_frc );
+		}
 	}
+	if ( cnf->Attribute("type") ){
+		m_nType = atoi(cnf->Attribute("type"));
+	}
+	else{
+		m_nType = 0;
+	}
+	if ( cnf->Attribute("power") ){
+		m_fPAmp      = atof(cnf->Attribute("power"));
+	}
+	else{
+		m_fPAmp      = 0.0;
+	}
+	/* Get profiles for the node */	
 	m_vPwGen = pv_gen;
 	m_vPwFrc = pv_frc;
+	/* Create PV model if required */
+	if ( m_nType == 1 ){
+		m_pcPVmodel = new CPVmodel  ( sSimCnf , cnf );
+
+	}
 	return;
 };
 
@@ -62,7 +84,15 @@ CPV::~CPV ( void ){
 /******************************************************************************/
 /* Step execution */
 void CPV::executionStep( void ){	
-	m_fPower = m_fPAmp * m_vPwGen->at( m_sSimCnf->nSimStep % m_vPwGen->size() );
+	m_fPower = 0.0;
+	if ( m_nType == 0 ){
+		if ( m_vPwGen->size() > 0 ){
+			m_fPower = m_fPAmp * m_vPwGen->at( m_sSimCnf->nSimStep % m_vPwGen->size() );
+		}
+	}
+	else if ( m_nType == 1 ){
+		m_pcPVmodel->getPower();
+	}
 	return;
 };
 
@@ -132,6 +162,7 @@ void CPV::_readAll ( string* file_name , TVFloat* output ){
 	}
 	return;
 };
+
 
 
 

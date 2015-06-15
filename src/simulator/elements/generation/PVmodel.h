@@ -22,41 +22,30 @@
 */
 
 /******************************************************************************/
-/* LIBRARY PV								      */
-/* It is the class of the PV system	                   		      */
+/* LIBRARY PV MODEL							      */
+/* It is the class of the PV model	                   		      */
 /******************************************************************************/
-#ifndef PV_H_
-#define PV_H_
+#ifndef PVMODEL_H_
+#define PVMODEL_H_
 
 /* LIBRARIES*/
 #include "common.h"
-#include "PVmodel.h"
 
 using namespace std;
 
 /******************************************************************************/
 
-class CPV {
+class CPVmodel {
 
 	public:
 	/* FUNCTIONS */
-	CPV  ( sSimCnf*  sSimCnf , XMLElement* cnf , TVFloat* , TVFloat* );
-	~CPV ( void );	
-	
+	CPVmodel  ( sSimCnf*  sSimCnf , XMLElement* cnf );
+	~CPVmodel ( void );	
+
 	void    executionStep ( void );
 	void    restart ( void );
 
 	float    getPower       ( void ){return  m_fPower;};
-	TVFloat* getForecast    ( void ){return  m_vPwFrc;};
-	
-	float    getNextHourFrc  ( void );
-	TVFloat  getNextDayFrc   ( int  );
-	TVFloat  getNextDayNrFrc ( int  );
-	TVFloat  getRangeNrFrc   ( int , int );
-
-	float    getNPower      ( void ){return m_fPAmp;};
-
-	void     setPAmp        ( float input ){ m_fPAmp=input;};
 
 	protected:
 	/* VARIABLES */
@@ -70,22 +59,7 @@ class CPV {
 	sSimCnf*  m_sSimCnf;
 
 	/* VARIABLES */
-	float  m_fPAmp;
-	int    m_nType;
-	
-	string  m_sSourceFile;	
-	float   m_fPower;
-
-	TVFloat* m_vPwGen;
-	TVFloat* m_vPwFrc;
-
-	string  m_sPwGenFile;
-	string  m_sPwFrcFile;
-	
-	CPVmodel* m_pcPVmodel;
-
-	/* FUNCTIONS */	
-	void  _readAll ( string* , TVFloat* );	
+	float m_fPower;
 };
 
 #endif

@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<GridSim>
+	<Simulation seed="1" length="788400" sampling="90" fft_lng="16" data_folder="/home/manu/repo/simulators/gridSim/data/"/><!-- length="525600" -->
+	<Visualization active="1" rf_rate="100">
+		<scr title="Grid power"       x_lng="10000" y_ini="-200" y_end="0"/>		
+		<scr title="Grid power FFT"   x_lng="17"    y_ini="0" y_end="200"/>		
+	</Visualization>
+	<Grid file="DEMR_2013" amp="0.0"/>	
+	<Structure lines="1" > 
+		<line_1 nodes="001" type="pv_generator"/>					
+		<pv_generator>			
+			<pv type="1" gen="pv_ideal_profile" frc="pv_ideal_profile" power="150.0"/><!-- 100% = 240 -->			
+		</pv_generator>				
+	</Structure>
+	<Writer file="pv_demo" />
+	<Main_control name="default"/>
+</GridSim>

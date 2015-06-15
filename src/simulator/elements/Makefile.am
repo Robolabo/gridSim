@@ -1,6 +1,7 @@
 CPPFLAGS               = -I../../../src -I../../../src/common
 noinst_LTLIBRARIES     = libelements.la
 libelements_la_SOURCES = ../../../src/simulator/elements/generation/PV.cpp \
+			 ../../../src/simulator/elements/generation/PVmodel.cpp \
 			 ../../../src/simulator/elements/storage/lead-acid.cpp \
 			 ../../../src/simulator/elements/storage/batinverter.cpp \
 			 ../../../src/simulator/elements/storage/storage.cpp \
