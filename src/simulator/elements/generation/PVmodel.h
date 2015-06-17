@@ -130,12 +130,23 @@ class CPVmodel {
 	float m_fDirtFactor;
 	float m_fModVL;
 
+	/* Radiation */
+	float m_pfGTH; // Tilded radiation
+
 
 	/* FUNCTIONS */
 	void _ACPower( float fDCPower );
 	void _DCPower( double f_G , double f_Ta );	
 
-	void   _GlobalRadiation           ( double* pf_Gobs,datePV s_date, geoCoord s_coord, orientation sf_orientation, double f_reflectivity, double f_dirt_factor );
+	void   _GlobalRadiation           ( float fGobs , datePV s_date , geoCoord s_coord , orientation sf_orientation , double f_reflectivity , double f_dirt_factor );
+	double _Gamma			  ( int n_day );
+	double _Delta			  ( double f_gamma );
+	int    _TZDiffHour		  ( int n_day);
+	bool   _ComparisonDouble          ( double f_x , double f_y , double f_epsylon );
+	double _ChiC			  ( double f_thetaZS, double f_thetaS );
+	double _ChiH			  ( double f_thetaZS );
+	double _PsiC			  ( double f_thetaS );
+	double _PsiH			  ( double f_thetaZS );
 	double _TrueSolarOmega            ( datePV sn_date, int n_day, geoCoord sf_coord, double f_gamma );
 	double _ThetaZS                   ( double f_delta, double f_omega, double f_latitude);
 	double _ExtraAtmRad               ( double f_gamma , double f_thetaZS );
