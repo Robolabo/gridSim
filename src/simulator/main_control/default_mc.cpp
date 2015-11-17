@@ -75,7 +75,8 @@ void  CDefault_MC::assessmentStep ( void ){
 		}
 	}
 	if ( m_sSimCnf->pcWriter ){
-		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getPower() );		
+		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getPower() );
+		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getLines()->front()->getNodes()->front()->getNPower()->pv );		
 	}
 
 	/* Clean vectors */

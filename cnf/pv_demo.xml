@@ -9,7 +9,7 @@
 	<Structure lines="1" > 
 		<line_1 nodes="001" type="pv_generator"/>					
 		<pv_generator>			
-			<pv type="1" gen="pv_ideal_profile" frc="pv_ideal_profile" power="150.0"/><!-- 100% = 240 -->			
+			<pv type="0" gen="pv_ideal_profile" frc="pv_ideal_profile" power="150.0"/><!-- 100% = 240 -->			
 		</pv_generator>				
 	</Structure>
 	<Writer file="pv_demo" />

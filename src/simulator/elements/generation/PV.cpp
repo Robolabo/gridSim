@@ -46,7 +46,7 @@ CPV::CPV ( sSimCnf*  sSimCnf , XMLElement* cnf , TVFloat* pv_gen , TVFloat* pv_f
 			_readAll( &m_sPwFrcFile , pv_frc );
 		}
 	}
-	if ( cnf->Attribute("type") ){
+	if ( cnf->Attribute("type") ){ // Two available types: 0 (from file) and 1 (from model)
 		m_nType = atoi(cnf->Attribute("type"));
 	}
 	else{
