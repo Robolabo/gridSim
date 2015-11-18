@@ -52,7 +52,7 @@ CLoad::CLoad ( sSimCnf*  sSimCnf , XMLElement* cnf ){
 		attr       = cnf->Attribute("type_nd");
 		m_nType_ND = atoi( attr.c_str() );
 		if ( m_nType_ND == 1 ){
-			_read_FixedC_house ();
+			_read_FixedC_house ( cnf->Attribute("file_nd") );
 		}
 	}
 	else{
@@ -69,20 +69,23 @@ CLoad::CLoad ( sSimCnf*  sSimCnf , XMLElement* cnf ){
 };
 
 /******************************************************************************/
-void CLoad::_read_FixedC_house ( void ){
-	float fNDcomp, tmp_float;
-	ifstream cooker ( "data/def_load_profiles/cooker" );
-	ifstream fridge ( "data/def_load_profiles/fridge" );
+void CLoad::_read_FixedC_house ( string input_file ){
+	float   tmp_power, tmp_max;	
+	tmp_max = 0.0;	
+	TVFloat tmp_shape;
+	tmp_shape.clear();	
+	ifstream noDef ( input_file.c_str() );
+	while ( !noDef.eof() ){
+		noDef >> tmp_power;
+		if ( tmp_max < tmp_power ){
+			tmp_max = tmp_power;
+		}
+		tmp_shape.push_back( tmp_power );
+	}
+	m_vFixC.clear();	
+	for ( int i = 0 ; i < tmp_shape.size() ; i++ ){
+		m_vFixC.push_back( tmp_shape[i]/tmp_max );
 
-	for ( int i = 0 ; i < 1440 ; i++ ){
-		fNDcomp  = 200.0;
-		cooker >> tmp_float;
-		fNDcomp += tmp_float;
-		fridge >> tmp_float;
-		fNDcomp += tmp_float;
-		if ( ( i > 1259 ) && ( i < 1385 ) )
-			fNDcomp  += 360.0;
-		m_vFixedC.push_back( fNDcomp );
 	}
 	return;
 }
@@ -120,6 +123,7 @@ void CLoad::restart           ( void ){
 /******************************************************************************/
 /* Step execution */
 void CLoad::executionStep( void ){
+
 	m_fPower     = 0.0;	
 	m_fDefPower  = 0.0;
 	m_fNDefPower = 0.0;
@@ -157,7 +161,7 @@ void CLoad::executionStep( void ){
 			m_fNDefPower  = m_fAmp_ND;
 			break;
 		case 1:
-			m_fNDefPower  = m_fAmp_ND * m_vFixedC[ ( m_sSimCnf->nSimStep )%( m_vFixedC.size() ) ];
+			m_fNDefPower  = m_fAmp_ND * m_vFixC[ ( m_sSimCnf->nSimStep )%( m_vFixC.size() ) ];
 			break;
 		case 2:
 			m_fNDefPower  = m_fAmp_ND * m_sSimCnf->GridProfile.nr_profile[ ( m_sSimCnf->nSimStep )%( m_sSimCnf->GridProfile.dur ) ];

@@ -50,6 +50,7 @@ class CDefault_MC : public CMainControl {
 
 	TVFloat  m_vTimeSignal;
 	TVFloat  m_vSampledSig;
+	TVFloat  m_vLineSignal;	
 		
 };
 

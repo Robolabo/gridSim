@@ -59,7 +59,7 @@ class CLoad {
 	private:
 	/* Simulator stuff */
 	sSimCnf*  m_sSimCnf;
-	TVFloat   m_vFixedC;
+	TVFloat   m_vFixC;
 
 	/* Elements */
 	CAirConditioner* m_pcAir;
@@ -77,7 +77,7 @@ class CLoad {
 	int        m_nType_ND;
 
 	/* FUNCTIONS */	
-	void  _read_FixedC_house ( void );
+	void  _read_FixedC_house ( string );
 };
 
 #endif

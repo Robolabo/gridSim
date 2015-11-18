@@ -40,7 +40,7 @@ void CDefault_MC::restart  ( void ){
 		m_sSimCnf->pcPlotter->setData    ( 0 , &m_vTimeSignal                 );
 		m_sSimCnf->pcPlotter->setMarks   ( 0 , &m_vSampledSig                 );
 		m_sSimCnf->pcPlotter->setMarksSp ( 0 , m_sSimCnf->nSampling           );
-		m_sSimCnf->pcPlotter->setMarks   ( 1 , m_pcGrid->getFreqSignalAmp ( ) );		
+		m_sSimCnf->pcPlotter->setData    ( 1 , &m_vLineSignal                 );		
 	}
 	return;
 };
@@ -73,10 +73,13 @@ void  CDefault_MC::assessmentStep ( void ){
 		if ( m_pcGrid->is_Sample() ){		
 			m_vSampledSig.push_back( m_pcGrid->getPower_sampled() );
 		}
+		m_vLineSignal.push_back( m_pcGrid->getPower_lines() );
 	}
 	if ( m_sSimCnf->pcWriter ){
 		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getPower() );
-		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getLines()->front()->getNodes()->front()->getNPower()->pv );		
+		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getLines()->front()->getNodes()->front()->getNPower()->pv   );	
+		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getLines()->front()->getNodes()->front()->getNPower()->load );	
+		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getLines()->front()->getNodes()->front()->getNPower()->bat  );		
 	}
 
 	/* Clean vectors */

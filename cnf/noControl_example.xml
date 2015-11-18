@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<GridSim>
+	<Simulation seed="1" length="1051200" sampling="90" fft_lng="16" data_folder="/home/manu/repo/simulators/gridSim_svn/gridSim/data/"/><!-- length="525600" -->
+	<Visualization active="1" rf_rate="100">
+		<scr title="Grid power"       x_lng="10000" y_ini="-300" y_end="300"/>		
+
+		<scr title="Node power"       x_lng="10000" y_ini="-300" y_end="300"/>
+									-->
+	</Visualization>
+	<Grid file="DEMR_2013" amp="0.0"/><!-- file="DEMR_2013" -->
+	<Structure lines="1" > 		
+		<line_1 nodes="001" type="no_control"/>
+		<no_control>
+			<load type_nd="1" amp_nd="1000.0" file_nd="data/def_load_profiles/typical_weekend_house"/>
+			<pv   type= "0" gen="pv_ideal_profile" frc="pv_ideal_profile" power="100.0"/><!-- 100% = 240 -->	
+			<bat  cap="0.0" num_inv="1"/> <!-- 25.0 = 1 day -->	
+		</no_control>		
+	</Structure>
+	<Writer file="noControl_file" />
+	<Main_control name="default"/>
+</GridSim>
