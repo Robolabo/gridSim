@@ -45,10 +45,7 @@ class CLocal_MC : public CMainControl {
 	void  restart        ( void );		
 
 	TVFloat* getEvaluation  ( void );
-	float    getAssessment  ( void );	
-
-	void setParameters  ( TVFloat );
-	void setEnvironment ( TVFloat );
+	float    getAssessment  ( void );
 
 	private:
 	TVFloat  m_vTimeSignal;
@@ -57,11 +54,8 @@ class CLocal_MC : public CMainControl {
 	TVFloat  m_vGridSig;
 
 	int   m_nWbeg, m_nWend;
-	int   m_nAssType;
 
-	TVFloat m_vResult;
-
-
+	TVFloat m_Result;
 
 
 	/* Writer */
@@ -74,9 +68,7 @@ class CLocal_MC : public CMainControl {
 
 
 	/* FUNCTIONS */	
-	void _getInfo     ( void );
-	void _evaluateAC  ( void );
-	void _calculateCF ( void );
+	void _getInfo ( void );
 	
 		
 };

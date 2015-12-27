@@ -82,11 +82,13 @@ void CPlotter::setYrange ( int ptr , int y_ini , int y_end , string ycaption ){
 void CPlotter::updateDisplay ( void ){
 	if (  m_nStep >= m_nRefresh ){
 		for ( int i = 0 ; i < vDisplay.size() ; i++ ){
-			if ( vDisplay[i].function != NULL && vDisplay[i].function->size() >  vDisplay[i].xrange )
+			if ( vDisplay[i].function != NULL && vDisplay[i].function->size() >  vDisplay[i].xrange ){
 				_replotX( i );
-			else if ( vDisplay[i].v_marks != NULL && vDisplay[i].xrange < vDisplay[i].v_marks_sp * vDisplay[i].v_marks->size() )				
+			}
+			else if ( vDisplay[i].v_marks != NULL && vDisplay[i].xrange < vDisplay[i].v_marks_sp * vDisplay[i].v_marks->size() ){				
 				_replotX( i );
-			_updateDisplay ( i );				
+			}
+			_updateDisplay ( i );		
 		}
 		m_nStep = 0;
 	}
@@ -198,7 +200,6 @@ void CPlotter::_updateDisplay ( int ptr ){
 		vDisplay[ptr].old_width  = width; 
 		vDisplay[ptr].old_height = height;
 	}
-
 	if ( width <= 50 )
 		subwidth = 0;
 	else
@@ -207,13 +208,10 @@ void CPlotter::_updateDisplay ( int ptr ){
 		subheight = 0;
 	else
 		subheight = height - 50;
-
 	subvisu.assign ( subwidth , subheight , 1, 3, 255);
-
 	float fScale = float( vDisplay[ptr].y_end - vDisplay[ptr].y_ini );
 	float fStepW;
 	int   x0, x1, y0, y1;
-
 	/* Level 0 */
 	if ( vDisplay[ptr].y_ini < 0 ){
 		x0 = 0;
@@ -222,7 +220,6 @@ void CPlotter::_updateDisplay ( int ptr ){
 		y1 = y0;
 		subvisu.draw_line( x0 , y0 , x1 , y1 , cimg_red);
 	}
-
 	if (vDisplay[ptr].function != NULL){	
 		fStepW = float( subwidth )/float( vDisplay[ptr].xrange );		
 		ini = int( vDisplay[ptr].function->size() ) - ( vDisplay[ptr].xrange + 1 );
@@ -232,15 +229,14 @@ void CPlotter::_updateDisplay ( int ptr ){
 		for (int j = 0 ; j < (fin - ini - 1) ; j++){	
 			x0 = j  * fStepW;						
 			x1 = x0 + fStepW;
-			y0 = subheight * (( 1.0 - ( (*(vDisplay[ptr].function))[ini + j    ] - vDisplay[ptr].y_ini)/ fScale ));
-			y1 = subheight * (( 1.0 - ( (*(vDisplay[ptr].function))[ini + j + 1] - vDisplay[ptr].y_ini)/ fScale ));
+			y0 = subheight * (( 1.0 - ( vDisplay[ptr].function->at(ini + j    ) - vDisplay[ptr].y_ini)/ fScale ));
+			y1 = subheight * (( 1.0 - ( vDisplay[ptr].function->at(ini + j + 1) - vDisplay[ptr].y_ini)/ fScale ));
 			subvisu.draw_line( x0 , y0 , x1 , y1 , cimg_blue);
-			if ( vDisplay[ptr].v_marks != NULL && (ini + j)%vDisplay[ptr].v_marks_sp == 0 ){	
+			if ( vDisplay[ptr].v_marks != NULL && vDisplay[ptr].v_marks->size() > 0 && (ini + j)%vDisplay[ptr].v_marks_sp == 0 ){
 				y0 = subheight * (( 1.0 - ( - vDisplay[ptr].y_ini)/ fScale ));
-				y1 = subheight * (( 1.0 - ( (*(vDisplay[ptr].v_marks))[ (ini + j)/vDisplay[ptr].v_marks_sp ] - vDisplay[ptr].y_ini)/ fScale ));
+				y1 = subheight * (( 1.0 - (   vDisplay[ptr].v_marks->at( (ini + j)/vDisplay[ptr].v_marks_sp ) - vDisplay[ptr].y_ini)/ fScale ));
 				subvisu.draw_line( x0 , y0 , x0 , y1 , cimg_green);			
 			}
-														
 		}
 	}
 	else if ( vDisplay[ptr].v_marks != NULL ){
@@ -252,13 +248,15 @@ void CPlotter::_updateDisplay ( int ptr ){
 		for (int j = 0 ; j < (fin - ini - 1) ; j++){
 			x0 = j  * fStepW;
 			y0 = subheight * (( 1.0 - ( - vDisplay[ptr].y_ini)/ fScale ));
-			y1 = subheight * (( 1.0 - ( (*(vDisplay[ptr].v_marks))[ ini + j ] - vDisplay[ptr].y_ini)/ fScale ));		
+			y1 = subheight * (( 1.0 - (   vDisplay[ptr].v_marks->at( ini + j ) - vDisplay[ptr].y_ini)/ fScale ));		
 			subvisu.draw_line( x0 , y0 , x0 , y1 , cimg_blue);
 		}
 	}
-	
 	vDisplay[ptr].picture.draw_image ( 50 , 0              , 0, 0, subvisu, 1 );
 	vDisplay[ptr].screen->display    ( vDisplay[ptr].picture );
-
 	return;
 };
+
+
+
+
