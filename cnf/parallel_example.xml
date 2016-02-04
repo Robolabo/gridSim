@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<parallelConf>
+	<output file="/home/manu/repo/simulators/gridSim/parallel_test" />
+	<exp_conf file="/home/manu/repo/simulators/gridSim/cnf/pv_demo.xml" />        
+	<seed number="1" />	
+	<result length="1"/>	
+	<env length="10"  offset="0.0" step="0.1"/>	
+</parallelConf>

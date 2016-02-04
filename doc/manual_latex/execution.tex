@@ -3,6 +3,7 @@
 
 {\it GridSim} is executed by using its executable file {\bf gridSim}.
 The execution requires a configuration file to configure the experiment that you want to simulate.
+The content of this file is explained in Section~\ref{exe:single_cnf}.
 It is launch through:
 \begin{lstlisting}[language=bash]
   $ ./gridSim -p <CONFIGURATION_FILE>
@@ -10,14 +11,33 @@ It is launch through:
 \noindent
 The simulator is launched during the stipulated time.
 
+
+%
+%************************************************************************************************************
+\section{Parallel launcher}
+
+The parallel launcher of GridSim is based on MPI.
+The parallel executin must be configured with an independent file.
+The content of this file is explained in Section~\ref{exe:parallel_cnf}.
+It is launch through:
+\begin{lstlisting}[language=bash]
+  $ mpirun -np <N_PROCESS> ./gridSim_parallel 
+           -p <PARALLEL_sCONFIGURATION_FILE>
+\end{lstlisting}
+where $<N\_PROCESS>$ is the number of process launched in parallel.
+Notice that the parallel execution requires a master process which does not calculate nothing, it is only a job dealer.
+Therefore, $<N\_PROCESS>$ should be at least $2$, one master dealing job and a slave simulating.
+
 %
 %************************************************************************************************************
 \section{Experiment configuration}
+\label{exe:single_cnf}
 
 
-
-
-
+%
+%************************************************************************************************************
+\section{Parallel experiment configuration}
+\label{exe:parallel_cnf}
 
 
 

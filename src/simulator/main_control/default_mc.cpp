@@ -42,6 +42,9 @@ void CDefault_MC::restart  ( void ){
 		m_sSimCnf->pcPlotter->setMarksSp ( 0 , m_sSimCnf->nSampling           );
 		m_sSimCnf->pcPlotter->setData    ( 1 , &m_vLineSignal                 );		
 	}
+	/* Restart variables */
+	m_fPVenergy = 0.0;
+
 	return;
 };
 
@@ -54,7 +57,9 @@ CDefault_MC::~CDefault_MC ( void ){
 
 /******************************************************************************/
 TVFloat* CDefault_MC::getEvaluation  ( void ){	
-	return NULL;
+	m_vEvaluation.clear();
+	m_vEvaluation.push_back( m_fPVenergy );
+	return &m_vEvaluation;
 };	
 
 /******************************************************************************/
@@ -66,8 +71,8 @@ void CDefault_MC::executionStep( void ){
 
 /******************************************************************************/
 /* Assessment Step */
-void  CDefault_MC::assessmentStep ( void ){
-
+void CDefault_MC::assessmentStep ( void ){
+	/* Store info for plotter */
 	if ( m_sSimCnf->pcPlotter ){
 		m_vTimeSignal.push_back( m_pcGrid->getPower() );
 		if ( m_pcGrid->is_Sample() ){		
@@ -75,25 +80,37 @@ void  CDefault_MC::assessmentStep ( void ){
 		}
 		m_vLineSignal.push_back( m_pcGrid->getPower_lines() );
 	}
+	/* Fill writer buffer */
 	if ( m_sSimCnf->pcWriter ){
 		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getPower() );
 		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getLines()->front()->getNodes()->front()->getNPower()->pv   );	
 		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getLines()->front()->getNodes()->front()->getNPower()->load );	
 		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getLines()->front()->getNodes()->front()->getNPower()->bat  );		
 	}
+	/* Store PV energy information */
+	m_fPVenergy += m_pcGrid->getLines()->front()->getNodes()->front()->getNPower()->pv / 60.0;
 
-	/* Clean vectors */
-	/*
-	if ( m_vTimeSignal.size() > 10000 + m_sSimCnf->nSampling ){
-		for ( int i = 0 ; i < m_sSimCnf->nSampling ; i++ )
-			m_vTimeSignal.erase( m_vTimeSignal.begin() + i );
-		m_vSampledSig.erase( m_vSampledSig.begin() );		
-	}
-	*/
 	return;
 };
 
-
+/******************************************************************************/
+void CDefault_MC::setEnvironment ( TVFloat input ){
+	/* PV sampling */
+	if ( input.size() > 0 ){
+		float tmp_power;
+		tmp_power = 240.0 * input[0];	// 240W is the maximum generation
+		TVCLine* tmp_lines;  
+		tmp_lines = m_pcGrid->getLines();
+		TVCNode* tmp_nodes;
+		for ( int i = 0 ; i < tmp_lines->size() ; i++ ){
+			tmp_nodes = tmp_lines->at(i)->getNodes();
+			for ( int j = 0 ; j < tmp_nodes->size() ; j++ ){
+				tmp_nodes->at(j)->getPV()->setPAmp( tmp_power ); 
+			}
+		}
+	}
+	return;
+};
 
 
 

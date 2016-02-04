@@ -45,12 +45,17 @@ class CDefault_MC : public CMainControl {
 	void  restart        ( void );		
 
 	TVFloat* getEvaluation  ( void );
+	void     setEnvironment ( TVFloat );
 
 	private:
+
+	float    m_fPVenergy;
 
 	TVFloat  m_vTimeSignal;
 	TVFloat  m_vSampledSig;
 	TVFloat  m_vLineSignal;	
+
+	TVFloat  m_vEvaluation;
 		
 };
 
