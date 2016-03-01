@@ -33,11 +33,246 @@ Therefore, $<N\_PROCESS>$ should be at least $2$, one master dealing job and a s
 \section{Experiment configuration}
 \label{exe:single_cnf}
 
+%
+The experiments are configured by using the xml configurations files.
+These files have the following main structure:
+%
+\begin{code}
+<?xml version="1.0"?>
+<GridSim>
+	<Simulation 
+		seed="SED_NUMBER" 
+		length="LENGTH" 
+		sampling="SMP_PERIOD" 
+		fft_lng="FFT_LENFGTH" 
+		data_folder="DATA_FOLDER"
+	/>
+	<Visualization 
+		active="FLAG_ACTIVE" 
+		rf_rate="RF_RATE" >
+		WINDOWS_DEF			
+		...									
+	</Visualization>
+	<Grid 
+		file="GRID_PROFILE" 
+		amp="GRID_AMP"
+	/>
+	<Structure> 
+		STRUCTURE_DEF
+	</Structure>
+	<Writer file="OUTPUT_FILE" />
+	<Main_control name="MAIN_CONTROLLER" />
+</GridSim>
+\end{code} 
+
+%
+Table~\ref{tab:exp_conf} shows the definition of the configurable parameters previously defined. 
+%
+\begin{table}[h]
+	\begin{center}	
+	\begin{tabular}{|m{3.5cm}|m{10cm}|m{1cm}|} \hline		
+		{\bf Name} 	& {\bf Description} 					   & {\bf Data type} 	\\ \hline
+		SED\_NUMBER	& The initial random number seed 			   & int		\\ \hline
+		LENGTH		& Duration of experiment in real world in minutes	   & int		\\ \hline
+		SMP\_PERIOD	& Sampled period for DFT				   & int		\\ \hline
+		FFT\_LENFGTH	& DFT window length					   & int		\\ \hline
+		DATA\_FOLDER	& Data folder address					   & string		\\ \hline
+		FLAG\_ACTIVE	& $0$ deactivate visualization; $1$ activate visualization & bool		\\ \hline
+		RF\_RATE	& Refresh rate for visualization			   & int		\\ \hline
+		WINDOWS\_DEF    & Definition of windows (see Section~\ref{exe:visu_def})   &			\\ \hline
+		GRID\_PROFILE	& Base consumption profile file name			   & string		\\ \hline
+		GRID\_AMP	& Amplitude of the base consumption			   & float		\\ \hline
+		STRUCTURE\_DEF	& Definition of structure (see Section~\ref{exe:str_def})  & 			\\ \hline
+		OUTPUT\_FILE	& Output file name					   & string		\\ \hline
+		MAIN\_CTR	& Main controller name					   & string		\\ \hline	
+	\end{tabular}
+	\caption{Experiment configuration parameters.}
+	\label{tab:exp_conf}
+	\end{center}
+\end{table}
+
+
+%
+%************************************************************************************************************
+\subsection{Visualization definition}
+\label{exe:visu_def}
+
+%
+The windows for visualization are defined with the following structure in the xml file:
+%
+\begin{code}
+	<scr 
+		title="TITLE"  
+		x_lng="X_LENGTH" 
+		y_ini="Y_INI" 
+		y_end="Y_END"
+	/>	
+\end{code}
+
+%
+Table~\ref{tab:windows_conf} shows the definition of the configurable parameters previously defined. 
+%
+\begin{table}[h]
+	\begin{center}	
+	\begin{tabular}{|m{3.5cm}|m{10cm}|m{1cm}|} \hline		
+		{\bf Name} 	& {\bf Description} 			   & {\bf Data type} 	\\ \hline
+		TITLE		& Title of the window			   & string		\\ \hline
+		X\_LENGTH	& Length of the x-axis in samples	   & int		\\ \hline
+		Y\_INI		& Initial y-axis value	                   & int		\\ \hline
+		Y\_END		& Final y-axis value    		   & int		\\ \hline	
+	\end{tabular}
+	\caption{Window configuration parameters.}
+	\label{tab:windows_conf}
+	\end{center}
+\end{table}
+
+%
+%************************************************************************************************************
+\subsection{Structure definition}
+\label{exe:str_def}
+
+%
+The structure of the simulated grid is defined with the following structure in the xml file:
+%
+\begin{code}
+	<Structure lines="LINES_NUMBER" > 
+		<line_X nodes="NODES_NUMBER" type="NODE_NAME"/>	
+		...		
+		<NODE_NAME>
+			ELEMENTS								
+		</NODE_NAME>
+	</Structure>	
+\end{code}
+
+%
+Table~\ref{tab:structure_conf} shows the definition of the configurable parameters previously defined. 
+%
+\begin{table}[h]
+	\begin{center}	
+	\begin{tabular}{|m{3.5cm}|m{10cm}|m{1cm}|} \hline		
+		{\bf Name} 	& {\bf Description} 			   & {\bf Data type} 	\\ \hline
+		LINES\_NUMBER	& Number of lines			   & int		\\ \hline
+		line\_X  	& Definition of line X			   & int		\\ \hline
+		NODES\_NUMBER	& Number on nodes                   	   & int		\\ \hline
+		NODE\_NAME	& Definition of the nodes of the line      & string		\\ \hline
+		ELEMENTS	& Elements in the node (explained below)   & 			\\ \hline	
+	\end{tabular}
+	\caption{Structure configuration parameters.}
+	\label{tab:structure_conf}
+	\end{center}
+\end{table}
+
+The structure of the simulated node is defined with the following structure in the xml file:
+%
+\begin{code}
+	<NODE_NAME>
+		<load 
+			type_nd = "ND_TYPE" 
+			amp_nd  = "ND_AMP" 
+			file_nd = "ND_FILE" 
+		/>
+		<pv   
+			type  = "PV_TYPE" 
+			gen   = "PV_PROFILE" 
+			frc   = "PV_FR_PROFILE" 
+			power = "PV_AMP"
+		/>
+		<bat  
+			cap     = "CAP" 
+			num_inv = "NUM_INV"
+		/>
+		<ctr  
+			name="CTR_NAME" 
+			CTR_CONF			
+		/>									
+	</NODE_NAME>
+\end{code}
+
+%
+Table~\ref{tab:node_conf} shows the definition of the configurable parameters previously defined. 
+%
+\begin{table}[h]
+	\begin{center}	
+	\begin{tabular}{|m{3.5cm}|m{10cm}|m{1cm}|} \hline		
+		{\bf Name} 	& {\bf Description} 			   		        & {\bf Data type} 	\\ \hline
+		ND\_TYPE	& No deferrable consumption type (see Table~\ref{tab:ND_conf})	& int		 	\\ \hline
+		ND\_AMP		& No deferrable consumption amplitude	   			& float			\\ \hline
+		ND\_FILE	& No deferrable consumption file	   			& string		\\ \hline
+		PV\_TYPE	& PV type (see Table~\ref{tab:PV_conf})	   			& int			\\ \hline
+		PV\_PROFILE	& PV profile file			   			& string		\\ \hline
+		PV\_FR\_PROFILE	& PV forecast file			   			& string		\\ \hline
+		PV\_AMP		& PV inverter nominal power		   			& float			\\ \hline
+		CAP		& Storage system capacity		   			& float			\\ \hline
+		NUM\_INV	& Storage system number of inverters	   			& int			\\ \hline
+		CTR\_NAME	& Node controller name			   			& string		\\ \hline
+		CTR\_CONF	& Configuration of the node controller     			& 			\\ \hline	
+	\end{tabular}
+	\caption{Node configuration parameters.}
+	\label{tab:node_conf}
+	\end{center}
+\end{table}
+
+%
+Table~\ref{tab:ND_conf} shows the different types of no deferrable consumption. 
+%
+\begin{table}[h]
+	\begin{center}	
+	\begin{tabular}{|m{3.5cm}|m{12cm}|} \hline		
+		{\bf Number} 	& {\bf Description} 			   	        	\\ \hline
+		0		& Constant consumption; ND\_AMP indicates its amplitude	  	\\ \hline
+		1		& Consumption defined by a file; ND\_FILE indicates the address	\\ \hline
+		2		& Consumption defined by the base consumption profile		\\ \hline	
+	\end{tabular}
+	\caption{No deferrable types.}
+	\label{tab:ND_conf}
+	\end{center}
+\end{table}
+
+%
+Table~\ref{tab:PV_conf} shows the different types of PV generation. 
+%
+\begin{table}[h]
+	\begin{center}	
+	\begin{tabular}{|m{3.5cm}|m{12cm}|} \hline		
+		{\bf Number} 	& {\bf Description} 			   	        	\\ \hline
+		0		& PV profile defined by file; PV\_PROFILE indicates the adress	\\ \hline
+		1		& PV profile generated by internal model			\\ \hline	
+	\end{tabular}
+	\caption{No deferrable types.}
+	\label{tab:PV_conf}
+	\end{center}
+\end{table}
 
 %
 %************************************************************************************************************
 \section{Parallel experiment configuration}
 \label{exe:parallel_cnf}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
