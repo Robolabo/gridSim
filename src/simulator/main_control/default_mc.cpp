@@ -83,6 +83,7 @@ void CDefault_MC::assessmentStep ( void ){
 	/* Fill writer buffer */
 	if ( m_sSimCnf->pcWriter ){
 		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getPower() );
+		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getLines()->front()->getNodes()->front()->getNPower()->grid );
 		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getLines()->front()->getNodes()->front()->getNPower()->pv   );	
 		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getLines()->front()->getNodes()->front()->getNPower()->load );	
 		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getLines()->front()->getNodes()->front()->getNPower()->bat  );		
