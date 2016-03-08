@@ -86,7 +86,14 @@ void CDefault_MC::assessmentStep ( void ){
 		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getLines()->front()->getNodes()->front()->getNPower()->grid );
 		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getLines()->front()->getNodes()->front()->getNPower()->pv   );	
 		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getLines()->front()->getNodes()->front()->getNPower()->load );	
-		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getLines()->front()->getNodes()->front()->getNPower()->bat  );		
+		m_sSimCnf->pcWriter->push_buffer( m_pcGrid->getLines()->front()->getNodes()->front()->getNPower()->bat  );
+		CStorage* tmp_storage = m_pcGrid->getLines()->front()->getNodes()->front()->getStorage();
+		if ( tmp_storage ){
+			m_sSimCnf->pcWriter->push_buffer(  tmp_storage->getSoC() );	
+		}
+		else{
+			m_sSimCnf->pcWriter->push_buffer( 0.0 );	
+		}	
 	}
 	/* Store PV energy information */
 	m_fPVenergy += m_pcGrid->getLines()->front()->getNodes()->front()->getNPower()->pv / 60.0;
