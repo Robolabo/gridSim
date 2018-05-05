@@ -27,6 +27,7 @@
 #include "user.h"
 
 /******************************************************************************/
+
 /* CONSTRUCTOR */
 CUser::CUser ( sSimCnf*  sSimCnf , CNode* pcNode , XMLElement* cnf ){
 	/* Simulator stuff */	

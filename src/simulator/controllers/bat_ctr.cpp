@@ -27,6 +27,7 @@
 #include "bat_ctr.h"
 
 /******************************************************************************/
+
 /* CONSTRUCTOR */
 CBatCtr::CBatCtr ( sSimCnf*  sSimCnf , XMLElement* cnf , CNode* pcNode ) : CController::CController ( sSimCnf , pcNode ) {	
 	m_bOverDC = true;

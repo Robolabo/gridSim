@@ -27,6 +27,7 @@
 #include "swarmgrid_ctr.h"
 
 /******************************************************************************/
+
 /* CONSTRUCTOR */
 CSwarmGridCtr::CSwarmGridCtr ( sSimCnf*  sSimCnf , XMLElement* cnf , CNode* pcNode ) : CController::CController ( sSimCnf , pcNode ) {	
 	string attr;

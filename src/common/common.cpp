@@ -23,6 +23,7 @@
 
 #include "common.h"
 
+
 /******************************************************************************/
 /* CONSTRUCTOR */
 CWriter::CWriter ( XMLElement* cnf ){

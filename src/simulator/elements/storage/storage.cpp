@@ -27,6 +27,7 @@
 #include "storage.h"
 
 /******************************************************************************/
+
 /* CONSTRUCTOR */
 CStorage::CStorage ( sSimCnf*  sSimCnf , XMLElement* cnf ){
 	string attr;

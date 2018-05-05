@@ -24,6 +24,7 @@
 #include "airconditioner.h"
 
 /******************************************************************************/
+
 /* CONSTRUCTOR */
 CAirConditioner::CAirConditioner ( sSimCnf*  sSimCnf , XMLElement* cnf ) {
 	m_sSimCnf = sSimCnf;

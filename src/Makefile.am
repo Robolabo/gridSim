@@ -4,3 +4,4 @@ bin_PROGRAMS    = gridSim
 gridSim_SOURCES = ../src/main.cpp
 gridSim_LDADD   = -Lsimulator -lsimulator
 gridSim_LDFLAGS = -static
+

@@ -1,5 +1,6 @@
 AC_PREREQ([2.63])
 
+
 AC_INIT([gridSim],[0.0.0])
 AM_INIT_AUTOMAKE(gridSim, 0.0.0)
 AC_CONFIG_HEADERS([config.h])

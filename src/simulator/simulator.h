@@ -30,6 +30,7 @@
 class CSimulator;
 
 /****************************************************************/
+
 /* LIBRARIES */
 #include "common.h"
 #include "plotter.h"

@@ -27,6 +27,7 @@
 #include "controller.h"
 
 /******************************************************************************/
+
 /* CONSTRUCTOR */
 CController::CController ( sSimCnf*  sSimCnf , CNode* pcNode ){
 	m_sSimCnf = sSimCnf;
