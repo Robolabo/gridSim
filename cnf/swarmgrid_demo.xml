@@ -5,7 +5,8 @@
 		<scr title="Grid power"       x_lng="10000" y_ini="0" y_end="50000"/>		
 		<scr title="Grid power FFT"   x_lng="17"     y_ini="0" y_end="10000"/>	
 		<scr title="Node power"       x_lng="10000" y_ini="0" y_end="50000"/>
-		<scr title="Grid power CMP"   x_lng="17"     y_ini="0" y_end="500"/>									
+    <scr title="Grid power CMP"   x_lng="17"     y_ini="0" y_end="500"/>								
+
 	</Visualization>
 	<Grid file="DEMR_2013" amp="0.0"/>	
 	<Structure lines="2" > 
