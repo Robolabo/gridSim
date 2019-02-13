@@ -1,5 +1,6 @@
 #!/bin/bash
 
+
 #Create folders if needed
 if [ ! -d build ]; then
   mkdir build

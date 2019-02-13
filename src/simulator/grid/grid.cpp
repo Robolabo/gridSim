@@ -209,10 +209,3 @@ void CGrid::_SignalFFT ( void ){
 	}	
 	return;
 };
-
-
-
-
-
-
-

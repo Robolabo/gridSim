@@ -50,3 +50,8 @@ CMainControl* createMC ( sSimCnf*  sSimCnf , CGrid* pcGrid , TVCController* vCtr
 	}
 	return result;
 };
+
+
+
+
+

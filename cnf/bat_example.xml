@@ -18,3 +18,4 @@
 	<Writer file="bat_example_file" />
 	<Main_control name="default" />
 </GridSim>
+

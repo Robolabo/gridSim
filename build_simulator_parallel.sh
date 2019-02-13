@@ -1,5 +1,6 @@
 #!/bin/bash
 
+
 ./build_simulator.sh
 
 cd build

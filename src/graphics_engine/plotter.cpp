@@ -256,7 +256,3 @@ void CPlotter::_updateDisplay ( int ptr ){
 	vDisplay[ptr].screen->display    ( vDisplay[ptr].picture );
 	return;
 };
-
-
-
-

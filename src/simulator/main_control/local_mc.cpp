@@ -276,13 +276,3 @@ TVFloat* CLocal_MC::getEvaluation  ( void ){
 	}	
 	return  &m_Result;
 };
-
-
-
-
-
-
-
-
-
-

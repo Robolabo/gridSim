@@ -166,21 +166,3 @@ void CUser::executionStep ( void ){
 		tmp_dload->setLoadID    ( 10 * m_sSimCnf->nSimStep + 3 );
 		m_pcNode->getLoad()->setDefLoad( tmp_dload );	
 		*/
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

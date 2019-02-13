@@ -81,7 +81,3 @@ class CSwarmGrid_MC : public CMainControl {
 };
 
 #endif
-
-
-
-

@@ -66,3 +66,8 @@ void CLine::executionStep ( void ){
 		m_fPower += m_vNodes[i]->getNPower()->grid;
 	return;
 };
+
+
+
+
+

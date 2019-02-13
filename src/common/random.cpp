@@ -26,6 +26,8 @@
 /******************************************************************************/
 #include "random.h"
 
+
+
 /* tabulated values for the heigt of the Ziggurat levels */
 const double CRandom::ytab[128] = {
   1, 0.963598623011, 0.936280813353, 0.913041104253,

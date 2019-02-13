@@ -1,4 +1,5 @@
 <?xml version="1.0"?>
+
 <parallelConf>
 	<output file="/home/manu/repo/simulators/gridSim/parallel_test" />
 	<exp_conf file="/home/manu/repo/simulators/gridSim/cnf/pv_demo.xml" />        

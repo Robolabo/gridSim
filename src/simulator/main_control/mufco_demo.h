@@ -86,7 +86,3 @@ class CMUFCO_demo : public CMainControl {
 };
 
 #endif
-
-
-
-

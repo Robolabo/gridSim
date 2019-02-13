@@ -44,3 +44,5 @@ class CFFT {
 	void _iteration ( int N, int offset, int delta, double (*x)[2], double (*X)[2], double (*XX)[2] );
 };
 #endif
+
+
